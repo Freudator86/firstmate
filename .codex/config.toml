@@ -1,0 +1,5 @@
+# Codex FirstMate background profile.
+# Not YOLO: workspace sandbox stays active; blocked boundary work escalates on request.
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
