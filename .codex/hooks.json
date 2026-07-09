@@ -17,7 +17,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -lc 'command -v graphify >/dev/null 2>&1 || exit 0; graphify hook-check'"
+            "command": "bash -lc 'command -v graphify >/dev/null 2>&1 || exit 0; graphify hook-check'",
+            "timeout": 10
           }
         ]
       }
