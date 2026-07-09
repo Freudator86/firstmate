@@ -76,6 +76,19 @@ That evidence policy is specific to the firstmate repo: target projects may legi
 That command requires `tmux` on `PATH`, prints `tmux -V`, runs every `tests/*.test.sh` with `bash`, and fails if any script exits non-zero.
 It intentionally mirrors the behavior-test baseline in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) instead of delegating the test step to an agent.
 
+## Codex profile and Graphify hooks (.codex/)
+
+The tracked `.codex/config.toml` is the repo-local Codex Firstmate profile.
+It sets `sandbox_mode = "workspace-write"`, `approval_policy = "on-request"`, and `approvals_reviewer = "auto_review"` so Codex keeps a workspace sandbox, escalates blocked boundary work, and uses auto review for approval decisions.
+
+The tracked `.codex/hooks.json` has two project hooks.
+Its `Stop` hook is the Codex integration for `bin/fm-turnend-guard.sh`; see [`docs/turnend-guard.md`](turnend-guard.md) for the full primary turn-end supervision contract.
+Its `PreToolUse` Bash hook is a fail-open Graphify integration: if `graphify` is not on `PATH`, the hook exits successfully; otherwise it runs `graphify hook-check` with a ten-second timeout.
+The hook is intentionally portable and bounded so Codex tool use is not blocked by a missing Graphify install or a slow hook.
+
+`graphify-out/` is local, generated Graphify state and stays gitignored.
+Dirty files under `graphify-out/` are expected after hooks or incremental updates and are not a reason to skip Graphify-assisted navigation when `graphify-out/graph.json` exists.
+
 ## Captain preferences (data/captain.md)
 
 Personal preferences for one captain's fleet live locally in `data/captain.md`; it is gitignored and printed in the session-start context digest after `data/projects.md` and optional `data/secondmates.md`.
@@ -119,6 +132,7 @@ claude, codex, opencode, pi, and grok are all empirically verified; new harnesse
 The verified adapter knowledge - busy signatures, interrupt and exit commands, skill-invocation syntax, and per-harness quirks - lives in [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
 Launch mechanics, including the verified command templates, live in [`bin/fm-spawn.sh`](../bin/fm-spawn.sh).
 Primary-session turn-end guard integrations for verified harnesses are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
+The Codex repo-local profile and Graphify PreToolUse hook are documented above because they are Codex configuration, not harness launch mechanics.
 Primary-session watcher wake protocols are rendered at session start by [`bin/fm-supervision-instructions.sh`](../bin/fm-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
 Claude and Grok use background-notify cycles, Codex uses bounded foreground checkpoints, Pi uses its generated primary watcher extension, and OpenCode uses its TUI plugin.
 `config/crew-harness` is a local, gitignored file containing one adapter name for crewmate and scout launches.
@@ -155,6 +169,7 @@ Secondmate homes inherit this file from the primary, so a secondmate's own crewm
 ## Toolchain
 
 On session start the first mate detects what its required toolchain is missing or too old (tmux, node, gh, treehouse with durable lease support, no-mistakes v1.31.2 or newer, gh-axi, chrome-devtools-axi, lavish-axi, tasks-axi 0.1.1 or newer with `update --archive-body`, and quota-axi), lists it with the exact install commands, and installs only after you say go.
+Graphify is optional: Codex's PreToolUse hook fails open when `graphify` is absent, so bootstrap does not report it as a required install.
 When bootstrap resolves `backend=orca` from `FM_BACKEND` or `config/backend`, it requires `orca`, keeps the universal `node` requirement, and skips `tmux` and `treehouse`.
 When `config/crew-dispatch.json` exists, bootstrap also requires `jq` for dispatch profile validation.
 When X mode is opted in, bootstrap also requires `curl` and `jq` before arming the relay poll shim.

@@ -2,7 +2,7 @@
 
 This is the authoritative contract for the "no turn ends blind" primary guard referenced from AGENTS.md section 8.
 The shared predicate lives in `bin/fm-turnend-guard.sh`.
-Harness-specific tracked hook files only adapt each verified harness's real turn-end mechanism to that shared predicate.
+The turn-end entries in harness-specific tracked hook files adapt each verified harness's real turn-end mechanism to that shared predicate.
 
 ## Gap Closed
 
