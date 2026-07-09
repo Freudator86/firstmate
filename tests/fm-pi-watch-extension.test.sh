@@ -93,7 +93,6 @@ SH
   FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" "$GEN" >/dev/null
   out=$(PLUGIN="$home/state/fm-primary-pi-watch.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
 import { writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 
 let handler = null;
 let prompt = "";
@@ -108,7 +107,24 @@ const pi = {
   },
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
-const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+let source = await import("node:fs").then(({ readFileSync }) => readFileSync(process.env.PLUGIN, "utf8"));
+source = source
+  .replace(/type ArmResult = \{[\s\S]*?\};\n\n/, "")
+  .replace(/type LockOwnership = [^\n]+\n\n/, "")
+  .replace(/export default function \(pi: any\)/, "export default function (pi)")
+  .replace(/let child: any = null;/, "let child = null;")
+  .replace(/function parentPid\(pid: string\): string/, "function parentPid(pid)")
+  .replace(/function pidAlive\(pid: string\): boolean/, "function pidAlive(pid)")
+  .replace(/function lockOwnership\(\): LockOwnership/, "function lockOwnership()")
+  .replace(/function sessionOwnsLock\(\): boolean/, "function sessionOwnsLock()")
+  .replace(/async function sendWake\(message: string\)/, "async function sendWake(message)")
+  .replace(/function actionableLine\(output: string\): string/, "function actionableLine(output)")
+  .replace(/function failureLine\(stdout: string, stderr: string, code: number \| null\): string/, "function failureLine(stdout, stderr, code)")
+  .replace(/function startArm\(\): ArmResult/, "function startArm()")
+  .replace(/\(chunk: Buffer\)/g, "(chunk)")
+  .replace(/\(code: number \| null\)/g, "(code)")
+  .replace(/\(error: Error\)/g, "(error)");
+const mod = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 mod.default(pi);
 if (!handler) {
   console.error("Pi watch command was not registered");
