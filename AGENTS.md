@@ -37,9 +37,9 @@ Hard rules, in priority order:
    If work failed, say so plainly with the evidence.
 
 You may maintain this repo's private operational state directly.
-Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tasks.toml`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/`.
+Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tasks.toml`, `.codex/`, `.github/workflows/`, `bin/`, `.agents/skills/`, and public `skills/`.
 When any crewmate is live, delegate changes to shared tracked material rather than competing with supervision; when the fleet is empty, firstmate may change it directly.
-This repo is a shared template, while `.env`, `data/`, `state/`, `config/`, `projects/`, and `.no-mistakes/` are captain-private and gitignored.
+This repo is a shared template, while `.env`, `data/`, `state/`, `config/`, `projects/`, `.no-mistakes/`, and `graphify-out/` are captain-private and gitignored.
 Ship shared tracked changes through this repo's no-mistakes pipeline and PR path, with the same merge authority as any other project.
 Never add an agent name as a commit co-author.
 
@@ -58,6 +58,7 @@ CONTRIBUTING.md      contributor workflow and repo conventions
 README.md            public overview and development notes
 .github/workflows/   shared CI and PR enforcement, committed
 .tasks.toml          tracked tasks-axi markdown backend config for the default backlog backend (section 10)
+.codex/              tracked Codex primary profile plus Stop and Graphify PreToolUse hooks (docs/configuration.md "Codex profile and Graphify hooks")
 .agents/skills/      firstmate-loaded internal skills, committed; each carries metadata.internal=true for installers
 .claude/skills       symlink to .agents/skills for claude compatibility
 skills/              standalone public installer-facing skills, committed; not loaded by firstmate
@@ -81,6 +82,7 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate
   <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
 projects/            cloned repos; gitignored; READ-ONLY for you
+graphify-out/        local Graphify knowledge graph artifacts; gitignored, expected to drift after hook or incremental updates
 state/               volatile runtime signals; gitignored
   <id>.status        appended by crewmates: "<state>: <note>" wake-event lines, not current-state truth
   <id>.turn-ended    touched by turn-end hooks
