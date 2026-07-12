@@ -595,10 +595,15 @@ fm_afk_launch_stop() {
 
 fm_afk_launch_main() {
   local result
-  fm_afk_launch_lock_acquire || return 1
+  # Traps are installed before the lock is acquired so a signal arriving
+  # mid-acquire (the lock directory already exists but this function has not
+  # yet returned) still runs cleanup instead of hitting bash's default,
+  # trap-bypassing termination. fm_afk_launch_lock_release is a safe no-op
+  # when this process does not (yet) own the lock.
   trap fm_afk_launch_lock_release EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  fm_afk_launch_lock_acquire || { trap - EXIT INT TERM; return 1; }
   case "${1:-start}" in
     start) fm_afk_launch_start ;;
     start-native) fm_afk_launch_start_native ;;
