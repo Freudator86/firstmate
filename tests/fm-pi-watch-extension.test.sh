@@ -71,6 +71,10 @@ test_spawn_template_mentions_pi_watch_placeholder() {
 }
 
 test_pi_extension_reports_external_healthy_watcher() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin out status
   repo="$TMP_ROOT/pi-external-healthy-root"
   home="$TMP_ROOT/pi-external-healthy-home"
@@ -145,6 +149,10 @@ EOF
 }
 
 test_pi_tool_returns_agent_tool_result() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin out status
   repo="$TMP_ROOT/pi-tool-result-root"
   home="$TMP_ROOT/pi-tool-result-home"
@@ -194,6 +202,10 @@ EOF
 }
 
 test_pi_process_exit_cleanup_listener_lifecycle() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin out status
   repo="$TMP_ROOT/pi-exit-listener-root"
   home="$TMP_ROOT/pi-exit-listener-home"
@@ -233,6 +245,10 @@ EOF
 }
 
 test_pi_process_exit_cleanup_stops_arm_child() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin cleanup_log pid_file out status pid i
   repo="$TMP_ROOT/pi-process-exit-root"
   home="$TMP_ROOT/pi-process-exit-home"

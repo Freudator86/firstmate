@@ -593,6 +593,10 @@ test_pi_extension_forces_followup() {
 }
 
 test_pi_extension_injects_once_per_logical_agent_run() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home ext log out status
   repo="$TMP_ROOT/pi-logical-run-root"
   home="$TMP_ROOT/pi-logical-run-home"
@@ -655,6 +659,10 @@ EOF
 }
 
 test_pi_extension_retries_after_followup_delivery_failure() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home ext out status
   repo="$TMP_ROOT/pi-delivery-failure-root"
   home="$TMP_ROOT/pi-delivery-failure-home"

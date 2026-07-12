@@ -184,9 +184,18 @@ SH
   chmod +x "$fakebin/herdr"
 }
 
-run_session_start() {  # <home> <root> <path>
+# run_session_start <home> <root> <path>
+# Drop every harness env marker from bin/fm-harness.sh detect_own so the
+# surrounding interactive shell cannot leak past the suite's fake ps harness.
+# Markers today: CLAUDECODE (claude), PI_CODING_AGENT (pi), GROK_AGENT (grok).
+# codex and opencode have no env markers (ancestry only). Without this, a local
+# claude/pi/grok session fails cases that pin a different fake harness while CI
+# (no ambient markers) still passes.
+run_session_start() {
   local home=$1 root=$2 path=$3
-  FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" "$SESSION_START"
+  env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
+    "$SESSION_START"
 }
 
 hash_file_for_test() {
@@ -340,8 +349,10 @@ $rec
 EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
-  # Force a MISSING diagnostic line so the bootstrap section is non-trivial.
-  rm -f "$fakebin/node"
+  # make_fake_toolchain never stubs tasks-axi, so its MISSING diagnostic fires
+  # deterministically regardless of what is installed on the test host (see
+  # test_lock_refusal_read_only_path), unlike node which some hosts provide
+  # as a system package even with fakebin/node removed.
 
   printf 'window=fm-sess:w1\nkind=ship\n' > "$home/state/task-a.meta"
 
@@ -364,7 +375,7 @@ EOF
   [ "$context_line" -lt "$fleet_line" ] || fail "CONTEXT did not precede FLEET STATE"
   [ "$fleet_line" -lt "$next_line" ] || fail "FLEET STATE did not precede NEXT STEP"
 
-  missing_line=$(printf '%s\n' "$out" | grep -n 'MISSING: node' | head -1 | cut -d: -f1)
+  missing_line=$(printf '%s\n' "$out" | grep -n 'MISSING: tasks-axi' | head -1 | cut -d: -f1)
   [ -n "$missing_line" ] || fail "MISSING diagnostic did not appear at all"
   [ "$missing_line" -lt "$fleet_line" ] || fail "actionable MISSING diagnostic was buried after the bulk fleet-state digest"
 
@@ -484,7 +495,6 @@ $rec
 EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
-  rm -f "$fakebin/node"
 
   append_wake "$home/state" signal task-z "needs-decision: pick a library"
 
@@ -492,8 +502,10 @@ EOF
 
   # fm-lock.sh's own exact success text.
   assert_contains "$out" "lock acquired: harness pid" "fm-lock.sh's real output did not appear (composition, not reimplementation)"
-  # fm-bootstrap.sh's own exact MISSING-tool line format.
-  assert_contains "$out" "MISSING: node (install:" "fm-bootstrap.sh's real detect line did not appear verbatim"
+  # fm-bootstrap.sh's own exact MISSING-tool line format. tasks-axi is never
+  # stubbed by make_fake_toolchain, so this fires deterministically regardless
+  # of what is installed on the test host (unlike node, above).
+  assert_contains "$out" "MISSING: tasks-axi (install:" "fm-bootstrap.sh's real detect line did not appear verbatim"
   # fm-wake-drain.sh's real drained record (raw tab-separated queue line).
   assert_contains "$out" "$(printf 'signal\ttask-z\tneeds-decision: pick a library')" "fm-wake-drain.sh's real drained record did not appear"
 
