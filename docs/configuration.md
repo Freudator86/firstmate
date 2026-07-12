@@ -244,6 +244,23 @@ It uses the same live secondmate discovery and propagation helper as bootstrap, 
 That live discovery starts from `state/*.meta` records with `kind=secondmate`; `data/secondmates.md` only backfills `home=` for older or incomplete meta records.
 Skipped items, such as a destination checkout that does not yet gitignore the item, are visible warnings but not hard failures.
 
+### Upstream firstmate update check
+
+`bin/fm-firstmate-update-check.sh` is a read-only comparison, distinct from the AXI-suite self-update above: it compares this deployment's local default-branch commit against `kunchenguid/firstmate`'s upstream default branch and reports whether any upstream-only commit changes the running instruction surface (`AGENTS.md`, `bin/`, or `.agents/skills/`).
+It never modifies the checkout and never contacts Bridge; it only persists `state/firstmate-update.available` or `state/firstmate-update.stuck`, which the locked session-start bootstrap step (`bin/fm-bootstrap.sh`) reads and surfaces as `FIRSTMATE_UPDATE_AVAILABLE:` or `FIRSTMATE_UPDATE_STUCK:` for `bootstrap-diagnostics` to handle.
+Unlike `fm-axi-suite.sh`, bootstrap does not invoke this script itself, so the check only runs when something calls it.
+Schedule it externally, at a cadence around twice daily, with cron or a systemd timer per firstmate home; a session-start-only cadence would miss updates between sessions on a long-running vessel.
+
+A cron example, run from the firstmate home directory:
+
+```
+0 8,20 * * * cd /path/to/firstmate-home && bin/fm-firstmate-update-check.sh >/dev/null
+```
+
+A systemd timer/service pair does the same on a `OnCalendar=*-*-* 08,20:00:00` schedule, with `WorkingDirectory=` set to the firstmate home and `ExecStart=` invoking the script.
+For a secondmate home, point `WorkingDirectory=`/`cd` at that home's own root, since each home has its own `state/` and its own upstream comparison.
+`FM_FIRSTMATE_UPSTREAM_URL` overrides the canonical upstream URL for the comparison; `FM_FIRSTMATE_UPSTREAM_HEAD` and `FM_FIRSTMATE_COMPARE_REPO` are test-only overrides that skip network discovery.
+
 ## X mode (.env)
 
 X mode lets a firstmate instance answer public `@myfirstmate` mentions and act on normal reversible mention requests through firstmate's normal lifecycle.
@@ -346,6 +363,9 @@ FM_AXI_SUITE_CHECK_INTERVAL=86400   # seconds between AXI-suite currency checks 
 FM_AXI_SUITE_DISABLE=0   # truthy disables the AXI-suite self-update mechanism; tests and emergency diagnosis only
 FM_AXI_SUITE_NETWORK_TIMEOUT=30   # seconds bounding the whole AXI-suite check's cumulative registry lookup, install, and hook-setup time (not per tool)
 FM_AXI_SUITE_TOOLS='quota-axi gh-axi tasks-axi gnhf lavish-axi chrome-devtools-axi'   # space-separated suite tools checked and self-updated
+FM_FIRSTMATE_UPSTREAM_URL=https://github.com/kunchenguid/firstmate.git   # overrides the canonical upstream URL for the read-only instruction-surface comparison
+FM_FIRSTMATE_UPSTREAM_HEAD=   # test-only: skips network discovery, names the upstream commit already present in FM_FIRSTMATE_COMPARE_REPO
+FM_FIRSTMATE_COMPARE_REPO=    # test-only: overrides the comparison repository used by fm-firstmate-update-check.sh
 FM_BOOTSTRAP_DETECT_ONLY=0   # internal/read-only session-start mode: skip bootstrap's mutating sweeps and print advisory TANGLE wording
 FM_GUARD_READ_ONLY=0    # internal/read-only guard mode: keep alarms but suppress drain, supervision repair, and checkout repair commands
 FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the guarded operation WILL still run.'   # banner continuation line; fm-send.sh overrides it to name the requested message specifically

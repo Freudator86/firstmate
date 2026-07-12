@@ -104,6 +104,8 @@ state/               volatile runtime signals; gitignored
   axi-suite-update.checked   per-home timestamp of the last AXI-suite currency check (docs/configuration.md "AXI-suite self-update")
   axi-suite-update.diagnostics   cached AXI_SUITE_REVIEW lines (AXI_SUITE_UPDATED lines are one-shot, never persisted) reprinted until the next non-check-only check
   axi-suite-update.stuck   persisted AXI_SUITE_STUCK lines; cleared only by a successful non-check-only check; --check-only never writes to it
+  firstmate-update.available   persisted FIRSTMATE_UPDATE_AVAILABLE line from the read-only upstream framework check; cleared when the upstream instruction surface is present locally
+  firstmate-update.stuck   persisted FIRSTMATE_UPDATE_STUCK line when the upstream framework comparison cannot complete
   .wake-queue        durable queued wakes: epoch<TAB>seq<TAB>kind<TAB>key<TAB>payload
   .afk               durable away-mode flag; present = sub-supervisor may inject escalations (set by /afk, cleared on user return)
   .watch.lock .wake-queue.lock watcher singleton and queue serialization locks
@@ -759,6 +761,9 @@ Adjust the other sections only when the task genuinely deviates from the standar
 
 firstmate is its own repo behind the no-mistakes gate, so improvements to `AGENTS.md`, `bin/`, `.agents/skills/`, and public `skills/` reach `main` and then wait for each running firstmate to pull them.
 Only `AGENTS.md`, `bin/`, and `.agents/skills/` are a running firstmate instruction surface; public `skills/` is tracked for installers and is not loaded by firstmate.
+`bin/fm-firstmate-update-check.sh` compares the local default-branch commit with `kunchenguid/firstmate`'s upstream default branch and persists a diagnostic only when an upstream-only commit changes that instruction surface; it never updates the checkout or contacts Bridge.
+Bootstrap only reads the persisted diagnostic; it does not invoke the check itself, so each firstmate home needs an external cron job or systemd timer (recommended: twice daily) calling `bin/fm-firstmate-update-check.sh` for the signal to stay current - see `docs/configuration.md` "Upstream firstmate update check" for the scheduling recipe.
+When bootstrap prints `FIRSTMATE_UPDATE_AVAILABLE:`, dispatch a crewmate to notify the whole fleet through Bridge All-Ships rather than writing to Bridge directly.
 When the captain invokes `/updatefirstmate` or asks to update firstmate, load the `/updatefirstmate` skill.
 It performs only fast-forward self-updates of firstmate and registered secondmate homes, re-reads `AGENTS.md` when needed, nudges updated live secondmates, and never touches anything under `projects/`.
 
@@ -766,7 +771,7 @@ It performs only fast-forward self-updates of firstmate and registered secondmat
 
 These skills are not captain-invocable; they are conditional operating references you must load at the trigger points below.
 
-- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints any diagnostic or capability line (`MISSING:`, `NEEDS_GH_AUTH`, `TANGLE:`, `CREW_HARNESS_OVERRIDE:`, `CREW_DISPATCH:`, `FLEET_SYNC:`, `SECONDMATE_SYNC:`, `SECONDMATE_LIVENESS:`, `TASKS_AXI:`, `NUDGE_SECONDMATES:`, `AXI_SUITE_UPDATED:`, `AXI_SUITE_REVIEW:`, `AXI_SUITE_STUCK:`, or `FMX:`); silence needs no load.
+- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints any diagnostic or capability line (`MISSING:`, `NEEDS_GH_AUTH`, `TANGLE:`, `CREW_HARNESS_OVERRIDE:`, `CREW_DISPATCH:`, `FLEET_SYNC:`, `SECONDMATE_SYNC:`, `SECONDMATE_LIVENESS:`, `TASKS_AXI:`, `NUDGE_SECONDMATES:`, `AXI_SUITE_UPDATED:`, `AXI_SUITE_REVIEW:`, `AXI_SUITE_STUCK:`, `FIRSTMATE_UPDATE_AVAILABLE:`, `FIRSTMATE_UPDATE_STUCK:`, or `FMX:`); silence needs no load.
 - `harness-adapters` - load before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
 - `firstmate-orca` - load before switching to Orca, spawning or supervising Orca-backed work, smoke-testing Orca backend behavior, debugging Orca task state, or reconciling Orca-backed task metadata.
 - `stuck-crewmate-recovery` - load after a stale wake, looping pane, repeated confusion, an answered-by-brief question, an unresponsive crewmate, or a failed steer.

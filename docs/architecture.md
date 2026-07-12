@@ -217,6 +217,7 @@ The refresh also prunes local branches whose remote is gone and that no worktree
 The update is fast-forward only: dirty, diverged, offline, and off-default targets are reported and left untouched.
 The origin-based updater and the local secondmate sync share the same guarded fast-forward helper; only the origin mode fetches.
 The mechanics are owned by the `/updatefirstmate` skill and firstmate's operating manual in [`AGENTS.md`](../AGENTS.md) (self-update).
+A separate, read-only check compares the local default branch against `kunchenguid/firstmate`'s upstream default branch and flags it only when an upstream-only commit changes the running instruction surface (`AGENTS.md`, `bin/`, `.agents/skills/`); it never updates the checkout itself and is not invoked by bootstrap, so it needs external cron/systemd scheduling - see [configuration.md](configuration.md#upstream-firstmate-update-check).
 
 ## Restart-proof
 

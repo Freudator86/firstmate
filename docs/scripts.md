@@ -9,6 +9,7 @@ If you have changed away from the firstmate home in an interactive shell, invoke
 | `fm-session-start.sh`    | Compose lock, bootstrap, and wake drain into the single ordered session-start digest |
 | `fm-bootstrap.sh`        | Detect toolchain and fleet problems, run the locked session-start sweeps, and install approved tools |
 | `fm-axi-suite.sh`        | Check and gate patch/minor self-updates of the npm-distributed AXI CLI suite     |
+| `fm-firstmate-update-check.sh` | Read-only check for relevant upstream `kunchenguid/firstmate` instruction-surface commits |
 | `fm-lint.sh`             | Single owner of firstmate's shell-lint definition: file set, config, and pinned ShellCheck version |
 | `fm-install-shellcheck.sh` | Install CI's pinned, checksum-verified ShellCheck build `fm-lint.sh` requires      |
 | `fm-fleet-sync.sh`       | Refresh project clones with safe fast-forwards, self-heals, `STUCK:` reports, branch pruning, and bounded recovery from an orphaned `.git/packed-refs.lock` |

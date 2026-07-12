@@ -2,7 +2,7 @@
 name: bootstrap-diagnostics
 description: >-
   Agent-only handling playbook for session-start bootstrap diagnostics.
-  Use whenever the session-start digest's bootstrap section prints any diagnostic or capability line - MISSING, NEEDS_GH_AUTH, TANGLE, CREW_HARNESS_OVERRIDE, CREW_DISPATCH, FLEET_SYNC, SECONDMATE_SYNC, SECONDMATE_LIVENESS, TASKS_AXI, NUDGE_SECONDMATES, AXI_SUITE_UPDATED, AXI_SUITE_REVIEW, AXI_SUITE_STUCK, or FMX - or when a standalone bin/fm-bootstrap.sh run prints one.
+  Use whenever the session-start digest's bootstrap section prints any diagnostic or capability line - MISSING, NEEDS_GH_AUTH, TANGLE, CREW_HARNESS_OVERRIDE, CREW_DISPATCH, FLEET_SYNC, SECONDMATE_SYNC, SECONDMATE_LIVENESS, TASKS_AXI, NUDGE_SECONDMATES, AXI_SUITE_UPDATED, AXI_SUITE_REVIEW, AXI_SUITE_STUCK, FIRSTMATE_UPDATE_AVAILABLE, FIRSTMATE_UPDATE_STUCK, or FMX - or when a standalone bin/fm-bootstrap.sh run prints one.
   A silent bootstrap section means all good and needs no skill load.
 user-invocable: false
 metadata:
@@ -24,6 +24,8 @@ The inline rules in `AGENTS.md` section 3 still bind: detect, then consent, then
 - `AXI_SUITE_UPDATED: <tool> <old> -> <new>` - the vessel completed a gated patch or minor self-update; report it only when it materially affects current work.
 - `AXI_SUITE_REVIEW: <detail>` - a major release or newly required suite command was deliberately not installed; present the printed install command and purpose to the captain, then use `bin/fm-bootstrap.sh install <approved tool...>` only after consent.
 - `AXI_SUITE_STUCK: <detail>` - the vessel could not check or apply an eligible update and persisted the condition in `state/axi-suite-update.stuck`; investigate the local install path first, and if the vessel cannot repair itself, relay the status through the existing Bridge workflow by dispatching a crewmate rather than calling project automation directly.
+- `FIRSTMATE_UPDATE_AVAILABLE: <detail>` - `kunchenguid/firstmate` has an upstream-only change to `AGENTS.md`, `bin/`, or `.agents/skills/`; dispatch a crewmate to send an All-Ships update notice through the existing Bridge workflow, and never call Bridge project automation directly from firstmate or the check script.
+- `FIRSTMATE_UPDATE_STUCK: <detail>` - the read-only upstream framework comparison failed and persisted the condition in `state/firstmate-update.stuck`; investigate the repository or network failure, and do not broadcast an update until the comparison succeeds.
 - `TANGLE: <remediation>` - the primary checkout is stranded on a feature branch instead of its default branch; `AGENTS.md` section 8 explains why this guard exists and what it protects.
   The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree.
   This is the only sanctioned firstmate-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.

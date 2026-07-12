@@ -13,6 +13,7 @@
 #                 "NUDGE_SECONDMATES: fm-<id>...",
 #                 "SECONDMATE_LIVENESS: secondmate <id>: already-live|respawned|skipped: <reason>|respawn failed: <reason>",
 #                 "AXI_SUITE_UPDATED|REVIEW|STUCK: <detail>",
+#                 "FIRSTMATE_UPDATE_AVAILABLE|STUCK: <detail>",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
 #          A NUDGE_SECONDMATES line lists the RUNNING secondmate task selectors
 #          (fm-<id>) whose worktree was fast-forwarded to firstmate's own
@@ -595,4 +596,6 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   x_mode_setup
   fleet_sync
 fi
+[ -f "$STATE/firstmate-update.available" ] && cat "$STATE/firstmate-update.available"
+[ -f "$STATE/firstmate-update.stuck" ] && cat "$STATE/firstmate-update.stuck"
 exit 0
