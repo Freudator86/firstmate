@@ -53,20 +53,14 @@ if [ -f "$LAST_RUN" ]; then
   esac
 fi
 
-# Match fm-update.sh when discovering the deployment's default-branch commit.
-# shellcheck source=bin/fm-ff-lib.sh disable=SC1091
-. "$SCRIPT_DIR/fm-ff-lib.sh"
-
 tmp=""
 compare_repo=${FM_FORK_SYNC_COMPARE_REPO:-}
 if [ -z "$compare_repo" ]; then
-  current=$(primary_head_commit "$FM_ROOT") || record_stuck "local default-branch commit cannot be resolved"
   fork_url=${FM_FIRSTMATE_FORK_URL:-$(git -C "$FM_ROOT" remote get-url origin 2>/dev/null)}
   [ -n "$fork_url" ] || record_stuck "fork origin URL cannot be resolved"
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-fork-sync.XXXXXX") || record_stuck "temporary comparison repository cannot be created"
   trap 'rm -rf "$tmp"' EXIT
   git -C "$tmp" init --bare -q || record_stuck "temporary comparison repository cannot be initialized"
-  git -C "$tmp" fetch -q --no-tags "$FM_ROOT" "$current:refs/heads/local" || record_stuck "local default-branch commit cannot be copied for comparison"
   git -C "$tmp" fetch -q --no-tags "$fork_url" HEAD:refs/heads/fork || record_stuck "fork default-branch lookup failed ($fork_url)"
   git -C "$tmp" fetch -q --no-tags "$UPSTREAM_URL" HEAD:refs/heads/upstream || record_stuck "upstream default-branch lookup failed ($UPSTREAM_URL)"
   compare_repo=$tmp

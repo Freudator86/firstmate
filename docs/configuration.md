@@ -258,11 +258,11 @@ A cron example for an ordinary vessel, run from the firstmate home directory:
 ```
 
 The curator vessel also invokes `bin/fm-fork-sync-check.sh` daily; its persisted timestamp self-gates completed comparisons to every three days.
-Neither line was installed on the curator host when this recipe was added, so install both in the same crontab entry there:
+A curator vessel installs both lines in the same crontab entry:
 
 ```
-0 8,20 * * * cd /home/coditan/coditan-firstmate && bin/fm-firstmate-update-check.sh >/dev/null
-30 8 * * * cd /home/coditan/coditan-firstmate && bin/fm-fork-sync-check.sh >/dev/null
+0 8,20 * * * cd /path/to/firstmate-home && bin/fm-firstmate-update-check.sh >/dev/null
+30 8 * * * cd /path/to/firstmate-home && bin/fm-fork-sync-check.sh >/dev/null
 ```
 
 A systemd timer/service pair does the same on a `OnCalendar=*-*-* 08,20:00:00` schedule, with `WorkingDirectory=` set to the firstmate home and `ExecStart=` invoking the script.
