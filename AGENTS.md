@@ -556,7 +556,7 @@ The emitted block is the only per-harness operating recipe in the session contex
 Do not substitute another harness's command shape for it.
 **Always-on wake triage (absorb only when provably working).**
 `bin/fm-watch.sh` classifies every wake in bash and absorbs the benign majority without waking you: crews with positive working evidence (an actively-running no-mistakes step for their branch, or a busy pane, read via `bin/fm-crew-state.sh`), a declared `paused:` external wait until its bounded recheck cadence, and no-change heartbeats.
-It also checks this vessel's `projects/coditan-bridge/inbox/coditan/new/` read-only, surfaces pending envelopes as `check:` wakes, and shortens only that check's cadence when the highest pending priority is `high` or `immediate`; acknowledgment remains crewmate-mediated project work.
+It also bounded-fetches and reads this vessel's `inbox/coditan/new/` tree from the Bridge clone's `origin/main` remote-tracking ref, surfaces pending envelopes as `check:` wakes, and shortens only that check's cadence when the highest pending priority is `high` or `immediate`; acknowledgment remains crewmate-mediated project work.
 It never absorbs a crewmate that stopped without that evidence - whatever its stale status log claims - and only an actionable wake is queued durably and ends the supervision wait, so you resume the emitted protocol exactly once per actionable event.
 A `paused:` status is a deliberate external wait, not `blocked:`; its initial signal still surfaces once, and a forgotten pause re-surfaces for a recheck once per window.
 Repeated provably-working stale escalations on one unchanged pane eventually add `demand-deep-inspection` to the wake reason so it is not mistaken for another routine validation wait.

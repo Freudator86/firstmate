@@ -430,16 +430,16 @@ run_check() {
   run_bounded bash "$c"
 }
 
-# Bridge is pull-only, so inspect this vessel's tracked new/ directory without
-# invoking Bridge's mutating inbox helper. High and immediate traffic shortens
-# only this check's persisted cadence; low and normal traffic keeps the ordinary
-# slow-check interval. Missing clones and empty inboxes are silent.
+# Bridge is pull-only, so inspect this vessel's tracked new/ tree on origin/main
+# without invoking Bridge's mutating inbox helper. High and immediate traffic
+# shortens only this check's persisted cadence; low and normal traffic keeps the
+# ordinary slow-check interval. Missing clones and empty inboxes are silent.
 bridge_pending_priority_scan() {
-  local inbox="$BRIDGE_ROOT/inbox/$BRIDGE_VESSEL/new" f priority rank=-1
-  [ -d "$inbox" ] || { echo none; return; }
-  for f in "$inbox"/*.json; do
-    [ -f "$f" ] || continue
-    priority=$(jq -r '.priority // "normal"' "$f" 2>/dev/null || echo normal)
+  local inbox="inbox/$BRIDGE_VESSEL/new" f priority rank=-1
+  while IFS= read -r -d '' f; do
+    case "$f" in *.json) ;; *) continue ;; esac
+    priority=$(git -C "$BRIDGE_ROOT" show "origin/main:$inbox/$f" 2>/dev/null | \
+      jq -r '.priority // "normal"' 2>/dev/null || echo normal)
     case "$priority" in
       immediate) rank=3 ;;
       high) [ "$rank" -lt 2 ] && rank=2 ;;
@@ -447,7 +447,7 @@ bridge_pending_priority_scan() {
       low) [ "$rank" -lt 0 ] && rank=0 ;;
       *) [ "$rank" -lt 1 ] && rank=1 ;;
     esac
-  done
+  done < <(git -C "$BRIDGE_ROOT" ls-tree -z --name-only "origin/main:$inbox" 2>/dev/null)
   case "$rank" in
     3) echo immediate ;;
     2) echo high ;;
@@ -458,26 +458,14 @@ bridge_pending_priority_scan() {
 }
 export -f bridge_pending_priority_scan
 
-# Cheap stand-in for "has the inbox changed": the concatenated name plus
-# size:mtime signature of every pending envelope. Bridge is an external system
-# this repo cannot verify, so the signature does not just trust that envelopes
-# are write-once - it pairs each name with stat_sig, so a non-atomic write that
-# completes after being first observed, or any priority edited in place under
-# an existing filename, changes the signature too instead of being cached
-# forever under the first-observed value. An arrival or removal still changes
-# the name set regardless; unlike a directory mtime, several envelopes landing
-# within the same mtime-resolution second still change this signature, since
-# each adds a distinct name to the listing.
+# Exact inbox signature: the origin/main tree OID changes if and only if the
+# tracked inbox content changes. An absent tree is the empty-inbox state because
+# Git does not track empty directories.
 bridge_inbox_signature_scan() {
-  local inbox="$BRIDGE_ROOT/inbox/$BRIDGE_VESSEL/new" f sig=""
-  [ -d "$inbox" ] || { echo absent; return; }
-  for f in "$inbox"/*.json; do
-    [ -e "$f" ] || continue
-    sig+="${f##*/}:$(stat_sig "$f");"
-  done
+  local inbox="inbox/$BRIDGE_VESSEL/new" sig
+  sig=$(git -C "$BRIDGE_ROOT" rev-parse "origin/main:$inbox" 2>/dev/null || true)
   printf '%s' "${sig:-empty}"
 }
-export -f stat_sig
 export -f bridge_inbox_signature_scan
 
 # Bounded wrapper: a stalled directory read still cannot hang the watcher, same
@@ -490,23 +478,23 @@ bridge_inbox_signature() {
   printf '%s' "${out:-timeout}"
 }
 
-# Bounded wrapper around the priority scan above: a stalled directory read (or
-# a hung jq) times out silently via run_bounded's CHECK_TIMEOUT, same as
+# Bounded wrapper around the priority scan above: a stalled git read (or a hung
+# jq) times out silently via run_bounded's CHECK_TIMEOUT, same as
 # run_check(), instead of a timeout or read failure ever fabricating a false
 # priority. Cached on disk by inbox signature so an unchanged inbox costs one
-# cheap bash-only signature scan per poll instead of a fork+jq-per-file scan
-# every cycle: bridge_check_interval() calls this on every watcher loop
+# cheap tree-OID signature scan instead of a git-show-and-jq scan per file every
+# cycle: bridge_check_interval() calls this on every watcher loop
 # iteration (to decide the cadence itself), so without this cache the scan
 # would run far more often than the cadence it feeds ever needs. A timed-out
 # signature scan skips the priority scan entirely for that cycle rather than
 # spending a second bounded wait on the same stalled read, and a timed-out or
 # failed priority scan never overwrites the cache, so the next cycle retries
-# instead of freezing on a stale value. A missing inbox directory (no Bridge
-# clone) short-circuits on a plain bash builtin before any of that, so this
-# never forks at all for a vessel that has not set Bridge up.
+# instead of freezing on a stale value. A missing Bridge clone short-circuits on
+# a plain bash builtin before any of that, so this never forks at all for a
+# vessel that has not set Bridge up.
 bridge_pending_priority() {
   local cache="$STATE/.bridge-priority-cache" sig cached_sig="" cached_priority="" out
-  [ -d "$BRIDGE_ROOT/inbox/$BRIDGE_VESSEL/new" ] || { printf '%s' none; return; }
+  [ -d "$BRIDGE_ROOT/.git" ] || { printf '%s' none; return; }
   sig=$(bridge_inbox_signature)
   if [ -f "$cache" ]; then
     IFS=$'\t' read -r cached_sig cached_priority < "$cache" 2>/dev/null || true
@@ -536,10 +524,11 @@ bridge_check_interval() {
 }
 
 bridge_inbox_check() {
-  local inbox="$BRIDGE_ROOT/inbox/$BRIDGE_VESSEL/new" highest count
+  local inbox="inbox/$BRIDGE_VESSEL/new" highest count
   highest=$(bridge_pending_priority)
   [ "$highest" != none ] || return 0
-  count=$(run_bounded find "$inbox" -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l | tr -d '[:space:]')
+  count=$(run_bounded git -C "$BRIDGE_ROOT" ls-tree --name-only "origin/main:$inbox" | \
+    awk '/[.]json$/' | wc -l | tr -d '[:space:]')
   printf 'bridge-inbox %s pending=%s highest=%s\n' "$BRIDGE_VESSEL" "${count:-0}" "$highest"
 }
 
@@ -774,17 +763,20 @@ while :; do
 
   # Bridge has its own cadence marker so urgent inbox traffic can tighten this
   # read-only poll without changing PR-merge, X-mode, or heartbeat schedules.
-  # bridge_check_interval() forks a bounded subprocess to read the inbox
-  # signature (and, on a changed signature, the per-file priority), so
-  # computing it is itself gated to at most once per BRIDGE_URGENT_CHECK_INTERVAL
-  # - the tightest cadence it can ever produce - rather than every watcher tick;
-  # a missing inbox directory short-circuits with a plain bash builtin first, no
-  # fork at all. Newly arrived high/immediate traffic is still discovered within
+  # This fetches origin/main, then bridge_check_interval() forks bounded
+  # subprocesses to read the inbox signature (and, on a changed signature,
+  # per-file priority), so computing it is itself gated to at most once per
+  # BRIDGE_URGENT_CHECK_INTERVAL - the tightest cadence it can ever produce -
+  # rather than every watcher tick;
+  # a missing Bridge clone short-circuits with a plain bash builtin first, no fork
+  # at all. Newly arrived high/immediate traffic is still discovered within
   # that same urgent window, so the cadence it feeds never lags behind it.
-  bridge_inbox_dir="$BRIDGE_ROOT/inbox/$BRIDGE_VESSEL/new"
-  if [ ! -d "$bridge_inbox_dir" ]; then
+  if [ ! -d "$BRIDGE_ROOT/.git" ]; then
     bridge_interval=$CHECK_INTERVAL
   elif [ "$(age_of "$STATE/.last-bridge-discovery")" -ge "$BRIDGE_URGENT_CHECK_INTERVAL" ]; then
+    # Fetch updates only the remote-tracking ref. Failure or timeout leaves the
+    # last fetched origin/main in place, so the check falls back to known state.
+    run_bounded git -C "$BRIDGE_ROOT" fetch --quiet origin main >/dev/null
     bridge_interval=$(bridge_check_interval)
     printf '%s' "$bridge_interval" > "$STATE/.bridge-interval-cache" 2>/dev/null || true
     touch "$STATE/.last-bridge-discovery"

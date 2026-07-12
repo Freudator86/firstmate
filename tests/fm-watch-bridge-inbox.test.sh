@@ -9,9 +9,21 @@ WATCH="$ROOT/bin/fm-watch.sh"
 TMP_ROOT=$(fm_test_tmproot fm-watch-bridge-inbox)
 
 make_home() {
-  local name=$1 home
+  local name=$1 home bridge origin
   home="$TMP_ROOT/$name"
-  mkdir -p "$home/state" "$home/projects/coditan-bridge/inbox/coditan/new"
+  bridge="$home/projects/coditan-bridge"
+  origin="$home/bridge-origin.git"
+  mkdir -p "$home/state" "$bridge/inbox/coditan/new"
+  git init -q --bare "$origin"
+  git -C "$bridge" init -q -b main
+  git -C "$bridge" config user.name test
+  git -C "$bridge" config user.email test@example.com
+  touch "$bridge/inbox/coditan/new/.gitkeep"
+  git -C "$bridge" add inbox
+  git -C "$bridge" commit -qm init
+  git -C "$bridge" remote add origin "$origin"
+  git -C "$bridge" push -qu origin main
+  git --git-dir="$origin" symbolic-ref HEAD refs/heads/main
   printf '%s\n' "$home"
 }
 
@@ -19,6 +31,9 @@ write_envelope() {
   local home=$1 name=$2 priority=$3
   printf '{"schema":"bridge-envelope.v1","id":"%s","priority":"%s","state":"new"}\n' \
     "$name" "$priority" > "$home/projects/coditan-bridge/inbox/coditan/new/$name.json"
+  git -C "$home/projects/coditan-bridge" add "inbox/coditan/new/$name.json"
+  git -C "$home/projects/coditan-bridge" commit -qm "add $name"
+  git -C "$home/projects/coditan-bridge" push -qu origin main
 }
 
 test_pending_envelope_wakes() {
@@ -85,8 +100,7 @@ test_cache_skips_rescan_when_unchanged() {
   cat > "$fakebin/jq" <<EOF
 #!/usr/bin/env bash
 echo x >> "$counter"
-file="\${!#}"
-priority=\$(grep -o '"priority":"[a-z]*"' "\$file" | head -1 | cut -d'"' -f4)
+priority=\$(grep -o '"priority":"[a-z]*"' | head -1 | cut -d'"' -f4)
 printf '%s\n' "\${priority:-normal}"
 EOF
   chmod +x "$fakebin/jq"
@@ -124,8 +138,7 @@ test_inplace_edit_invalidates_cache() {
   cat > "$fakebin/jq" <<EOF
 #!/usr/bin/env bash
 echo x >> "$counter"
-file="\${!#}"
-priority=\$(grep -o '"priority":"[a-z]*"' "\$file" | head -1 | cut -d'"' -f4)
+priority=\$(grep -o '"priority":"[a-z]*"' | head -1 | cut -d'"' -f4)
 printf '%s\n' "\${priority:-normal}"
 EOF
   chmod +x "$fakebin/jq"
@@ -197,10 +210,40 @@ EOF
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
   calls=$(wc -l < "$counter" | tr -d '[:space:]')
-  [ "$calls" -le 4 ] || \
+  [ "$calls" -le 5 ] || \
     fail "repeated unchanged loop checks kept spawning bounded scans ($calls calls across several ticks)"
   [ -e "$home/state/.last-bridge-discovery" ] || fail "Bridge discovery cadence marker was never written"
   pass "repeated unchanged loop checks do not keep spawning Bridge scans within the urgent window"
+}
+
+test_acked_on_origin_ignores_stale_working_tree() {
+  local home bridge peer out pid
+  home=$(make_home stale-working-tree)
+  bridge="$home/projects/coditan-bridge"
+  peer="$home/bridge-peer"
+  write_envelope "$home" acked normal
+  git clone -q "$home/bridge-origin.git" "$peer"
+  git -C "$peer" config user.name test
+  git -C "$peer" config user.email test@example.com
+  git -C "$peer" rm -q inbox/coditan/new/acked.json
+  git -C "$peer" commit -qm "ack envelope"
+  git -C "$peer" push -qu origin main
+  [ -f "$bridge/inbox/coditan/new/acked.json" ] || \
+    fail "stale-working-tree fixture did not retain the locally pending envelope"
+
+  out="$home/watch.out"
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 \
+    FM_BRIDGE_URGENT_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  sleep 3
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ ! -s "$out" ] || fail "origin-acked envelope in a stale working tree caused a false wake: $(cat "$out")"
+  assert_absent "$home/state/.wake-queue" \
+    "origin-acked envelope in a stale working tree created a wake"
+  [ -f "$bridge/inbox/coditan/new/acked.json" ] || \
+    fail "watcher fetch mutated the stale Bridge working tree"
+  pass "origin ack clears the check without mutating a stale local working tree"
 }
 
 test_pending_envelope_wakes
@@ -210,3 +253,4 @@ test_cache_skips_rescan_when_unchanged
 test_inplace_edit_invalidates_cache
 test_missing_inbox_short_circuits_without_scan
 test_discovery_gated_by_urgent_interval
+test_acked_on_origin_ignores_stale_working_tree

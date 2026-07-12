@@ -325,14 +325,15 @@ These paths need `jq` to build the JSON payload, but they run before token and n
 
 ## Bridge inbox check (FM_BRIDGE_*)
 
-`bin/fm-watch.sh` reads this vessel's own `projects/coditan-bridge/inbox/coditan/new/` directory read-only on every poll, so pending unacknowledged Bridge envelopes become durable actionable `check:` wakes without the watcher ever acknowledging or otherwise mutating Bridge.
-`FM_BRIDGE_VESSEL` (default `coditan`) and `FM_BRIDGE_ROOT` (default `$FM_HOME/projects/coditan-bridge`) select the vessel name and clone root; a missing inbox directory (no Bridge clone, or a different vessel name) is silent and costs one plain bash existence check per poll, no fork.
+`bin/fm-watch.sh` reads this vessel's `inbox/coditan/new/` tree from the Bridge clone's fetched `origin/main`, so pending unacknowledged Bridge envelopes become durable actionable `check:` wakes without the watcher ever acknowledging or otherwise mutating envelope state.
+`FM_BRIDGE_VESSEL` (default `coditan`) and `FM_BRIDGE_ROOT` (default `$FM_HOME/projects/coditan-bridge`) select the vessel name and clone root; a missing Bridge clone is silent and costs one plain bash existence check per poll, no fork.
 When envelopes are pending, the watcher reads each envelope's `priority` field (`jq -r '.priority // "normal"'`) and reports the count and highest priority as `check: bridge-inbox: bridge-inbox <vessel> pending=<n> highest=<priority>`.
 An empty inbox stays silent, exactly like the merge and X-mode check paths.
 Only the Bridge check's own polling cadence reacts to priority: it defaults to `FM_CHECK_INTERVAL` (the same shared slow-check cadence used by merge and X-mode polls) and tightens to `FM_BRIDGE_URGENT_CHECK_INTERVAL` (default 30 seconds) only while the highest pending priority is `high` or `immediate`; PR-merge polling, X-mode polling, and heartbeat cadence are unaffected.
-The priority scan itself is cached on disk (`state/.bridge-priority-cache`) by a cheap name-plus-size:mtime signature of the inbox listing (`state/.bridge-interval-cache` holds the derived cadence), so an unchanged inbox costs one bash-only signature scan per poll instead of a fork-and-`jq`-per-file scan every cycle; discovery of a changed signature, and thus of newly arrived high/immediate traffic, is itself gated to at most once per `FM_BRIDGE_URGENT_CHECK_INTERVAL` via `state/.last-bridge-discovery`, so the cadence it feeds never lags behind it.
-Both the signature scan and the priority scan run through the same bounded-execution helper as `*.check.sh` scripts, so a stalled read (for example an NFS hang on the `projects/` clone) times out after `FM_CHECK_TIMEOUT` seconds and cannot hang the watcher's single-threaded loop.
-Acknowledging or otherwise mutating a Bridge envelope stays crewmate-mediated project work; the watcher only ever reads.
+At discovery, gated to at most once per `FM_BRIDGE_URGENT_CHECK_INTERVAL` via `state/.last-bridge-discovery`, the watcher runs a bounded `git fetch origin main`; a failed or timed-out fetch leaves the last known `origin/main` available for the check.
+The priority scan itself is cached on disk (`state/.bridge-priority-cache`) by the exact `origin/main:inbox/<vessel>/new` tree OID (`state/.bridge-interval-cache` holds the derived cadence), so an unchanged inbox avoids a `git show` and `jq` scan of every envelope.
+The fetch, tree-OID signature scan, priority scan, and count run through the same bounded-execution helper as `*.check.sh` scripts, so a stalled network or clone read times out after `FM_CHECK_TIMEOUT` seconds and cannot hang the watcher's single-threaded loop.
+Acknowledging or otherwise mutating a Bridge envelope stays crewmate-mediated project work; the watcher only reads envelope state, while its read-only fetch updates the clone's remote-tracking ref without changing or acknowledging any envelope.
 
 ## Environment variables
 
@@ -373,9 +374,9 @@ FM_POLL=15              # seconds between watcher poll cycles
 FM_HEARTBEAT=600        # base seconds between heartbeat scans; no-change heartbeats are absorbed while idle
 FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 FM_CHECK_INTERVAL=300   # seconds between slow checks (merge polls, the X-mode poll shim, or the default Bridge inbox cadence)
-FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script, and the same bound used by the Bridge inbox signature/priority scans
-FM_BRIDGE_VESSEL=coditan   # vessel name whose Bridge inbox the watcher reads (projects/coditan-bridge/inbox/<vessel>/new/)
-FM_BRIDGE_ROOT=$FM_HOME/projects/coditan-bridge   # Bridge clone root the watcher reads read-only
+FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script, and the same bound used by Bridge fetch/signature/priority/count operations
+FM_BRIDGE_VESSEL=coditan   # vessel name whose Bridge inbox the watcher reads from origin/main (inbox/<vessel>/new/)
+FM_BRIDGE_ROOT=$FM_HOME/projects/coditan-bridge   # Bridge clone whose origin/main remote-tracking ref the watcher fetches and reads
 FM_BRIDGE_URGENT_CHECK_INTERVAL=30   # seconds between Bridge inbox checks while the highest pending priority is high or immediate; other traffic uses FM_CHECK_INTERVAL
 FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh
