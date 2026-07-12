@@ -306,6 +306,17 @@ In dry-run, `fm-x-dismiss.sh` records `{request_id, endpoint:"dismiss"}` to the 
 The live answer and follow-up bodies intentionally stay the same shape, including optional `image`; the relay distinguishes them by endpoint, and dismiss stays `{request_id}`.
 These paths need `jq` to build the JSON payload, but they run before token and network checks, so they need neither `FMX_PAIRING_TOKEN` nor `curl`.
 
+## Bridge inbox check (FM_BRIDGE_*)
+
+`bin/fm-watch.sh` reads this vessel's own `projects/coditan-bridge/inbox/coditan/new/` directory read-only on every poll, so pending unacknowledged Bridge envelopes become durable actionable `check:` wakes without the watcher ever acknowledging or otherwise mutating Bridge.
+`FM_BRIDGE_VESSEL` (default `coditan`) and `FM_BRIDGE_ROOT` (default `$FM_HOME/projects/coditan-bridge`) select the vessel name and clone root; a missing inbox directory (no Bridge clone, or a different vessel name) is silent and costs one plain bash existence check per poll, no fork.
+When envelopes are pending, the watcher reads each envelope's `priority` field (`jq -r '.priority // "normal"'`) and reports the count and highest priority as `check: bridge-inbox: bridge-inbox <vessel> pending=<n> highest=<priority>`.
+An empty inbox stays silent, exactly like the merge and X-mode check paths.
+Only the Bridge check's own polling cadence reacts to priority: it defaults to `FM_CHECK_INTERVAL` (the same shared slow-check cadence used by merge and X-mode polls) and tightens to `FM_BRIDGE_URGENT_CHECK_INTERVAL` (default 30 seconds) only while the highest pending priority is `high` or `immediate`; PR-merge polling, X-mode polling, and heartbeat cadence are unaffected.
+The priority scan itself is cached on disk (`state/.bridge-priority-cache`) by a cheap name-plus-size:mtime signature of the inbox listing (`state/.bridge-interval-cache` holds the derived cadence), so an unchanged inbox costs one bash-only signature scan per poll instead of a fork-and-`jq`-per-file scan every cycle; discovery of a changed signature, and thus of newly arrived high/immediate traffic, is itself gated to at most once per `FM_BRIDGE_URGENT_CHECK_INTERVAL` via `state/.last-bridge-discovery`, so the cadence it feeds never lags behind it.
+Both the signature scan and the priority scan run through the same bounded-execution helper as `*.check.sh` scripts, so a stalled read (for example an NFS hang on the `projects/` clone) times out after `FM_CHECK_TIMEOUT` seconds and cannot hang the watcher's single-threaded loop.
+Acknowledging or otherwise mutating a Bridge envelope stays crewmate-mediated project work; the watcher only ever reads.
+
 ## Environment variables
 
 Runtime tuning via environment variables (defaults shown):
@@ -341,8 +352,11 @@ FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the guarded operatio
 FM_POLL=15              # seconds between watcher poll cycles
 FM_HEARTBEAT=600        # base seconds between heartbeat scans; no-change heartbeats are absorbed while idle
 FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
-FM_CHECK_INTERVAL=300   # seconds between slow checks (merge polls or the X-mode poll shim)
-FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script
+FM_CHECK_INTERVAL=300   # seconds between slow checks (merge polls, the X-mode poll shim, or the default Bridge inbox cadence)
+FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script, and the same bound used by the Bridge inbox signature/priority scans
+FM_BRIDGE_VESSEL=coditan   # vessel name whose Bridge inbox the watcher reads (projects/coditan-bridge/inbox/<vessel>/new/)
+FM_BRIDGE_ROOT=$FM_HOME/projects/coditan-bridge   # Bridge clone root the watcher reads read-only
+FM_BRIDGE_URGENT_CHECK_INTERVAL=30   # seconds between Bridge inbox checks while the highest pending priority is high or immediate; other traffic uses FM_CHECK_INTERVAL
 FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh
 FM_CREW_STATE_RUNS_LIMIT=200  # recent no-mistakes runs rows scanned when cross-branch attribution falls back from axi status

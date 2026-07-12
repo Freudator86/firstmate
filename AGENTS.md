@@ -107,7 +107,7 @@ state/               volatile runtime signals; gitignored
   .wake-queue        durable queued wakes: epoch<TAB>seq<TAB>kind<TAB>key<TAB>payload
   .afk               durable away-mode flag; present = sub-supervisor may inject escalations (set by /afk, cleared on user return)
   .watch.lock .wake-queue.lock watcher singleton and queue serialization locks
-  .hash-* .count-* .stale-* .stale-since-* .paused-* .wedge-escalations-* .seen-* .hb-surfaced-* .last-* .heartbeat-streak   watcher internals; never touch
+  .hash-* .count-* .stale-* .stale-since-* .paused-* .wedge-escalations-* .seen-* .hb-surfaced-* .last-* .heartbeat-streak .bridge-*   watcher internals; never touch
   .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
   .last-watcher-beat watcher liveness beacon, touched every poll (including while absorbing benign wakes); guard scripts read it
   .subsuper-* .supervise-daemon.*   sub-supervisor internals; never touch
@@ -554,6 +554,7 @@ The emitted block is the only per-harness operating recipe in the session contex
 Do not substitute another harness's command shape for it.
 **Always-on wake triage (absorb only when provably working).**
 `bin/fm-watch.sh` classifies every wake in bash and absorbs the benign majority without waking you: crews with positive working evidence (an actively-running no-mistakes step for their branch, or a busy pane, read via `bin/fm-crew-state.sh`), a declared `paused:` external wait until its bounded recheck cadence, and no-change heartbeats.
+It also checks this vessel's `projects/coditan-bridge/inbox/coditan/new/` read-only, surfaces pending envelopes as `check:` wakes, and shortens only that check's cadence when the highest pending priority is `high` or `immediate`; acknowledgment remains crewmate-mediated project work.
 It never absorbs a crewmate that stopped without that evidence - whatever its stale status log claims - and only an actionable wake is queued durably and ends the supervision wait, so you resume the emitted protocol exactly once per actionable event.
 A `paused:` status is a deliberate external wait, not `blocked:`; its initial signal still surfaces once, and a forgotten pause re-surfaces for a recheck once per window.
 Repeated provably-working stale escalations on one unchanged pane eventually add `demand-deep-inspection` to the wake reason so it is not mistaken for another routine validation wait.
@@ -595,7 +596,7 @@ On wake, in order of cheapness:
 3. `stale:` the crewmate stopped without reporting; peek the pane (`bin/fm-peek.sh <window>`) to diagnose.
    If the stale reason includes `demand-deep-inspection`, inspect the pane, `bin/fm-crew-state.sh <id>`, and the validation logs before resuming supervision.
    If the pane is waiting, looping, confused, or unresponsive, load `stuck-crewmate-recovery`.
-4. `check:` a per-task poll fired (usually a merge, or X mode when enabled); act on it.
+4. `check:` a per-task poll fired (usually a merge, Bridge inbox traffic, or X mode when enabled); act on it.
 5. `heartbeat:` a heartbeat wake now reaches you only when the watcher's bash fleet-scan caught a captain-relevant status the per-wake path missed (no-change heartbeats are absorbed in bash, never surfaced), so treat it as "something turned up" and review the whole fleet: start with `bin/fm-fleet-view.sh` for the structured overview, use `bin/fm-crew-state.sh <id>` only for targeted follow-up, peek panes that look off, check PR-ready tasks for merge, reconcile data/backlog.md, then resume the emitted supervision protocol.
    Do not report that the fleet is unchanged.
 

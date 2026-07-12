@@ -99,6 +99,9 @@ HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat scans
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
 CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}     # seconds allowed per *.check.sh
+BRIDGE_VESSEL=${FM_BRIDGE_VESSEL:-coditan}
+BRIDGE_ROOT=${FM_BRIDGE_ROOT:-$FM_HOME/projects/coditan-bridge}
+BRIDGE_URGENT_CHECK_INTERVAL=${FM_BRIDGE_URGENT_CHECK_INTERVAL:-30}
 SIGNAL_GRACE=${FM_SIGNAL_GRACE:-30}   # seconds to linger after a signal so trailing
                                       # signals (a status write, then the same turn's
                                       # turn-end hook) coalesce into one wake
@@ -406,16 +409,138 @@ scan_signals() {
   return 0
 }
 
-run_check() {
-  local c=$1
+# Bounded execution of an arbitrary command, mirroring the fallback chain below:
+# timeout, gtimeout, or a perl-based alarm when neither is on PATH. Shared by
+# run_check() (a *.check.sh script) and the Bridge inbox scan (a sourced bash
+# function, run via `bash -c` so a stalled read - e.g. an NFS hang on the
+# projects/ clone - can never block the watcher's single-threaded loop).
+run_bounded() {
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$CHECK_TIMEOUT" bash "$c" 2>/dev/null || true
+    timeout "$CHECK_TIMEOUT" "$@" 2>/dev/null || true
   elif command -v gtimeout >/dev/null 2>&1; then
-    gtimeout "$CHECK_TIMEOUT" bash "$c" 2>/dev/null || true
+    gtimeout "$CHECK_TIMEOUT" "$@" 2>/dev/null || true
   else
     # shellcheck disable=SC2016  # single quotes are deliberate: Perl expands its own variables.
-    perl -e 'my $t = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0); exec @ARGV } local $SIG{ALRM} = sub { kill "TERM", -$pid; select undef, undef, undef, 0.2; kill "KILL", -$pid; exit 124 }; alarm $t; waitpid $pid, 0; exit($? >> 8)' "$CHECK_TIMEOUT" bash "$c" 2>/dev/null || true
+    perl -e 'my $t = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0); exec @ARGV } local $SIG{ALRM} = sub { kill "TERM", -$pid; select undef, undef, undef, 0.2; kill "KILL", -$pid; exit 124 }; alarm $t; waitpid $pid, 0; exit($? >> 8)' "$CHECK_TIMEOUT" "$@" 2>/dev/null || true
   fi
+}
+
+run_check() {
+  local c=$1
+  run_bounded bash "$c"
+}
+
+# Bridge is pull-only, so inspect this vessel's tracked new/ directory without
+# invoking Bridge's mutating inbox helper. High and immediate traffic shortens
+# only this check's persisted cadence; low and normal traffic keeps the ordinary
+# slow-check interval. Missing clones and empty inboxes are silent.
+bridge_pending_priority_scan() {
+  local inbox="$BRIDGE_ROOT/inbox/$BRIDGE_VESSEL/new" f priority rank=-1
+  [ -d "$inbox" ] || { echo none; return; }
+  for f in "$inbox"/*.json; do
+    [ -f "$f" ] || continue
+    priority=$(jq -r '.priority // "normal"' "$f" 2>/dev/null || echo normal)
+    case "$priority" in
+      immediate) rank=3 ;;
+      high) [ "$rank" -lt 2 ] && rank=2 ;;
+      normal) [ "$rank" -lt 1 ] && rank=1 ;;
+      low) [ "$rank" -lt 0 ] && rank=0 ;;
+      *) [ "$rank" -lt 1 ] && rank=1 ;;
+    esac
+  done
+  case "$rank" in
+    3) echo immediate ;;
+    2) echo high ;;
+    1) echo normal ;;
+    0) echo low ;;
+    *) echo none ;;
+  esac
+}
+export -f bridge_pending_priority_scan
+
+# Cheap stand-in for "has the inbox changed": the concatenated name plus
+# size:mtime signature of every pending envelope. Bridge is an external system
+# this repo cannot verify, so the signature does not just trust that envelopes
+# are write-once - it pairs each name with stat_sig, so a non-atomic write that
+# completes after being first observed, or any priority edited in place under
+# an existing filename, changes the signature too instead of being cached
+# forever under the first-observed value. An arrival or removal still changes
+# the name set regardless; unlike a directory mtime, several envelopes landing
+# within the same mtime-resolution second still change this signature, since
+# each adds a distinct name to the listing.
+bridge_inbox_signature_scan() {
+  local inbox="$BRIDGE_ROOT/inbox/$BRIDGE_VESSEL/new" f sig=""
+  [ -d "$inbox" ] || { echo absent; return; }
+  for f in "$inbox"/*.json; do
+    [ -e "$f" ] || continue
+    sig+="${f##*/}:$(stat_sig "$f");"
+  done
+  printf '%s' "${sig:-empty}"
+}
+export -f stat_sig
+export -f bridge_inbox_signature_scan
+
+# Bounded wrapper: a stalled directory read still cannot hang the watcher, same
+# as run_check(). Timeout/failure yields empty output, mapped to a sentinel
+# that never matches a real signature, so the caller treats it as "unknown"
+# rather than silently caching a wrong signature.
+bridge_inbox_signature() {
+  local out
+  out=$(BRIDGE_ROOT="$BRIDGE_ROOT" BRIDGE_VESSEL="$BRIDGE_VESSEL" run_bounded bash -c 'bridge_inbox_signature_scan')
+  printf '%s' "${out:-timeout}"
+}
+
+# Bounded wrapper around the priority scan above: a stalled directory read (or
+# a hung jq) times out silently via run_bounded's CHECK_TIMEOUT, same as
+# run_check(), instead of a timeout or read failure ever fabricating a false
+# priority. Cached on disk by inbox signature so an unchanged inbox costs one
+# cheap bash-only signature scan per poll instead of a fork+jq-per-file scan
+# every cycle: bridge_check_interval() calls this on every watcher loop
+# iteration (to decide the cadence itself), so without this cache the scan
+# would run far more often than the cadence it feeds ever needs. A timed-out
+# signature scan skips the priority scan entirely for that cycle rather than
+# spending a second bounded wait on the same stalled read, and a timed-out or
+# failed priority scan never overwrites the cache, so the next cycle retries
+# instead of freezing on a stale value. A missing inbox directory (no Bridge
+# clone) short-circuits on a plain bash builtin before any of that, so this
+# never forks at all for a vessel that has not set Bridge up.
+bridge_pending_priority() {
+  local cache="$STATE/.bridge-priority-cache" sig cached_sig="" cached_priority="" out
+  [ -d "$BRIDGE_ROOT/inbox/$BRIDGE_VESSEL/new" ] || { printf '%s' none; return; }
+  sig=$(bridge_inbox_signature)
+  if [ -f "$cache" ]; then
+    IFS=$'\t' read -r cached_sig cached_priority < "$cache" 2>/dev/null || true
+  fi
+  if [ "$sig" = timeout ]; then
+    printf '%s' "${cached_priority:-none}"
+    return
+  fi
+  if [ -n "$cached_sig" ] && [ "$sig" = "$cached_sig" ]; then
+    printf '%s' "${cached_priority:-none}"
+    return
+  fi
+  out=$(BRIDGE_ROOT="$BRIDGE_ROOT" BRIDGE_VESSEL="$BRIDGE_VESSEL" run_bounded bash -c 'bridge_pending_priority_scan')
+  if [ -z "$out" ]; then
+    printf '%s' "${cached_priority:-none}"
+    return
+  fi
+  printf '%s\t%s\n' "$sig" "$out" > "$cache" 2>/dev/null || true
+  printf '%s' "$out"
+}
+
+bridge_check_interval() {
+  case "$(bridge_pending_priority)" in
+    high|immediate) echo "$BRIDGE_URGENT_CHECK_INTERVAL" ;;
+    *) echo "$CHECK_INTERVAL" ;;
+  esac
+}
+
+bridge_inbox_check() {
+  local inbox="$BRIDGE_ROOT/inbox/$BRIDGE_VESSEL/new" highest count
+  highest=$(bridge_pending_priority)
+  [ "$highest" != none ] || return 0
+  count=$(run_bounded find "$inbox" -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l | tr -d '[:space:]')
+  printf 'bridge-inbox %s pending=%s highest=%s\n' "$BRIDGE_VESSEL" "${count:-0}" "$highest"
 }
 
 # Surfaced-marker bookkeeping for the heartbeat backstop. The watcher records the
@@ -645,6 +770,36 @@ while :; do
       fi
     done
     touch "$STATE/.last-check"
+  fi
+
+  # Bridge has its own cadence marker so urgent inbox traffic can tighten this
+  # read-only poll without changing PR-merge, X-mode, or heartbeat schedules.
+  # bridge_check_interval() forks a bounded subprocess to read the inbox
+  # signature (and, on a changed signature, the per-file priority), so
+  # computing it is itself gated to at most once per BRIDGE_URGENT_CHECK_INTERVAL
+  # - the tightest cadence it can ever produce - rather than every watcher tick;
+  # a missing inbox directory short-circuits with a plain bash builtin first, no
+  # fork at all. Newly arrived high/immediate traffic is still discovered within
+  # that same urgent window, so the cadence it feeds never lags behind it.
+  bridge_inbox_dir="$BRIDGE_ROOT/inbox/$BRIDGE_VESSEL/new"
+  if [ ! -d "$bridge_inbox_dir" ]; then
+    bridge_interval=$CHECK_INTERVAL
+  elif [ "$(age_of "$STATE/.last-bridge-discovery")" -ge "$BRIDGE_URGENT_CHECK_INTERVAL" ]; then
+    bridge_interval=$(bridge_check_interval)
+    printf '%s' "$bridge_interval" > "$STATE/.bridge-interval-cache" 2>/dev/null || true
+    touch "$STATE/.last-bridge-discovery"
+  else
+    bridge_interval=$(cat "$STATE/.bridge-interval-cache" 2>/dev/null)
+    [ -n "$bridge_interval" ] || bridge_interval=$CHECK_INTERVAL
+  fi
+  if [ "$(age_of "$STATE/.last-bridge-check")" -ge "$bridge_interval" ]; then
+    out=$(bridge_inbox_check)
+    touch "$STATE/.last-bridge-check"
+    if [ -n "$out" ]; then
+      reason="check: bridge-inbox: $out"
+      fm_wake_append check bridge-inbox "$reason" || exit 1
+      wake "$reason"
+    fi
   fi
 
   # On the first changed signal, linger one grace period and re-scan before
