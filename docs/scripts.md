@@ -10,6 +10,7 @@ If you have changed away from the firstmate home in an interactive shell, invoke
 | `fm-bootstrap.sh`        | Detect toolchain and fleet problems, run the locked session-start sweeps, and install approved tools |
 | `fm-axi-suite.sh`        | Check and gate patch/minor self-updates of the npm-distributed AXI CLI suite     |
 | `fm-firstmate-update-check.sh` | Read-only check for relevant upstream `kunchenguid/firstmate` instruction-surface commits |
+| `fm-fork-sync-check.sh` | Detect a pending curated-fork merge and prefilter its fork-only patch review |
 | `fm-lint.sh`             | Single owner of firstmate's shell-lint definition: file set, config, and pinned ShellCheck version |
 | `fm-install-shellcheck.sh` | Install CI's pinned, checksum-verified ShellCheck build `fm-lint.sh` requires      |
 | `fm-fleet-sync.sh`       | Refresh project clones with safe fast-forwards, self-heals, `STUCK:` reports, branch pruning, and bounded recovery from an orphaned `.git/packed-refs.lock` |
@@ -49,7 +50,9 @@ If you have changed away from the firstmate home in an interactive shell, invoke
 | `fm-watch-arm.sh`        | Verified home-scoped watcher arm wrapper with honest status reporting                |
 | `fm-watch-checkpoint.sh` | Run one bounded foreground watcher checkpoint for Codex-style supervision            |
 | `fm-watch.sh`            | Singleton-safe always-on watcher: absorb benign wakes, queue and exit on actionable ones |
-| `fm-afk-start.sh`        | Enter away mode and run the sub-supervisor daemon as a tracked foreground process    |
+| `fm-afk-start.sh`        | Run the common sourceable away-mode daemon entry in the foreground                      |
+| `fm-afk-launch.sh`       | Own away-mode entry, exit, rollback, and any backend terminal lifecycle                 |
+| `fm-supervisor-target-lib.sh` | Resolve the shared supervisor target and backend for the daemon and launcher       |
 | `fm-supervise-daemon.sh` | Presence-gated away-mode sub-supervisor: self-handle routine wakes, escalate batched digests, alert on failed delivery |
 | `fm-crew-state.sh`       | Print one deterministic current-state line for a crew                                |
 | `fm-tangle-lib.sh`       | Shared default-branch resolution and primary-checkout tangle classification          |

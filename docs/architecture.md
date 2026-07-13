@@ -218,6 +218,7 @@ The update is fast-forward only: dirty, diverged, offline, and off-default targe
 The origin-based updater and the local secondmate sync share the same guarded fast-forward helper; only the origin mode fetches.
 The mechanics are owned by the `/updatefirstmate` skill and firstmate's operating manual in [`AGENTS.md`](../AGENTS.md) (self-update).
 A separate, read-only check compares the local default branch against `kunchenguid/firstmate`'s upstream default branch and flags it only when an upstream-only commit changes the running instruction surface (`AGENTS.md`, `bin/`, `.agents/skills/`); it never updates the checkout itself and is not invoked by bootstrap, so it needs external cron/systemd scheduling - see [configuration.md](configuration.md#upstream-firstmate-update-check).
+A sibling read-only check, `bin/fm-fork-sync-check.sh`, runs on the curator vessel that maintains the fleet's curated fork: it compares the fork's default branch against real upstream, self-gates completed comparisons to every three days, and flags a pending merge plus a mechanically prefiltered fork-only patch review for `docs/fork-patches.md`; it shares the same external-scheduling requirement and configuration doc section.
 
 ## Restart-proof
 

@@ -251,15 +251,24 @@ It never modifies the checkout and never contacts Bridge; it only persists `stat
 Unlike `fm-axi-suite.sh`, bootstrap does not invoke this script itself, so the check only runs when something calls it.
 Schedule it externally, at a cadence around twice daily, with cron or a systemd timer per firstmate home; a session-start-only cadence would miss updates between sessions on a long-running vessel.
 
-A cron example, run from the firstmate home directory:
+A cron example for an ordinary vessel, run from the firstmate home directory:
 
 ```
 0 8,20 * * * cd /path/to/firstmate-home && bin/fm-firstmate-update-check.sh >/dev/null
 ```
 
-A systemd timer/service pair does the same on a `OnCalendar=*-*-* 08,20:00:00` schedule, with `WorkingDirectory=` set to the firstmate home and `ExecStart=` invoking the script.
+The curator vessel also invokes `bin/fm-fork-sync-check.sh` daily; its persisted timestamp self-gates completed comparisons to every three days.
+A curator vessel installs both lines in the same crontab entry:
+
+```
+0 8,20 * * * cd /path/to/firstmate-home && bin/fm-firstmate-update-check.sh >/dev/null
+30 8 * * * cd /path/to/firstmate-home && bin/fm-fork-sync-check.sh >/dev/null
+```
+
+A systemd timer/service pair does the same on a `OnCalendar=*-*-* 08,20:00:00` schedule, with `WorkingDirectory=` set to the firstmate home and `ExecStart=` invoking the script; a curator vessel adds a second timer/service pair invoking `bin/fm-fork-sync-check.sh` the same way.
 For a secondmate home, point `WorkingDirectory=`/`cd` at that home's own root, since each home has its own `state/` and its own upstream comparison.
 `FM_FIRSTMATE_UPSTREAM_URL` overrides the canonical upstream URL for the comparison; `FM_FIRSTMATE_UPSTREAM_HEAD` and `FM_FIRSTMATE_COMPARE_REPO` are test-only overrides that skip network discovery.
+`FM_FIRSTMATE_FORK_URL` and `FM_FORK_SYNC_COMPARE_REPO` are the equivalent overrides for `bin/fm-fork-sync-check.sh`.
 
 ## X mode (.env)
 
@@ -367,6 +376,8 @@ FM_AXI_SUITE_TOOLS='quota-axi gh-axi tasks-axi gnhf lavish-axi chrome-devtools-a
 FM_FIRSTMATE_UPSTREAM_URL=https://github.com/kunchenguid/firstmate.git   # overrides the canonical upstream URL for the read-only instruction-surface comparison
 FM_FIRSTMATE_UPSTREAM_HEAD=   # test-only: skips network discovery, names the upstream commit already present in FM_FIRSTMATE_COMPARE_REPO
 FM_FIRSTMATE_COMPARE_REPO=    # test-only: overrides the comparison repository used by fm-firstmate-update-check.sh
+FM_FIRSTMATE_FORK_URL=        # curator-only: overrides the fork URL used by fm-fork-sync-check.sh; defaults to origin
+FM_FORK_SYNC_COMPARE_REPO=    # test-only: overrides the repository used by fm-fork-sync-check.sh
 FM_BOOTSTRAP_DETECT_ONLY=0   # internal/read-only session-start mode: skip bootstrap's mutating sweeps and print advisory TANGLE wording
 FM_GUARD_READ_ONLY=0    # internal/read-only guard mode: keep alarms but suppress drain, supervision repair, and checkout repair commands
 FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the guarded operation WILL still run.'   # banner continuation line; fm-send.sh overrides it to name the requested message specifically

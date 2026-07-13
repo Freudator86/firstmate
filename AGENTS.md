@@ -106,6 +106,9 @@ state/               volatile runtime signals; gitignored
   axi-suite-update.stuck   persisted AXI_SUITE_STUCK lines; cleared only by a successful non-check-only check; --check-only never writes to it
   firstmate-update.available   persisted FIRSTMATE_UPDATE_AVAILABLE line from the read-only upstream framework check; cleared when the upstream instruction surface is present locally
   firstmate-update.stuck   persisted FIRSTMATE_UPDATE_STUCK line when the upstream framework comparison cannot complete
+  fork-sync.last-run   epoch of the curator vessel's last completed three-day fork comparison
+  fork-sync.pending   persisted FORK_SYNC diagnostic and bounded patch-review list; cleared when the curated fork contains upstream
+  fork-sync.stuck   persisted FORK_SYNC_STUCK line when the curated-fork comparison cannot complete
   .wake-queue        durable queued wakes: epoch<TAB>seq<TAB>kind<TAB>key<TAB>payload
   .afk               durable away-mode flag; present = sub-supervisor may inject escalations (set by /afk, cleared on user return)
   .watch.lock .wake-queue.lock watcher singleton and queue serialization locks
@@ -645,7 +648,7 @@ Inline facts that must survive without a loaded skill:
 - While `state/.afk` exists, the daemon owns the watcher; do not separately arm `fm-watch-arm.sh` or `fm-watch.sh`.
 - If firstmate receives a marked message while afk is active, it is an internal escalation: stay afk and process it.
 - If the message starts with `/afk`, stay afk and refresh the flag.
-- Any other unmarked message means the captain is back: clear `state/.afk`, stop the daemon, flush catch-up from `state/.wake-queue`, `state/.subsuper-escalations`, and `state/.subsuper-inject-wedged`, then resume the emitted primary-harness supervision protocol.
+- Any other unmarked message means the captain is back: stop the daemon so its shutdown flush runs while `state/.afk` is still set and clear `state/.afk` last (the `/afk` skill owns this ordering, via `bin/fm-afk-launch.sh stop`; clearing the flag first would make the flush a no-op), flush catch-up from `state/.wake-queue`, `state/.subsuper-escalations`, and `state/.subsuper-inject-wedged`, then resume the emitted primary-harness supervision protocol.
 - Afk never changes approval authority; PR merges, ask-user findings, destructive actions, irreversible actions, and security-sensitive choices still require the same approval they required before.
 - Bias ambiguous cases toward exit because a present captain beats token savings and a false exit is self-correcting.
 
@@ -764,6 +767,8 @@ Only `AGENTS.md`, `bin/`, and `.agents/skills/` are a running firstmate instruct
 `bin/fm-firstmate-update-check.sh` compares the local default-branch commit with `kunchenguid/firstmate`'s upstream default branch and persists a diagnostic only when an upstream-only commit changes that instruction surface; it never updates the checkout or contacts Bridge.
 Bootstrap only reads the persisted diagnostic; it does not invoke the check itself, so each firstmate home needs an external cron job or systemd timer (recommended: twice daily) calling `bin/fm-firstmate-update-check.sh` for the signal to stay current - see `docs/configuration.md` "Upstream firstmate update check" for the scheduling recipe.
 When bootstrap prints `FIRSTMATE_UPDATE_AVAILABLE:`, dispatch a crewmate to notify the whole fleet through Bridge All-Ships rather than writing to Bridge directly.
+The fleet's actual template is the curated fork, which merges the real upstream every three days and re-evaluates its fork-only patches through `bin/fm-fork-sync-check.sh` and `docs/fork-patches.md`.
+Fork `main` must only advance without rewriting history: rebase and force-push are permanently forbidden, and every upstream-sync PR must land as a true merge commit.
 When the captain invokes `/updatefirstmate` or asks to update firstmate, load the `/updatefirstmate` skill.
 It performs only fast-forward self-updates of firstmate and registered secondmate homes, re-reads `AGENTS.md` when needed, nudges updated live secondmates, and never touches anything under `projects/`.
 
@@ -771,7 +776,7 @@ It performs only fast-forward self-updates of firstmate and registered secondmat
 
 These skills are not captain-invocable; they are conditional operating references you must load at the trigger points below.
 
-- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints any diagnostic or capability line (`MISSING:`, `NEEDS_GH_AUTH`, `TANGLE:`, `CREW_HARNESS_OVERRIDE:`, `CREW_DISPATCH:`, `FLEET_SYNC:`, `SECONDMATE_SYNC:`, `SECONDMATE_LIVENESS:`, `TASKS_AXI:`, `NUDGE_SECONDMATES:`, `AXI_SUITE_UPDATED:`, `AXI_SUITE_REVIEW:`, `AXI_SUITE_STUCK:`, `FIRSTMATE_UPDATE_AVAILABLE:`, `FIRSTMATE_UPDATE_STUCK:`, or `FMX:`); silence needs no load.
+- `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap section prints any diagnostic or capability line (`MISSING:`, `NEEDS_GH_AUTH`, `TANGLE:`, `CREW_HARNESS_OVERRIDE:`, `CREW_DISPATCH:`, `FLEET_SYNC:`, `SECONDMATE_SYNC:`, `SECONDMATE_LIVENESS:`, `TASKS_AXI:`, `NUDGE_SECONDMATES:`, `AXI_SUITE_UPDATED:`, `AXI_SUITE_REVIEW:`, `AXI_SUITE_STUCK:`, `FIRSTMATE_UPDATE_AVAILABLE:`, `FIRSTMATE_UPDATE_STUCK:`, `FORK_SYNC:`, `FORK_SYNC_STUCK:`, or `FMX:`); silence needs no load.
 - `harness-adapters` - load before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
 - `firstmate-orca` - load before switching to Orca, spawning or supervising Orca-backed work, smoke-testing Orca backend behavior, debugging Orca task state, or reconciling Orca-backed task metadata.
 - `stuck-crewmate-recovery` - load after a stale wake, looping pane, repeated confusion, an answered-by-brief question, an unresponsive crewmate, or a failed steer.
@@ -800,3 +805,10 @@ On an `x-mention <request_id>` or `x-mode-error ...` `check:` wake, load `fmx-re
 It owns mention classification, acting on the request, reply composition, voice, thread-splitting, image attachments, dry-run preview, and the completion-follow-up procedure in full, including what an `x-mode-error` wake means instead.
 `docs/configuration.md` "X mode (.env)" has the wire-protocol reference.
 The one fact that must survive here because it fires on a generic terminal wake, not the mention wake itself: when an X-mode-linked task reaches a terminal state, post its final completion follow-up per section 8's wake-handling step before tearing down.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.
