@@ -265,9 +265,10 @@ A curator vessel installs both lines in the same crontab entry:
 30 8 * * * cd /path/to/firstmate-home && bin/fm-fork-sync-check.sh >/dev/null
 ```
 
-A systemd timer/service pair does the same on a `OnCalendar=*-*-* 08,20:00:00` schedule, with `WorkingDirectory=` set to the firstmate home and `ExecStart=` invoking the script.
+A systemd timer/service pair does the same on a `OnCalendar=*-*-* 08,20:00:00` schedule, with `WorkingDirectory=` set to the firstmate home and `ExecStart=` invoking the script; a curator vessel adds a second timer/service pair invoking `bin/fm-fork-sync-check.sh` the same way.
 For a secondmate home, point `WorkingDirectory=`/`cd` at that home's own root, since each home has its own `state/` and its own upstream comparison.
 `FM_FIRSTMATE_UPSTREAM_URL` overrides the canonical upstream URL for the comparison; `FM_FIRSTMATE_UPSTREAM_HEAD` and `FM_FIRSTMATE_COMPARE_REPO` are test-only overrides that skip network discovery.
+`FM_FIRSTMATE_FORK_URL` and `FM_FORK_SYNC_COMPARE_REPO` are the equivalent overrides for `bin/fm-fork-sync-check.sh`.
 
 ## X mode (.env)
 
