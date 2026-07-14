@@ -499,10 +499,10 @@ bridge_inbox_signature() {
 # Bridge clone short-circuits on a plain bash builtin before any of that, so
 # this never forks at all for a home that has not set Bridge up.
 bridge_pending_priority() {
-  local cache="$STATE/.bridge-priority-cache" sig cached_sig="" cached_priority="" out
+  local cache="$STATE/.bridge-priority-cache" sig=${1:-} cached_sig="" cached_priority="" out
   [ -n "$BRIDGE_VESSEL" ] || { printf '%s' none; return; }
   [ -d "$BRIDGE_ROOT/.git" ] || { printf '%s' none; return; }
-  sig=$(bridge_inbox_signature)
+  [ -n "$sig" ] || sig=$(bridge_inbox_signature)
   if [ -f "$cache" ]; then
     IFS=$'\t' read -r cached_sig cached_priority < "$cache" 2>/dev/null || true
   fi
@@ -531,8 +531,8 @@ bridge_check_interval() {
 }
 
 bridge_inbox_check() {
-  local inbox="inbox/$BRIDGE_VESSEL/new" highest count
-  highest=$(bridge_pending_priority)
+  local sig=${1:-} inbox="inbox/$BRIDGE_VESSEL/new" highest count
+  highest=$(bridge_pending_priority "$sig")
   [ "$highest" != none ] || return 0
   count=$(run_bounded git -C "$BRIDGE_ROOT" ls-tree --name-only "origin/main:$inbox" | \
     awk '/[.]json$/' | wc -l | tr -d '[:space:]')
@@ -793,11 +793,25 @@ while :; do
     [ -n "$bridge_interval" ] || bridge_interval=$CHECK_INTERVAL
   fi
   if [ "$(age_of "$STATE/.last-bridge-check")" -ge "$bridge_interval" ]; then
-    out=$(bridge_inbox_check)
+    out=""
+    if [ -n "$BRIDGE_VESSEL" ] && [ -d "$BRIDGE_ROOT/.git" ]; then
+      bridge_sig=$(bridge_inbox_signature)
+      bridge_surfaced=$(cat "$STATE/.bridge-surfaced" 2>/dev/null)
+      if [ "$bridge_sig" != timeout ] && [ "$bridge_sig" != "$bridge_surfaced" ]; then
+        out=$(bridge_inbox_check "$bridge_sig")
+        # A changed signature with nothing pending means acknowledgment emptied
+        # the inbox: clear the marker so it only ever describes the currently
+        # pending set, and a later byte-identical re-delivery fires normally.
+        if [ -z "$out" ]; then
+          rm -f "$STATE/.bridge-surfaced" 2>/dev/null || true
+        fi
+      fi
+    fi
     touch "$STATE/.last-bridge-check"
     if [ -n "$out" ]; then
       reason="check: bridge-inbox: $out"
       fm_wake_append check bridge-inbox "$reason" || exit 1
+      printf '%s' "$bridge_sig" > "$STATE/.bridge-surfaced" 2>/dev/null || true
       wake "$reason"
     fi
   fi

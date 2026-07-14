@@ -94,9 +94,10 @@ EOF
   pass "unconfigured home performs no Bridge scan and emits no wake"
 }
 
-test_pending_envelope_wakes() {
-  local home out pid
+test_bridge_inbox_surfaces_each_signature_once() {
+  local home bridge out pid first_marker second_marker
   home=$(make_home pending)
+  bridge="$home/projects/coditan-bridge"
   out="$home/watch.out"
   write_envelope "$home" urgent high
   FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
@@ -107,7 +108,61 @@ test_pending_envelope_wakes() {
     "pending Bridge envelope did not produce an actionable check wake"
   assert_contains "$(cat "$home/state/.wake-queue")" $'\tcheck\tbridge-inbox\t' \
     "Bridge check wake was not queued durably"
-  pass "pending Bridge envelope produces an actionable check wake"
+  first_marker=$(cat "$home/state/.bridge-surfaced")
+  [ -n "$first_marker" ] || fail "first surfaced inbox signature was not recorded"
+
+  : > "$out"
+  rm -f "$home/state/.wake-queue"
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 \
+    FM_BRIDGE_URGENT_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  sleep 2
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ ! -s "$out" ] || fail "unchanged Bridge inbox signature re-fired a wake: $(cat "$out")"
+  assert_absent "$home/state/.wake-queue" "unchanged Bridge inbox signature created a wake"
+  [ "$(cat "$home/state/.bridge-surfaced")" = "$first_marker" ] || \
+    fail "absorbing an unchanged inbox altered the surfaced marker"
+
+  write_envelope "$home" second normal
+  : > "$out"
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 \
+    FM_BRIDGE_URGENT_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait "$pid" || fail "watcher failed after the Bridge inbox signature changed"
+  assert_contains "$(cat "$out")" "check: bridge-inbox: bridge-inbox coditan pending=2 highest=high" \
+    "changed Bridge inbox signature did not produce a new wake"
+  second_marker=$(cat "$home/state/.bridge-surfaced")
+  [ "$second_marker" != "$first_marker" ] || fail "changed inbox did not advance the surfaced marker"
+
+  git -C "$bridge" rm -q inbox/coditan/new/urgent.json inbox/coditan/new/second.json
+  git -C "$bridge" commit -qm "ack envelopes"
+  git -C "$bridge" push -qu origin main
+  : > "$out"
+  rm -f "$home/state/.wake-queue"
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 \
+    FM_BRIDGE_URGENT_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  sleep 2
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ ! -s "$out" ] || fail "acked Bridge inbox did not stay silent: $(cat "$out")"
+  assert_absent "$home/state/.wake-queue" "acked Bridge inbox created a wake"
+  [ ! -e "$home/state/.bridge-surfaced" ] || \
+    fail "acked inbox did not clear the surfaced marker"
+
+  write_envelope "$home" urgent high
+  write_envelope "$home" second normal
+  : > "$out"
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 \
+    FM_BRIDGE_URGENT_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait "$pid" || fail "watcher failed after a byte-identical Bridge re-delivery"
+  assert_contains "$(cat "$out")" "check: bridge-inbox: bridge-inbox coditan pending=2 highest=high" \
+    "byte-identical re-delivered inbox did not produce a new wake"
+  [ "$(cat "$home/state/.bridge-surfaced")" = "$second_marker" ] || \
+    fail "re-delivered inbox did not record its surfaced signature"
+  pass "Bridge inbox wakes once per pending signature, clears on ack, and re-fires on re-delivery"
 }
 
 test_empty_inbox_is_silent() {
@@ -306,7 +361,7 @@ test_acked_on_origin_ignores_stale_working_tree() {
 
 test_vessel_resolution_precedence
 test_unconfigured_home_skips_bridge_scan
-test_pending_envelope_wakes
+test_bridge_inbox_surfaces_each_signature_once
 test_empty_inbox_is_silent
 test_priority_tightens_only_bridge_cadence
 test_cache_skips_rescan_when_unchanged
