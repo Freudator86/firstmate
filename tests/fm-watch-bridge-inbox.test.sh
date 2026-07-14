@@ -36,6 +36,64 @@ write_envelope() {
   git -C "$home/projects/coditan-bridge" push -qu origin main
 }
 
+# Existing Bridge fixtures explicitly opt into the historical vessel name.
+export FM_BRIDGE_VESSEL=coditan
+
+test_vessel_resolution_precedence() {
+  local home resolved
+  home=$(make_home vessel-resolution)
+  mkdir -p "$home/config"
+  printf '%s\n' tugboat > "$home/config/bridge-vessel"
+
+  resolved=$(
+    FM_HOME="$home" FM_BRIDGE_VESSEL=override \
+      bash -c '. "$1"; printf "%s" "$BRIDGE_VESSEL"' _ "$WATCH"
+  )
+  [ "$resolved" = override ] || fail "FM_BRIDGE_VESSEL did not override config/bridge-vessel: $resolved"
+
+  resolved=$(
+    # shellcheck disable=SC2016  # $1/$BRIDGE_VESSEL belong to the inner bash -c process.
+    env -u FM_BRIDGE_VESSEL FM_HOME="$home" \
+      bash -c '. "$1"; printf "%s" "$BRIDGE_VESSEL"' _ "$WATCH"
+  )
+  [ "$resolved" = tugboat ] || fail "config/bridge-vessel was not used without an env override: $resolved"
+
+  resolved=$(
+    FM_HOME="$home" FM_BRIDGE_VESSEL='' \
+      bash -c '. "$1"; printf "%s" "$BRIDGE_VESSEL"' _ "$WATCH"
+  )
+  [ "$resolved" = tugboat ] || fail "an empty FM_BRIDGE_VESSEL shadowed config/bridge-vessel: $resolved"
+  pass "Bridge vessel resolution prefers a non-empty env value and falls back to per-home config"
+}
+
+test_unconfigured_home_skips_bridge_scan() {
+  local home fakebin counter out pid
+  home=$(make_home unconfigured)
+  fakebin="$TMP_ROOT/fakebin-unconfigured"
+  mkdir -p "$fakebin"
+  counter="$home/timeout-calls"
+  : > "$counter"
+  cat > "$fakebin/timeout" <<'EOF'
+#!/usr/bin/env bash
+echo x >> "$COUNTER_FILE"
+exec /usr/bin/timeout "$@"
+EOF
+  chmod +x "$fakebin/timeout"
+  out="$home/watch.out"
+  env -u FM_BRIDGE_VESSEL COUNTER_FILE="$counter" PATH="$fakebin:$PATH" \
+    FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 \
+    FM_BRIDGE_URGENT_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
+  pid=$!
+  sleep 2
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ ! -s "$out" ] || fail "unconfigured Bridge watcher did not stay silent: $(cat "$out")"
+  assert_absent "$home/state/.wake-queue" "unconfigured Bridge watcher created a wake"
+  [ "$(wc -l < "$counter" | tr -d '[:space:]')" = 0 ] || \
+    fail "unconfigured Bridge watcher still spawned a bounded scan"
+  pass "unconfigured home performs no Bridge scan and emits no wake"
+}
+
 test_pending_envelope_wakes() {
   local home out pid
   home=$(make_home pending)
@@ -246,6 +304,8 @@ test_acked_on_origin_ignores_stale_working_tree() {
   pass "origin ack clears the check without mutating a stale local working tree"
 }
 
+test_vessel_resolution_precedence
+test_unconfigured_home_skips_bridge_scan
 test_pending_envelope_wakes
 test_empty_inbox_is_silent
 test_priority_tightens_only_bridge_cadence

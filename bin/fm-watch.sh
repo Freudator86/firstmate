@@ -99,7 +99,13 @@ HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat scans
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
 CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}     # seconds allowed per *.check.sh
-BRIDGE_VESSEL=${FM_BRIDGE_VESSEL:-coditan}
+if [ -n "${FM_BRIDGE_VESSEL:-}" ]; then
+  BRIDGE_VESSEL=$FM_BRIDGE_VESSEL
+elif [ -f "$FM_HOME/config/bridge-vessel" ]; then
+  IFS= read -r BRIDGE_VESSEL < "$FM_HOME/config/bridge-vessel" || BRIDGE_VESSEL=
+else
+  BRIDGE_VESSEL=
+fi
 BRIDGE_ROOT=${FM_BRIDGE_ROOT:-$FM_HOME/projects/coditan-bridge}
 BRIDGE_URGENT_CHECK_INTERVAL=${FM_BRIDGE_URGENT_CHECK_INTERVAL:-30}
 SIGNAL_GRACE=${FM_SIGNAL_GRACE:-30}   # seconds to linger after a signal so trailing
@@ -489,11 +495,12 @@ bridge_inbox_signature() {
 # signature scan skips the priority scan entirely for that cycle rather than
 # spending a second bounded wait on the same stalled read, and a timed-out or
 # failed priority scan never overwrites the cache, so the next cycle retries
-# instead of freezing on a stale value. A missing Bridge clone short-circuits on
-# a plain bash builtin before any of that, so this never forks at all for a
-# vessel that has not set Bridge up.
+# instead of freezing on a stale value. An unconfigured vessel or a missing
+# Bridge clone short-circuits on a plain bash builtin before any of that, so
+# this never forks at all for a home that has not set Bridge up.
 bridge_pending_priority() {
   local cache="$STATE/.bridge-priority-cache" sig cached_sig="" cached_priority="" out
+  [ -n "$BRIDGE_VESSEL" ] || { printf '%s' none; return; }
   [ -d "$BRIDGE_ROOT/.git" ] || { printf '%s' none; return; }
   sig=$(bridge_inbox_signature)
   if [ -f "$cache" ]; then
@@ -768,10 +775,11 @@ while :; do
   # per-file priority), so computing it is itself gated to at most once per
   # BRIDGE_URGENT_CHECK_INTERVAL - the tightest cadence it can ever produce -
   # rather than every watcher tick;
-  # a missing Bridge clone short-circuits with a plain bash builtin first, no fork
-  # at all. Newly arrived high/immediate traffic is still discovered within
+  # an unconfigured vessel or a missing Bridge clone short-circuits with plain
+  # bash builtins first, no fork at all. Newly arrived high/immediate traffic
+  # is still discovered within
   # that same urgent window, so the cadence it feeds never lags behind it.
-  if [ ! -d "$BRIDGE_ROOT/.git" ]; then
+  if [ -z "$BRIDGE_VESSEL" ] || [ ! -d "$BRIDGE_ROOT/.git" ]; then
     bridge_interval=$CHECK_INTERVAL
   elif [ "$(age_of "$STATE/.last-bridge-discovery")" -ge "$BRIDGE_URGENT_CHECK_INTERVAL" ]; then
     # Fetch updates only the remote-tracking ref. Failure or timeout leaves the
