@@ -287,8 +287,8 @@ fm_afk_launch_commit_terminal() {  # <backend> <target> <extra> [already-recorde
 }
 
 fm_afk_launch_herdr_recover_created() {  # <session> <label>
-  local session=$1 label=$2 workspaces ws_count wsid panes pane_count pane i
-  for i in $(seq 1 20); do
+  local session=$1 label=$2 workspaces ws_count wsid panes pane_count pane _
+  for _ in $(seq 1 20); do
     workspaces=$(fm_backend_herdr_cli "$session" workspace list 2>/dev/null) || { sleep 0.05; continue; }
     ws_count=$(printf '%s' "$workspaces" | jq --arg want "$label" \
       '[.result.workspaces[]? | select(.label == $want)] | length' 2>/dev/null) || { sleep 0.05; continue; }
