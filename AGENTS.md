@@ -58,7 +58,7 @@ CONTRIBUTING.md      contributor workflow and repo conventions
 README.md            public overview and development notes
 .github/workflows/   shared CI and PR enforcement, committed
 .tasks.toml          tracked tasks-axi markdown backend config for the default backlog backend (section 10)
-.codex/              tracked Codex primary profile plus Stop and Graphify PreToolUse hooks (docs/configuration.md "Codex profile and Graphify hooks")
+.codex/              tracked Codex primary profile plus SessionStart, PreToolUse, and Stop hooks (docs/configuration.md "Codex profile and Graphify hooks")
 .agents/skills/      firstmate-loaded internal skills, committed; each carries metadata.internal=true for installers
 .claude/skills       symlink to .agents/skills for claude compatibility
 skills/              standalone public installer-facing skills, committed; not loaded by firstmate
@@ -481,7 +481,7 @@ When updating this file, preserve every safety boundary and keep the always-load
 
 ## Graphify
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+This project may have a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
 
 When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
 
