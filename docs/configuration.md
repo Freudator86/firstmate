@@ -111,8 +111,9 @@ It intentionally mirrors the behavior-test baseline in [`.github/workflows/ci.ym
 
 ## Codex profile and Graphify hooks (.codex/)
 
-The tracked `.codex/config.toml` is the repo-local Codex Firstmate profile.
-It sets `sandbox_mode = "workspace-write"`, `approval_policy = "on-request"`, and `approvals_reviewer = "auto_review"` so Codex keeps a workspace sandbox, escalates blocked boundary work, and uses auto review for approval decisions.
+The tracked `.codex/config.toml` is the authoritative Codex Firstmate profile for firstmate-spawned Codex agents.
+Codex does not auto-load repo-local `.codex/config.toml`, so `bin/fm-spawn.sh` parses that file and passes its `sandbox_mode`, `approval_policy`, and `approvals_reviewer` values as repeatable `codex -c key=value` overrides whenever it launches a Codex crewmate or secondmate.
+Those overrides currently set `sandbox_mode = "workspace-write"`, `approval_policy = "on-request"`, and `approvals_reviewer = "auto_review"` so Codex keeps a workspace sandbox, escalates blocked boundary work, and uses auto review for approval decisions.
 
 The tracked `.codex/hooks.json` has `SessionStart`, `PreToolUse`, and `Stop` project hooks.
 Its `SessionStart` hook is the Codex integration for `bin/fm-sessionstart-nudge.sh`; see [`docs/sessionstart-nudge.md`](sessionstart-nudge.md) for the full native session-start nudge contract.
