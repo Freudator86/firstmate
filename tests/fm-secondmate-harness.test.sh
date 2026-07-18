@@ -40,6 +40,7 @@ set -u
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 fm_git_identity fmtest fmtest@example.com
 TMP_ROOT=$(fm_test_tmproot fm-secondmate-harness)
+CODEX_PROFILE_FLAGS='-c '\''sandbox_mode="workspace-write"'\'' -c '\''approval_policy="on-request"'\'' -c '\''approvals_reviewer="auto_review"'\'''
 export FM_BACKEND=tmux
 
 # ===========================================================================
@@ -590,11 +591,13 @@ test_spawn_explicit_harness_does_not_inherit_secondmate_harness_tokens() {
   [ "$(meta_field "$meta" model)" = default ] || fail "explicit-harness-no-tokens: meta model should stay default"
   [ "$(meta_field "$meta" effort)" = default ] || fail "explicit-harness-no-tokens: meta effort should stay default"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "codex --dangerously-bypass-approvals-and-sandbox" \
-    "explicit-harness-no-tokens: launch did not use codex"
+  assert_contains "$launch" "codex $CODEX_PROFILE_FLAGS" \
+    "explicit-harness-no-tokens: launch did not use codex profile flags"
   assert_not_contains "$launch" "--model" "explicit-harness-no-tokens: launch must not carry a --model flag"
   assert_not_contains "$launch" "model_reasoning_effort" \
     "explicit-harness-no-tokens: launch must not carry a codex effort flag"
+  assert_not_contains "$launch" "--dangerously-bypass-approvals-and-sandbox" \
+    "explicit-harness-no-tokens: launch must not bypass the codex profile"
   pass "C7 spawn: an explicit --harness starts with clean model/effort defaults"
 }
 
@@ -618,10 +621,14 @@ test_spawn_explicit_harness_uses_explicit_profile_axes() {
     "explicit-harness-explicit-axes: launch did not use the explicit --model"
   assert_contains "$launch" "-c 'model_reasoning_effort=\"xhigh\"'" \
     "explicit-harness-explicit-axes: launch did not use the explicit --effort"
+  assert_contains "$launch" "$CODEX_PROFILE_FLAGS" \
+    "explicit-harness-explicit-axes: launch did not use codex profile flags"
   assert_not_contains "$launch" "--model 'opus'" \
     "explicit-harness-explicit-axes: launch leaked the file's model token"
   assert_not_contains "$launch" "model_reasoning_effort=\"high\"" \
     "explicit-harness-explicit-axes: launch leaked the file's effort token"
+  assert_not_contains "$launch" "--dangerously-bypass-approvals-and-sandbox" \
+    "explicit-harness-explicit-axes: launch must not bypass the codex profile"
   pass "C8 spawn: an explicit --harness still honors explicit model/effort flags"
 }
 

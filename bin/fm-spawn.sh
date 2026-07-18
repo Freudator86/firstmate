@@ -9,6 +9,8 @@
 #   axes chosen by firstmate at intake. They are only threaded into harnesses whose
 #   installed CLIs were verified to support that axis; unsupported axes are omitted
 #   from that harness's launch rather than guessed.
+#   Codex launches also require the tracked .codex/config.toml profile and pass its
+#   sandbox_mode, approval_policy, and approvals_reviewer values as CLI overrides.
 #   --backend <name> is the explicit runtime session-provider backend for this
 #   spawn. Without it, the script resolves FM_BACKEND, then config/backend, then
 #   runtime auto-detection (the runtime firstmate itself is executing inside -
@@ -69,6 +71,7 @@
 #     __BRIEF__    absolute path to data/<task-id>/brief.md
 #     __TURNEND__  absolute path to state/<task-id>.turn-ended (for harnesses whose
 #                  turn-end signal rides the launch command, e.g. codex -c notify=[...])
+#     __CODEXCONFIG__ Codex profile overrides parsed from .codex/config.toml
 #     __PIEXT__    absolute path to state/<task-id>.pi-ext.ts (pi turn-end extension,
 #                  written by this script; outside the worktree to avoid pi's trust gate)
 #     __PITURNEND__ absolute path to .pi/extensions/fm-primary-turnend-guard.ts in a pi secondmate home
@@ -327,9 +330,9 @@ launch_template() {
     claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG__"$(cat __BRIEF__)"' ;;
     codex)
       if [ "$kind" = secondmate ]; then
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox "$(cat __BRIEF__)"'
+        printf '%s' 'codex __MODELFLAG____EFFORTFLAG____CODEXCONFIG__"$(cat __BRIEF__)"'
       else
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(cat __BRIEF__)"'
+        printf '%s' 'codex __MODELFLAG____EFFORTFLAG____CODEXCONFIG__-c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(cat __BRIEF__)"'
       fi
       ;;
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(cat __BRIEF__)"' ;;
@@ -478,6 +481,27 @@ effort_flag_for_harness() {
     # flag but no verified effort flag. Its `opencode run --variant` flag belongs
     # to a different, non-interactive launch mode, so fm-spawn does not pass it.
   esac
+}
+
+codex_config_value() {
+  local key=$1 file=$FM_ROOT/.codex/config.toml values count
+  [ -f "$file" ] || { echo "error: missing Codex profile at $file" >&2; return 1; }
+  values=$(sed -n -E "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*\"([^\"]*)\"[[:space:]]*(#.*)?$/\1/p" "$file")
+  count=$(printf '%s\n' "$values" | sed '/^$/d' | wc -l | tr -d ' ')
+  [ "$count" = 1 ] || { echo "error: Codex profile must define exactly one quoted $key in $file" >&2; return 1; }
+  printf '%s\n' "$values"
+}
+
+codex_config_flags_for_harness() {
+  local harness=$1 key value
+  case "$harness" in
+    codex*) ;;
+    *) return 0 ;;
+  esac
+  for key in sandbox_mode approval_policy approvals_reviewer; do
+    value=$(codex_config_value "$key") || return 1
+    printf -- '-c %s ' "$(shell_quote "$key=\"$value\"")"
+  done
 }
 
 json_escape() {
@@ -986,6 +1010,9 @@ $("$FM_ROOT/bin/fm-project-mode.sh" "$PROJ_NAME")
 EOF
 fi
 
+MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
+EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
+CODEXCONFIG=$(codex_config_flags_for_harness "$HARNESS")
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
 {
@@ -1034,10 +1061,9 @@ sq_turnend=$(shell_quote "$TURNEND")
 sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
 sq_piturnend=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-turnend-guard.ts")
 sq_piwatch=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-pi-watch.ts")
-MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
-EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
+LAUNCH=${LAUNCH//__CODEXCONFIG__/$CODEXCONFIG}
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}

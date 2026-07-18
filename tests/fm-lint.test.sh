@@ -6,7 +6,7 @@
 # commands.lint) invoke, so the local lint can never diverge from CI again.
 # Regression origin: with no commands.lint configured, the local no-mistakes
 # lint step never ran the deterministic
-# `shellcheck bin/*.sh bin/backends/*.sh tests/*.sh`, so PRs passed local
+# `shellcheck -x -P "$ROOT" bin/*.sh bin/backends/*.sh tests/*.sh`, so PRs passed local
 # validation yet failed that exact check in CI on info/warning findings such as
 # SC2015, SC1007, and SC2034. A second axis was tool-version skew: CI's
 # ShellCheck floated with the runner image and still emitted SC2015, which
@@ -22,7 +22,8 @@ CI="$ROOT/.github/workflows/ci.yml"
 NM="$ROOT/.no-mistakes.yaml"
 INSTALLER="$ROOT/bin/fm-install-shellcheck.sh"
 # The authoritative file set the one owner must run.
-CANON='shellcheck --norc bin/*.sh bin/backends/*.sh tests/*.sh'
+CANON='for script in bin/*.sh bin/backends/*.sh tests/*.sh; do'
+LINT_CMD="shellcheck --norc -x -P \"\$ROOT\" \"\$@\""
 # The pinned version, read from the single source (the one owner itself).
 REQUIRED=$("$LINT" --required-version)
 
@@ -41,11 +42,12 @@ test_owner_exists_and_executable() {
 
 test_owner_defines_canonical_set() {
   assert_grep "$CANON" "$LINT" "fm-lint.sh must run the canonical shellcheck file set"
+  assert_grep "$LINT_CMD" "$LINT" "fm-lint.sh must follow repo-local sourced files"
   # It must not weaken CI: no severity downgrade and no blanket disable/exclude
   # that would hide findings CI fails on.
   assert_no_grep '--severity' "$LINT" "fm-lint.sh must not lower severity below the CI default"
   assert_no_grep '--exclude' "$LINT" "fm-lint.sh must not blanket-exclude checks CI enforces"
-  [ "$(grep -Fc 'exec shellcheck --norc' "$LINT")" -eq 2 ] || fail "both lint modes must ignore ambient ShellCheck configuration"
+  [ "$(grep -Fc 'run_shellcheck' "$LINT")" -ge 3 ] || fail "both lint modes must use the one ShellCheck invocation"
   pass "fm-lint.sh is the sole authoritative definition at CI-default severity"
 }
 

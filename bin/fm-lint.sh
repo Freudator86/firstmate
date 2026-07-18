@@ -2,7 +2,8 @@
 # fm-lint.sh - the single owner of firstmate's shell-lint definition.
 #
 # Runs ShellCheck over firstmate's tracked shell scripts at ShellCheck's default
-# severity (which reports info, warning, and error - the levels CI fails on).
+# severity (which reports info, warning, and error - the levels CI fails on),
+# following repo-local sourced helpers so info-level SC1091 checks stay useful.
 # The lint command, the file set, the config, AND the pinned ShellCheck version
 # live here and ONLY here, so the gates cannot drift apart: both invoke this
 # script with no arguments.
@@ -67,10 +68,19 @@ if [ "$resolved" != "$REQUIRED_SHELLCHECK" ]; then
   exit 1
 fi
 
+run_shellcheck() {
+  shellcheck --norc -x -P "$ROOT" "$@"
+}
+
 if [ "$#" -gt 0 ]; then
-  exec shellcheck --norc "$@"
+  run_shellcheck "$@"
+  exit $?
 fi
 
 # Canonical file set: the ONE authoritative definition. Callers reference this
 # script; they never re-spell these globs.
-exec shellcheck --norc bin/*.sh bin/backends/*.sh tests/*.sh
+status=0
+for script in bin/*.sh bin/backends/*.sh tests/*.sh; do
+  run_shellcheck "$script" || status=$?
+done
+exit "$status"
