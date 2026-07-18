@@ -486,7 +486,7 @@ effort_flag_for_harness() {
 codex_config_value() {
   local key=$1 file=$FM_ROOT/.codex/config.toml values count
   [ -f "$file" ] || { echo "error: missing Codex profile at $file" >&2; return 1; }
-  values=$(sed -n -E "s/^[[:space:]]*$key[[:space:]]*=[[:space:]]*\"([^\"]*)\"[[:space:]]*(#.*)?$/\1/p" "$file")
+  values=$(sed -n -E "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*\"([^\"]*)\"[[:space:]]*(#.*)?$/\1/p" "$file")
   count=$(printf '%s\n' "$values" | sed '/^$/d' | wc -l | tr -d ' ')
   [ "$count" = 1 ] || { echo "error: Codex profile must define exactly one quoted $key in $file" >&2; return 1; }
   printf '%s\n' "$values"
