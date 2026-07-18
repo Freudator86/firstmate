@@ -435,6 +435,10 @@ test_pi_wiring() {
 }
 
 test_scripts_are_shellcheck_clean() {
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    pass "shellcheck not installed, skipping"
+    return
+  fi
   shellcheck "$ROOT/bin/fm-cd-pretool-check.sh" >/dev/null 2>&1 \
     || fail "bin/fm-cd-pretool-check.sh is not shellcheck-clean"
   pass "bin/fm-cd-pretool-check.sh is shellcheck-clean"

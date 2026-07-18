@@ -98,6 +98,33 @@ install_guard_scripts() {
   chmod +x "$dir/bin/fm-turnend-guard.sh" "$dir/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-supervision-instructions.sh" "$dir/bin/fm-harness.sh"
 }
 
+pi_turnend_extension_js_loader() {
+  cat <<'JS'
+import { readFileSync } from "node:fs";
+
+export async function loadPiTurnendExtension(plugin) {
+  let source = readFileSync(plugin, "utf8");
+  source = source
+    .replace(/^import type .*;\n/gm, "")
+    .replace("const extensionFile = fileURLToPath(import.meta.url);", `const extensionFile = ${JSON.stringify(plugin)};`)
+    .replace(/type LockOwnership = [^\n]+\n\n/, "")
+    .replace(/export default function \(pi: ExtensionAPI\)/, "export default function (pi)")
+    .replace(/function parentPid\(pid: string\): string/, "function parentPid(pid)")
+    .replace(/function pidAlive\(pid: string\): boolean/, "function pidAlive(pid)")
+    .replace(/function lockOwnership\(\): LockOwnership/, "function lockOwnership()")
+    .replace(/function markLoaded\(\): void/, "function markLoaded()")
+    .replace(/function runSessionstartNudge\(\): string/, "function runSessionstartNudge()")
+    .replace(/function runGuard\(\): Promise<\{ code: number; stderr: string \}>/, "function runGuard()")
+    .replace(/function runChecker\(script: string, command: string\): Promise<\{ code: number; stderr: string \}>/, "function runChecker(script, command)")
+    .replace(/function runPretoolCheck\(command: string\): Promise<\{ code: number; stderr: string \}>/, "function runPretoolCheck(command)")
+    .replace(/function runCdCheck\(command: string\): Promise<\{ code: number; stderr: string \}>/, "function runCdCheck(command)")
+    .replace(/\(event as \{ reason\?: unknown \}\)/g, "event")
+    .replace(/\(event.input as \{ command\?: unknown \}\)/g, "event.input");
+  return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+}
+JS
+}
+
 mark_codex_hook_root() {
   local dir=$1
   mkdir -p "$dir/.codex"
@@ -767,13 +794,15 @@ test_pi_extension_forces_followup() {
 }
 
 test_pi_extension_injects_once_per_logical_agent_run() {
-  local repo home ext log out status
+  local repo home ext loader log out status
   repo="$TMP_ROOT/pi-logical-run-root"
   home="$TMP_ROOT/pi-logical-run-home"
   ext="$repo/.pi/extensions/fm-primary-turnend-guard.ts"
   log="$TMP_ROOT/pi-logical-run-guard.log"
   mkdir -p "$repo/.pi/extensions" "$repo/bin" "$home/state"
   cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$ext"
+  loader="$repo/pi-turnend-loader.mjs"
+  pi_turnend_extension_js_loader > "$loader"
   cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 cat >/dev/null
@@ -786,9 +815,11 @@ SH
 exit 0
 SH
   chmod +x "$repo/bin/fm-turnend-guard.sh" "$repo/bin/fm-arm-pretool-check.sh"
-  out=$(PLUGIN="$ext" FM_HOME="$home" FM_GUARD_LOG="$log" node --input-type=module 2>&1 <<'EOF'
+  out=$(PLUGIN="$ext" LOADER="$loader" FM_HOME="$home" FM_GUARD_LOG="$log" node --input-type=module 2>&1 <<'EOF'
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+
+const { loadPiTurnendExtension } = await import(pathToFileURL(process.env.LOADER).href);
 
 const handlers = new Map();
 let prompts = 0;
@@ -803,7 +834,7 @@ const pi = {
     await handlers.get("agent_settled")?.({ type: "agent_settled" }, {});
   },
 };
-const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const mod = await loadPiTurnendExtension(process.env.PLUGIN);
 mod.default(pi);
 if (handlers.has("turn_end")) throw new Error("guard still treats internal Pi turns as logical runs");
 const settled = handlers.get("agent_settled");
@@ -829,12 +860,14 @@ EOF
 }
 
 test_pi_extension_retries_after_followup_delivery_failure() {
-  local repo home ext out status
+  local repo home ext loader out status
   repo="$TMP_ROOT/pi-delivery-failure-root"
   home="$TMP_ROOT/pi-delivery-failure-home"
   ext="$repo/.pi/extensions/fm-primary-turnend-guard.ts"
   mkdir -p "$repo/.pi/extensions" "$repo/bin" "$home/state"
   cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$ext"
+  loader="$repo/pi-turnend-loader.mjs"
+  pi_turnend_extension_js_loader > "$loader"
   cat > "$repo/bin/fm-turnend-guard.sh" <<'SH'
 #!/usr/bin/env bash
 cat >/dev/null
@@ -846,8 +879,10 @@ SH
 exit 0
 SH
   chmod +x "$repo/bin/fm-turnend-guard.sh" "$repo/bin/fm-arm-pretool-check.sh"
-  out=$(PLUGIN="$ext" FM_HOME="$home" node --input-type=module 2>&1 <<'EOF'
+  out=$(PLUGIN="$ext" LOADER="$loader" FM_HOME="$home" node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
+
+const { loadPiTurnendExtension } = await import(pathToFileURL(process.env.LOADER).href);
 
 const handlers = new Map();
 let attempts = 0;
@@ -861,7 +896,7 @@ const pi = {
     await handlers.get("agent_settled")?.({ type: "agent_settled" }, {});
   },
 };
-const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const mod = await loadPiTurnendExtension(process.env.PLUGIN);
 mod.default(pi);
 const settled = handlers.get("agent_settled");
 await settled({ type: "agent_settled" }, {});

@@ -28,6 +28,38 @@ export const Type = {
 JS
 }
 
+pi_watch_extension_js_loader() {
+  cat <<'JS'
+import { readFileSync } from "node:fs";
+
+export async function loadPiWatchExtension(plugin) {
+  let source = readFileSync(plugin, "utf8");
+  source = source
+    .replace(/^import type .*;\n/gm, "")
+    .replace('import { Type } from "typebox";', 'const Type = { Object(properties) { return { type: "object", properties, additionalProperties: false }; } };')
+    .replace("const extensionFile = fileURLToPath(import.meta.url);", `const extensionFile = ${JSON.stringify(plugin)};`)
+    .replace(/type ArmResult = \{[\s\S]*?\};\n\n/, "")
+    .replace(/type LockOwnership = [^\n]+\n\n/, "")
+    .replace(/export default function \(pi: ExtensionAPI\)/, "export default function (pi)")
+    .replace(/let child: any = null;/, "let child = null;")
+    .replace(/function parentPid\(pid: string\): string/, "function parentPid(pid)")
+    .replace(/function pidAlive\(pid: string\): boolean/, "function pidAlive(pid)")
+    .replace(/function lockOwnership\(\): LockOwnership/, "function lockOwnership()")
+    .replace(/function markLoaded\(\): void/, "function markLoaded()")
+    .replace(/async function sendWake\(message: string\)/, "async function sendWake(message)")
+    .replace(/function stopArm\(\): void/, "function stopArm()")
+    .replace(/function actionableLine\(output: string\): string/, "function actionableLine(output)")
+    .replace(/function failureLine\(stdout: string, stderr: string, code: number \| null\): string/, "function failureLine(stdout, stderr, code)")
+    .replace(/function startArm\(\): ArmResult/, "function startArm()")
+    .replace(/\(chunk: Buffer\)/g, "(chunk)")
+    .replace(/\(code: number \| null\)/g, "(code)")
+    .replace(/\(error: Error\)/g, "(error)")
+    .replace(/handler: async \(_args, ctx\) =>/, "handler: async (_args, ctx) =>");
+  return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+}
+JS
+}
+
 test_tracked_extension_present_and_self_hashing() {
   local text expected_config_source
   expected_config_source="config_dir=\\\"\${FM_CONFIG_OVERRIDE:-\$FM_HOME/config}\\\""
@@ -79,19 +111,24 @@ test_spawn_template_mentions_pi_watch_placeholder() {
 }
 
 test_pi_extension_reports_external_healthy_watcher() {
-  local repo home plugin out status
+  local repo home plugin loader out status
   repo="$TMP_ROOT/pi-external-healthy-root"
   home="$TMP_ROOT/pi-external-healthy-home"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  loader="$repo/pi-watch-loader.mjs"
+  pi_watch_extension_js_loader > "$loader"
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'watcher: healthy pid=1 (beacon 0s)\n'
 SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
+  out=$(PLUGIN="$plugin" LOADER="$loader" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
 import { writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const { loadPiWatchExtension } = await import(pathToFileURL(process.env.LOADER).href);
 
 let handler = null;
 let notification = "";
@@ -107,24 +144,7 @@ const pi = {
   },
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
-let source = await import("node:fs").then(({ readFileSync }) => readFileSync(process.env.PLUGIN, "utf8"));
-source = source
-  .replace(/type ArmResult = \{[\s\S]*?\};\n\n/, "")
-  .replace(/type LockOwnership = [^\n]+\n\n/, "")
-  .replace(/export default function \(pi: any\)/, "export default function (pi)")
-  .replace(/let child: any = null;/, "let child = null;")
-  .replace(/function parentPid\(pid: string\): string/, "function parentPid(pid)")
-  .replace(/function pidAlive\(pid: string\): boolean/, "function pidAlive(pid)")
-  .replace(/function lockOwnership\(\): LockOwnership/, "function lockOwnership()")
-  .replace(/function sessionOwnsLock\(\): boolean/, "function sessionOwnsLock()")
-  .replace(/async function sendWake\(message: string\)/, "async function sendWake(message)")
-  .replace(/function actionableLine\(output: string\): string/, "function actionableLine(output)")
-  .replace(/function failureLine\(stdout: string, stderr: string, code: number \| null\): string/, "function failureLine(stdout, stderr, code)")
-  .replace(/function startArm\(\): ArmResult/, "function startArm()")
-  .replace(/\(chunk: Buffer\)/g, "(chunk)")
-  .replace(/\(code: number \| null\)/g, "(code)")
-  .replace(/\(error: Error\)/g, "(error)");
-const mod = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const mod = await loadPiWatchExtension(process.env.PLUGIN);
 mod.default(pi);
 if (!handler) {
   console.error("Pi watch command was not registered");
@@ -169,20 +189,24 @@ EOF
 }
 
 test_pi_tool_returns_agent_tool_result() {
-  local repo home plugin out status
+  local repo home plugin loader out status
   repo="$TMP_ROOT/pi-tool-result-root"
   home="$TMP_ROOT/pi-tool-result-home"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  loader="$repo/pi-watch-loader.mjs"
+  pi_watch_extension_js_loader > "$loader"
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
+  out=$(PLUGIN="$plugin" LOADER="$loader" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
 import { writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+
+const { loadPiWatchExtension } = await import(pathToFileURL(process.env.LOADER).href);
 
 let tool = null;
 const pi = {
@@ -194,7 +218,7 @@ const pi = {
   sendUserMessage: async () => {},
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
-const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const mod = await loadPiWatchExtension(process.env.PLUGIN);
 mod.default(pi);
 if (!tool) throw new Error("Pi watch tool was not registered");
 if (tool.label !== "Arm firstmate watcher") throw new Error(`unexpected label: ${tool.label}`);
@@ -218,22 +242,26 @@ EOF
 }
 
 test_pi_arm_distinguishes_session_lock_ownership() {
-  local repo home plugin log out status
+  local repo home plugin loader log out status
   repo="$TMP_ROOT/pi-lock-ownership-root"
   home="$TMP_ROOT/pi-lock-ownership-home"
   log="$TMP_ROOT/pi-lock-ownership.log"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  loader="$repo/pi-watch-loader.mjs"
+  pi_watch_extension_js_loader > "$loader"
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm\n' >> "${FM_ARM_LOG:?}"
 SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" node --input-type=module 2>&1 <<'EOF'
+  out=$(PLUGIN="$plugin" LOADER="$loader" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" node --input-type=module 2>&1 <<'EOF'
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
+
+const { loadPiWatchExtension } = await import(pathToFileURL(process.env.LOADER).href);
 
 let tool = null;
 const pi = {
@@ -244,7 +272,7 @@ const pi = {
   },
   sendUserMessage: async () => {},
 };
-const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const mod = await loadPiWatchExtension(process.env.PLUGIN);
 mod.default(pi);
 if (!tool) throw new Error("Pi watch tool was not registered");
 
@@ -299,16 +327,20 @@ EOF
 }
 
 test_pi_process_exit_cleanup_listener_lifecycle() {
-  local repo home plugin out status
+  local repo home plugin loader out status
   repo="$TMP_ROOT/pi-exit-listener-root"
   home="$TMP_ROOT/pi-exit-listener-home"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  loader="$repo/pi-watch-loader.mjs"
+  pi_watch_extension_js_loader > "$loader"
   : > "$repo/bin/fm-watch-arm.sh"
   chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
+  out=$(PLUGIN="$plugin" LOADER="$loader" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
+
+const { loadPiWatchExtension } = await import(pathToFileURL(process.env.LOADER).href);
 
 const handlers = new Map();
 const pi = {
@@ -320,7 +352,7 @@ const pi = {
   sendUserMessage: async () => {},
 };
 const before = process.listenerCount("exit");
-const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const mod = await loadPiWatchExtension(process.env.PLUGIN);
 mod.default(pi);
 if (process.listenerCount("exit") !== before + 1) {
   throw new Error("Pi extension did not install exactly one process-exit fallback");
@@ -338,7 +370,7 @@ EOF
 }
 
 test_pi_process_exit_cleanup_stops_arm_child() {
-  local repo home plugin cleanup_log pid_file out status pid i
+  local repo home plugin loader cleanup_log pid_file out status pid i
   repo="$TMP_ROOT/pi-process-exit-root"
   home="$TMP_ROOT/pi-process-exit-home"
   cleanup_log="$TMP_ROOT/pi-process-exit-cleaned"
@@ -346,6 +378,8 @@ test_pi_process_exit_cleanup_stops_arm_child() {
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  loader="$repo/pi-watch-loader.mjs"
+  pi_watch_extension_js_loader > "$loader"
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 trap 'printf "cleaned\n" > "$FM_CLEANUP_LOG"; exit 0' TERM
@@ -353,9 +387,11 @@ printf '%s\n' "$$" > "$FM_CHILD_PID_FILE"
 while :; do sleep 1; done
 SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_CLEANUP_LOG="$cleanup_log" FM_CHILD_PID_FILE="$pid_file" node --input-type=module 2>&1 <<'EOF'
+  out=$(PLUGIN="$plugin" LOADER="$loader" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_CLEANUP_LOG="$cleanup_log" FM_CHILD_PID_FILE="$pid_file" node --input-type=module 2>&1 <<'EOF'
 import { existsSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+
+const { loadPiWatchExtension } = await import(pathToFileURL(process.env.LOADER).href);
 
 let tool = null;
 const pi = {
@@ -367,7 +403,7 @@ const pi = {
   sendUserMessage: async () => {},
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
-const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const mod = await loadPiWatchExtension(process.env.PLUGIN);
 mod.default(pi);
 await tool.execute("tool-call-exit", {}, undefined, undefined, {});
 for (let i = 0; i < 250 && !existsSync(process.env.FM_CHILD_PID_FILE); i += 1) {
