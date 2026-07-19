@@ -299,8 +299,8 @@ sync_project() {
     return 0
   fi
   git_root=$(git -C "$PROJ" rev-parse --show-toplevel 2>/dev/null) || git_root=
-  project_root=$(cd "$PROJ" && pwd -P)
-  if [ -z "$git_root" ] \
+  project_root=$(cd "$PROJ" && pwd -P) || project_root=
+  if [ -z "$git_root" ] || [ -z "$project_root" ] \
       || [ "$(cd "$git_root" 2>/dev/null && pwd -P)" != "$project_root" ]; then
     echo "$label: skipped: not a git repo"
     return 0
