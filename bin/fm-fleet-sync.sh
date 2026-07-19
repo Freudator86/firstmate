@@ -290,6 +290,7 @@ report_stuck() {
 }
 
 sync_project() {
+  local git_root project_root
   PROJ=$1
   label=$(project_label)
 
@@ -297,7 +298,10 @@ sync_project() {
     echo "$label: skipped: not a directory"
     return 0
   fi
-  if ! git -C "$PROJ" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git_root=$(git -C "$PROJ" rev-parse --show-toplevel 2>/dev/null) || git_root=
+  project_root=$(cd "$PROJ" && pwd -P)
+  if [ -z "$git_root" ] \
+      || [ "$(cd "$git_root" 2>/dev/null && pwd -P)" != "$project_root" ]; then
     echo "$label: skipped: not a git repo"
     return 0
   fi

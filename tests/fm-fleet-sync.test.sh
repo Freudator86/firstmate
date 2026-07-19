@@ -450,6 +450,30 @@ test_whole_fleet_form() {
   pass "whole-fleet form processes every clone under projects/"
 }
 
+test_non_repo_directory_inside_enclosing_repo_skipped() {
+  local home remote orphan out
+  home=$(new_home)
+  remote="$TMP_ROOT/enclosing-$HOME_N.git"
+  orphan="$home/projects/fake-gnhf-worktrees"
+
+  git init -q "$home"
+  git -C "$home" symbolic-ref HEAD refs/heads/main
+  commit_file "$home" root.txt v0 C0
+  git clone --quiet --bare "$home" "$remote"
+  git -C "$home" remote add origin "file://$remote"
+  git -C "$home" fetch -q origin
+  git -C "$home" checkout -q -b feature
+  mkdir -p "$orphan/sub"
+
+  out=$(run_sync "$home" "$orphan")
+
+  assert_contains "$out" "fake-gnhf-worktrees: skipped: not a git repo" \
+    "non-repo container nested inside an enclosing repository is skipped"
+  assert_not_contains "$out" "STUCK" "non-repo container is not flagged STUCK"
+  assert_not_contains "$out" "diverged" "non-repo container is not reported as diverged"
+  pass "non-repo container inside an enclosing repository is skipped cleanly"
+}
+
 test_bootstrap_relays_recovered_and_stuck() {
   local home stuck rec out
   home=$(new_home)
@@ -619,6 +643,7 @@ test_single_project_by_projects_relative_name_resolves
 test_single_project_by_projects_relative_name_ignores_cwd_shadow
 test_single_project_unresolvable_name_still_skips
 test_whole_fleet_form
+test_non_repo_directory_inside_enclosing_repo_skipped
 test_bootstrap_relays_recovered_and_stuck
 test_orphaned_stale_packed_refs_lock_recovers
 test_live_packed_refs_lock_is_never_removed
