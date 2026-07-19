@@ -18,7 +18,7 @@
 # standalone with unchanged default behavior - other flows (fm-bootstrap.sh
 # install <tools> after consent, /updatefirstmate, the afk daemon, existing
 # tests) still call them directly. The one seam this script needed -
-# bootstrap running its detect-only diagnostics without its five mutating
+# bootstrap running its detect-only diagnostics without its six mutating
 # sweeps - is an opt-in FM_BOOTSTRAP_DETECT_ONLY=1 flag on fm-bootstrap.sh
 # itself (default unset/0 = unchanged behavior), not a fork.
 #
@@ -27,9 +27,10 @@
 #
 #   1. lock          - acquire the per-home session lock FIRST, before any
 #                       mutating step runs.
-#   2. bootstrap      - detect-only diagnostics always run. The five
-#                       MUTATING sweeps (legacy PR-check migration, secondmate
-#                       fast-forward, secondmate liveness, X-mode artifact writes, fleet sync) run only
+#   2. bootstrap      - detect-only diagnostics always run. The six
+#                       MUTATING sweeps (legacy PR-check migration, AXI-suite
+#                       currency check, secondmate fast-forward, secondmate
+#                       liveness, X-mode artifact writes, fleet sync) run only
 #                       when this session actually holds the lock.
 #   3. wake-drain     - mutates the durable wake queue, so it also only runs
 #                       when locked.
@@ -63,7 +64,7 @@
 # tasks-axi and quota-axi tool checks, and tasks-axi availability - none of
 # which mutate shared state and all of which are safe to compute from a second
 # session.
-# Only the five mutating sweeps and the wake-queue drain are skipped.
+# Only the six mutating sweeps and the wake-queue drain are skipped.
 # The context and fleet-state digests
 # below are always read-only, so they run unconditionally in both modes.
 #

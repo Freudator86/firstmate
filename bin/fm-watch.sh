@@ -31,7 +31,8 @@
 #                          wake payload itself, not just repetition, forces a
 #                          closer look instead of another routine supervision
 #                          resume. Unless afk is active.
-#   check: <script>: <out> authenticated check output, always actionable
+#   check: <source>: <out> authenticated check output or Bridge inbox traffic,
+#                          always actionable
 #   check: rejected unauthenticated state checks: <paths>
 #                          unsafe state checks were refused without execution
 #   heartbeat              fleet-scan backstop found an unsurfaced captain-relevant
