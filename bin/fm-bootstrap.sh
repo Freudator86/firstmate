@@ -16,6 +16,9 @@
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
 #                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed: <reason>",
+#                 "AXI_SUITE_UPDATED|REVIEW|STUCK: <detail>",
+#                 "FIRSTMATE_UPDATE_AVAILABLE|STUCK: <detail>",
+#                 "FORK_SYNC: <detail>" or "FORK_SYNC_STUCK: <detail>",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
 #          When a RUNNING secondmate worktree is fast-forwarded to firstmate's
 #          own current default-branch commit (a purely LOCAL fast-forward, never

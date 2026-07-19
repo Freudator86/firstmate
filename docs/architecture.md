@@ -44,6 +44,8 @@ A bounded direct-report terminal tail can help diagnose a mismatch by showing th
 The snapshot strips control sequences, retains only capture metadata and literal event-corroboration flags, and never lets terminal evidence override a valid structured classification.
 The default path remains local-only; live GitHub enrichment exists only behind the bearings `--include-prs` opt-in.
 Optional X mode integrates with the watcher only after explicit opt-in; [configuration.md](configuration.md#x-mode-env) owns its generated-artifact and dispatch mechanics.
+The optional per-home Bridge inbox check uses the same watcher path to bounded-fetch and read a configured vessel's unacknowledged envelopes from the Bridge clone's `origin/main` without acknowledging them.
+It surfaces each pending inbox tree signature once and tightens only its own cadence for high or immediate priority; [configuration.md](configuration.md#bridge-inbox-check-fm_bridge_) owns the mechanics.
 
 At session start, `bin/fm-session-start.sh` emits exactly one primary-harness supervision block rendered by `bin/fm-supervision-instructions.sh` from `docs/supervision-protocols/`.
 That block owns the live wait shape for the running primary harness: Claude and Grok use background-notify cycles, Codex uses bounded foreground checkpoints, Pi uses its two tracked primary extensions, and OpenCode uses its TUI plugin.
@@ -235,6 +237,8 @@ The refresh also prunes local branches whose remote is gone and that no worktree
 The update is fast-forward only: dirty, diverged, offline, and off-default targets are reported and left untouched.
 The origin-based updater and the local secondmate sync share the same guarded fast-forward helper; only the origin mode fetches.
 The mechanics are owned by the `/updatefirstmate` skill and firstmate's operating manual in [`AGENTS.md`](../AGENTS.md) (self-update).
+The separately scheduled `bin/fm-firstmate-update-check.sh` reports upstream-only instruction-surface changes without updating the checkout.
+The curator-only `bin/fm-fork-sync-check.sh` reports when the curated fork is behind real upstream and points its patch review at `docs/fork-patches.md`.
 
 ## Restart-proof
 

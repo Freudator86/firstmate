@@ -603,10 +603,12 @@ fm_afk_launch_stop() {
 
 fm_afk_launch_main() {
   local result
+  # Install cleanup before acquisition so a signal during the lock race cannot
+  # leave a lock directory behind.
   trap fm_afk_launch_lock_release EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  fm_afk_launch_lock_acquire || return 1
+  fm_afk_launch_lock_acquire || { trap - EXIT INT TERM; return 1; }
   case "${1:-start}" in
     start) fm_afk_launch_start ;;
     start-native) fm_afk_launch_start_native ;;
