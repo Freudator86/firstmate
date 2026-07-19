@@ -39,6 +39,11 @@ export FM_GATE_REFUSE_BYPASS=1
 # shellcheck disable=SC2034
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Bootstrap's production AXI-suite check performs registry reads and package
+# updates. Behavior tests opt out globally; fm-axi-suite.test.sh explicitly
+# re-enables it against its isolated fake npm registry.
+export FM_AXI_SUITE_DISABLE=1
+
 # --- reporters --------------------------------------------------------------
 
 fail() {
@@ -212,4 +217,31 @@ assert_absent() {
 # assert_present <path> <msg>: path must exist.
 assert_present() {
   [ -e "$1" ] || fail "$2"
+}
+
+# --- runtime capability probes -----------------------------------------------
+
+# fm_node_supports_ts_import: true if this `node` can import a .ts file
+# directly (native type-stripping, Node 22.6+ behind a flag or 23.6+ by
+# default). Pi extension tests exec plugins by importing the tracked .ts
+# source at runtime; on an older Node that support is simply absent, so those
+# tests skip rather than fail, the same as this suite's other missing-tool
+# skips (herdr, cmux, zellij, tsc). Cached per process since the probe spawns
+# node.
+FM_NODE_TS_IMPORT_OK=
+fm_node_supports_ts_import() {
+  if [ -z "$FM_NODE_TS_IMPORT_OK" ]; then
+    local probe
+    probe=$(mktemp -d "${TMPDIR:-/tmp}/fm-node-ts-probe.XXXXXX")
+    printf 'export default 1;\n' > "$probe/probe.ts"
+    if PROBE_TS="$probe/probe.ts" node --input-type=module -e \
+      'import { pathToFileURL } from "node:url"; await import(pathToFileURL(process.env.PROBE_TS).href);' \
+      >/dev/null 2>&1; then
+      FM_NODE_TS_IMPORT_OK=1
+    else
+      FM_NODE_TS_IMPORT_OK=0
+    fi
+    rm -rf "$probe"
+  fi
+  [ "$FM_NODE_TS_IMPORT_OK" = 1 ]
 }

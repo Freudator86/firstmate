@@ -107,6 +107,15 @@ HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat scans
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
 CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}     # seconds allowed per *.check.sh
+if [ -n "${FM_BRIDGE_VESSEL:-}" ]; then
+  BRIDGE_VESSEL=$FM_BRIDGE_VESSEL
+elif [ -f "$FM_HOME/config/bridge-vessel" ]; then
+  IFS= read -r BRIDGE_VESSEL < "$FM_HOME/config/bridge-vessel" || BRIDGE_VESSEL=
+else
+  BRIDGE_VESSEL=
+fi
+BRIDGE_ROOT=${FM_BRIDGE_ROOT:-$FM_HOME/projects/coditan-bridge}
+BRIDGE_URGENT_CHECK_INTERVAL=${FM_BRIDGE_URGENT_CHECK_INTERVAL:-30}
 SIGNAL_GRACE=${FM_SIGNAL_GRACE:-30}   # seconds to linger after a signal so trailing
                                       # signals (a status write, then the same turn's
                                       # turn-end hook) coalesce into one wake
@@ -431,6 +440,17 @@ run_check() {
   ( run_check_process "$@" ) 2>/dev/null || true
 }
 
+run_bounded() {
+  if [ "${FM_CHECK_FORCE_FALLBACK:-0}" != 1 ] && command -v timeout >/dev/null 2>&1; then
+    timeout "$CHECK_TIMEOUT" "$@" 2>/dev/null || true
+  elif [ "${FM_CHECK_FORCE_FALLBACK:-0}" != 1 ] && command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$CHECK_TIMEOUT" "$@" 2>/dev/null || true
+  else
+    # shellcheck disable=SC2016
+    perl -e 'my $t = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0); exec @ARGV } local $SIG{ALRM} = sub { kill "TERM", -$pid; select undef, undef, undef, 0.2; kill "KILL", -$pid; exit 124 }; alarm $t; waitpid $pid, 0; exit($? >> 8)' "$CHECK_TIMEOUT" "$@" 2>/dev/null || true
+  fi
+}
+
 FM_ACTIVE_CHECK_PID=
 FM_ACTIVE_CHECK_PGID=
 FM_CHECK_OUTPUT=
@@ -493,6 +513,64 @@ run_check_capture() {
   fm_active_check_stop || return 1
   FM_CHECK_RESULT=$(cat "$FM_CHECK_OUTPUT" 2>/dev/null || true)
   fm_check_output_cleanup
+}
+
+bridge_pending_priority_scan() {
+  local inbox="inbox/$BRIDGE_VESSEL/new" f priority rank=-1
+  while IFS= read -r -d '' f; do
+    case "$f" in *.json) ;; *) continue ;; esac
+    priority=$(git -C "$BRIDGE_ROOT" show "origin/main:$inbox/$f" 2>/dev/null | jq -r '.priority // "normal"' 2>/dev/null || echo normal)
+    case "$priority" in
+      immediate) rank=3 ;;
+      high) [ "$rank" -lt 2 ] && rank=2 ;;
+      normal) [ "$rank" -lt 1 ] && rank=1 ;;
+      low) [ "$rank" -lt 0 ] && rank=0 ;;
+      *) [ "$rank" -lt 1 ] && rank=1 ;;
+    esac
+  done < <(git -C "$BRIDGE_ROOT" ls-tree -z --name-only "origin/main:$inbox" 2>/dev/null)
+  case "$rank" in 3) echo immediate ;; 2) echo high ;; 1) echo normal ;; 0) echo low ;; *) echo none ;; esac
+}
+export -f bridge_pending_priority_scan
+
+bridge_inbox_signature_scan() {
+  local inbox="inbox/$BRIDGE_VESSEL/new" sig
+  sig=$(git -C "$BRIDGE_ROOT" rev-parse "origin/main:$inbox" 2>/dev/null || true)
+  printf '%s' "${sig:-empty}"
+}
+export -f bridge_inbox_signature_scan
+
+bridge_inbox_signature() {
+  local out
+  out=$(BRIDGE_ROOT="$BRIDGE_ROOT" BRIDGE_VESSEL="$BRIDGE_VESSEL" run_bounded bash -c 'bridge_inbox_signature_scan')
+  printf '%s' "${out:-timeout}"
+}
+
+bridge_pending_priority() {
+  local cache="$STATE/.bridge-priority-cache" sig=${1:-} cached_sig="" cached_priority="" out
+  [ -n "$BRIDGE_VESSEL" ] || { printf '%s' none; return; }
+  [ -d "$BRIDGE_ROOT/.git" ] || { printf '%s' none; return; }
+  [ -n "$sig" ] || sig=$(bridge_inbox_signature)
+  if [ -f "$cache" ]; then
+    IFS=$'\t' read -r cached_sig cached_priority < "$cache" 2>/dev/null || true
+  fi
+  if [ "$sig" = timeout ]; then printf '%s' "${cached_priority:-none}"; return; fi
+  if [ -n "$cached_sig" ] && [ "$sig" = "$cached_sig" ]; then printf '%s' "${cached_priority:-none}"; return; fi
+  out=$(BRIDGE_ROOT="$BRIDGE_ROOT" BRIDGE_VESSEL="$BRIDGE_VESSEL" run_bounded bash -c 'bridge_pending_priority_scan')
+  if [ -z "$out" ]; then printf '%s' "${cached_priority:-none}"; return; fi
+  printf '%s\t%s\n' "$sig" "$out" > "$cache" 2>/dev/null || true
+  printf '%s' "$out"
+}
+
+bridge_check_interval() {
+  case "$(bridge_pending_priority)" in high|immediate) echo "$BRIDGE_URGENT_CHECK_INTERVAL" ;; *) echo "$CHECK_INTERVAL" ;; esac
+}
+
+bridge_inbox_check() {
+  local sig=${1:-} inbox="inbox/$BRIDGE_VESSEL/new" highest count
+  highest=$(bridge_pending_priority "$sig")
+  [ "$highest" != none ] || return 0
+  count=$(run_bounded git -C "$BRIDGE_ROOT" ls-tree --name-only "origin/main:$inbox" | awk '/[.]json$/' | wc -l | tr -d '[:space:]')
+  printf 'bridge-inbox %s pending=%s highest=%s\n' "$BRIDGE_VESSEL" "${count:-0}" "$highest"
 }
 
 # Surfaced-marker bookkeeping for the heartbeat backstop. The watcher records the
@@ -772,6 +850,36 @@ while :; do
       wake "$reason"
     fi
     touch "$STATE/.last-check"
+  fi
+
+  if [ -z "$BRIDGE_VESSEL" ] || [ ! -d "$BRIDGE_ROOT/.git" ]; then
+    bridge_interval=$CHECK_INTERVAL
+  elif [ "$(age_of "$STATE/.last-bridge-discovery")" -ge "$BRIDGE_URGENT_CHECK_INTERVAL" ]; then
+    run_bounded git -C "$BRIDGE_ROOT" fetch --quiet origin main >/dev/null
+    bridge_interval=$(bridge_check_interval)
+    printf '%s' "$bridge_interval" > "$STATE/.bridge-interval-cache" 2>/dev/null || true
+    touch "$STATE/.last-bridge-discovery"
+  else
+    bridge_interval=$(cat "$STATE/.bridge-interval-cache" 2>/dev/null)
+    [ -n "$bridge_interval" ] || bridge_interval=$CHECK_INTERVAL
+  fi
+  if [ "$(age_of "$STATE/.last-bridge-check")" -ge "$bridge_interval" ]; then
+    out=""
+    if [ -n "$BRIDGE_VESSEL" ] && [ -d "$BRIDGE_ROOT/.git" ]; then
+      bridge_sig=$(bridge_inbox_signature)
+      bridge_surfaced=$(cat "$STATE/.bridge-surfaced" 2>/dev/null)
+      if [ "$bridge_sig" != timeout ] && [ "$bridge_sig" != "$bridge_surfaced" ]; then
+        out=$(bridge_inbox_check "$bridge_sig")
+        [ -n "$out" ] || rm -f "$STATE/.bridge-surfaced" 2>/dev/null || true
+      fi
+    fi
+    touch "$STATE/.last-bridge-check"
+    if [ -n "$out" ]; then
+      reason="check: bridge-inbox: $out"
+      fm_wake_append check bridge-inbox "$reason" || exit 1
+      printf '%s' "$bridge_sig" > "$STATE/.bridge-surfaced" 2>/dev/null || true
+      wake "$reason"
+    fi
   fi
 
   # On the first changed signal, linger one grace period and re-scan before

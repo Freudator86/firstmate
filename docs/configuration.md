@@ -262,6 +262,19 @@ When X mode is opted in, bootstrap also requires `curl` and `jq` before arming t
 `tasks-axi` and `quota-axi` are required bootstrap tools in every profile, the same class as `lavish-axi`.
 An absent or incompatible `tasks-axi` reports `MISSING: tasks-axi (install: npm install -g tasks-axi)`; when `config/backlog-backend` is not `manual` and compatible `tasks-axi` is on `PATH`, bootstrap stays silent and firstmate uses its verbs for routine backlog mutations, otherwise it hand-edits `data/backlog.md` until installation is approved and completed.
 An absent `quota-axi` reports `MISSING: quota-axi (install: npm install -g quota-axi)`; `bin/fm-dispatch-select.sh` still degrades to the first profile at runtime when quota data is unavailable.
+
+### AXI-suite self-update
+
+Locked bootstrap runs `bin/fm-axi-suite.sh` at most once per `FM_AXI_SUITE_CHECK_INTERVAL` for the configured AXI commands.
+Patch and minor releases update automatically in the active npm prefix, while major releases and newly required commands emit `AXI_SUITE_REVIEW:` for captain approval.
+Successful changes emit `AXI_SUITE_UPDATED:`, and bounded registry, permission, install, or hook failures emit `AXI_SUITE_STUCK:` and persist under `state/` until a successful check clears them.
+`FM_AXI_SUITE_NETWORK_TIMEOUT` bounds the whole suite check, and `FM_AXI_SUITE_DISABLE` is reserved for tests or emergency diagnosis.
+
+### Upstream firstmate and curated-fork checks
+
+`bin/fm-firstmate-update-check.sh` compares the local default branch with the configured real upstream and persists a signal only when an upstream-only commit changes `AGENTS.md`, `bin/`, or `.agents/skills/`.
+`bin/fm-fork-sync-check.sh` compares the curated fork with real upstream, self-gates successful checks to a three-day cadence, and points fork-only review at `docs/fork-patches.md`.
+Neither script mutates the checkout or runs from bootstrap, so schedule them externally; their headers and `--help` output own exact overrides and mechanics.
 Bootstrap also reports a `TANGLE:` line when `FM_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.
 In a read-only session that did not get the fleet lock, the same line is advisory and omits the checkout command.
 The locked session-start bootstrap step also runs a best-effort project clone refresh through `fm-fleet-sync.sh`.
@@ -352,6 +365,13 @@ In dry-run, `fm-x-dismiss.sh` records `{request_id, endpoint:"dismiss"}` to the 
 The live answer and follow-up bodies intentionally stay the same shape, including optional `image`; the relay distinguishes them by endpoint, and dismiss stays `{request_id}`.
 These paths need `jq` to build the JSON payload, but they run before token and network checks, so they need neither `FMX_PAIRING_TOKEN` nor `curl`.
 
+## Bridge inbox check (FM_BRIDGE_*)
+
+`bin/fm-watch.sh` optionally reads `inbox/<vessel>/new/` from a Bridge clone's fetched `origin/main`, turning pending envelopes into durable `check:` wakes without acknowledging or otherwise mutating them.
+`FM_BRIDGE_VESSEL` selects the vessel and falls through to local `config/bridge-vessel`; when neither is set the feature is silent and disabled.
+`FM_BRIDGE_ROOT` selects the clone, while `FM_BRIDGE_URGENT_CHECK_INTERVAL` tightens only this check for high or immediate priority.
+The watcher caches the fetched tree signature and derived priority, surfaces each unchanged pending tree once, and bounds fetches and reads with `FM_CHECK_TIMEOUT`.
+
 ## Environment variables
 
 Runtime tuning via environment variables (defaults shown):
@@ -386,6 +406,9 @@ FM_HEARTBEAT=600        # base seconds between heartbeat scans; no-change heartb
 FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls, custom checks, or X-mode dispatch)
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script
+FM_BRIDGE_VESSEL=         # optional override for config/bridge-vessel; absent disables Bridge inbox scanning
+FM_BRIDGE_ROOT=$FM_HOME/projects/coditan-bridge   # Bridge clone whose origin/main ref the watcher reads
+FM_BRIDGE_URGENT_CHECK_INTERVAL=30   # Bridge-only cadence while highest pending priority is high or immediate
 FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh
 FM_CREW_STATE_RUNS_LIMIT=200  # recent no-mistakes runs rows scanned when cross-branch attribution falls back from axi status

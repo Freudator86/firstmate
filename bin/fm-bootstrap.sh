@@ -16,6 +16,9 @@
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
 #                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed: <reason>",
+#                 "AXI_SUITE_UPDATED|REVIEW|STUCK: <detail>",
+#                 "FIRSTMATE_UPDATE_AVAILABLE|STUCK: <detail>",
+#                 "FORK_SYNC: <detail>" or "FORK_SYNC_STUCK: <detail>",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
 #          When a RUNNING secondmate worktree is fast-forwarded to firstmate's
 #          own current default-branch commit (a purely LOCAL fast-forward, never
@@ -66,11 +69,11 @@
 #          refresh relays any completed fm-fleet-sync.sh output before the
 #          aggregate timeout skip line with timeout and elapsed seconds.
 #          Set FM_FLEET_PRUNE=0 to skip branch pruning during that refresh.
-#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the five MUTATING sweeps
-#          (PR-check migration, secondmate_sync, secondmate_liveness_sweep,
-#          x_mode_setup, fleet_sync) while still printing every read-only detect line
-#          above; the TANGLE line switches to advisory-only wording with no
-#          checkout command. Used by
+#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the six MUTATING sweeps
+#          (PR-check migration, fm-axi-suite.sh, secondmate_sync,
+#          secondmate_liveness_sweep, x_mode_setup, fleet_sync) while still
+#          printing every read-only detect line above; the TANGLE line
+#          switches to advisory-only wording with no checkout command. Used by
 #          fm-session-start.sh's read-only path when another live session holds
 #          the fleet lock, so a second concurrent session never race-mutates
 #          PR-check artifacts, secondmate homes, X-mode artifacts, project
@@ -800,9 +803,14 @@ if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] \
   echo "BOOTSTRAP_INFO: tasks-axi available"
 fi
 if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
+  "$SCRIPT_DIR/fm-axi-suite.sh"
   secondmate_sync
   secondmate_liveness_sweep
   x_mode_setup
   fleet_sync
 fi
+[ -f "$STATE/firstmate-update.available" ] && cat "$STATE/firstmate-update.available"
+[ -f "$STATE/firstmate-update.stuck" ] && cat "$STATE/firstmate-update.stuck"
+[ -f "$STATE/fork-sync.pending" ] && cat "$STATE/fork-sync.pending"
+[ -f "$STATE/fork-sync.stuck" ] && cat "$STATE/fork-sync.stuck"
 exit 0
