@@ -165,9 +165,11 @@ if [ "$mode" = arm ] && healthy_watcher; then
 fi
 
 # Start a watcher as a tracked child and confirm it before settling in. The child
-# stays our child for its whole life: we wait on it, so killing this arm (the
+# stays our child for its whole life: we wait on it, so stopping this arm (the
 # harness-tracked task) tears the watcher down too, and the watcher's eventual
-# wake exit propagates out so the harness re-notifies firstmate.
+# wake exit propagates out so the harness re-notifies firstmate. The owner pid
+# passed below also lets the watcher self-terminate if this wrapper is killed by
+# an untrappable signal before cleanup can run.
 child=
 child_out=
 cleanup_child() {
@@ -185,7 +187,8 @@ child_out=$(mktemp "$STATE/.watch-arm-output.XXXXXX") || {
   echo "watcher: FAILED - no live watcher with a fresh beacon"
   exit 1
 }
-"$WATCH" >"$child_out" &
+arm_owner_pid=${BASHPID:-$$}
+FM_WATCH_ARM_OWNER_PID="$arm_owner_pid" "$WATCH" >"$child_out" &
 child=$!
 child_done=0
 

@@ -80,6 +80,11 @@ mkdir -p "$STATE"
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
 WATCHER_STALE_GRACE=${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-300}}
+# A watcher forked by fm-watch-arm.sh remains owned by that wrapper. The arm's
+# ordinary-signal traps stop it directly; this parent check covers SIGKILL and
+# other exits where the wrapper cannot run cleanup. Direct watcher invocations
+# have no owner pid and retain their existing standalone lifecycle.
+WATCH_ARM_OWNER_PID=${FM_WATCH_ARM_OWNER_PID:-}
 # The singleton-lock acquisition, EXIT trap, and the blocking supervision loop
 # all live below the source guard at the very bottom of this file (see "Main
 # entry"). Sourcing this file for unit tests therefore loads the functions -
@@ -769,6 +774,13 @@ if [ "$lock_rc" -ne 0 ]; then
   fi
   exit 0
 fi
+watch_arm_owner_is_parent() {
+  local current_parent
+  [ -n "$WATCH_ARM_OWNER_PID" ] || return 0
+  current_parent=$(LC_ALL=C ps -p "$WATCHER_PID" -o ppid= 2>/dev/null | tr -d '[:space:]')
+  [ "$current_parent" = "$WATCH_ARM_OWNER_PID" ]
+}
+
 watcher_cleanup() {
   fm_active_check_stop || return 1
   fm_check_output_cleanup
@@ -779,7 +791,8 @@ trap watcher_cleanup EXIT
 trap 'exit 1' HUP INT TERM
 # This watcher's own pid, as recorded in the lock by fm_lock_claim (which writes
 # ${BASHPID:-$$} from this same main shell). Read directly, never via a command
-# substitution, so it matches the stored holder pid for the self-eviction check.
+# substitution, so it matches the stored holder pid for the self-eviction and
+# arm-owner checks.
 WATCHER_PID=${BASHPID:-$$}
 printf '%s\n' "$FM_HOME" > "$WATCH_LOCK/fm-home" || true
 printf '%s\n' "$WATCH_PATH" > "$WATCH_LOCK/watcher-path" || true
@@ -788,6 +801,11 @@ fm_pid_identity "$WATCHER_PID" > "$WATCH_LOCK/pid-identity" 2>/dev/null || true
 [ -e "$STATE/.last-heartbeat" ] || touch "$STATE/.last-heartbeat"
 
 while :; do
+  # A child whose arm wrapper was killed cannot rely on the wrapper's traps.
+  # Re-check the direct parent once per bounded poll cycle and release the lock
+  # through the normal EXIT cleanup as soon as ownership is gone.
+  watch_arm_owner_is_parent || exit 0
+
   # Self-eviction: if the singleton lock no longer names this process, a second
   # watcher has taken over (e.g. a transient duplicate from a racy arm). Stand
   # down so the rightful singleton continues alone. The EXIT trap's release
