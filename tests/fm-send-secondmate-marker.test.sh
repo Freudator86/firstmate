@@ -128,6 +128,21 @@ test_exact_secondmate_task_id_is_marked() {
   pass "fm-send: an exact kind=secondmate task id is marked exactly once"
 }
 
+test_routed_text_reactivates_resting_secondmate() {
+  local dir fb log home rc state
+  dir="$TMP_ROOT/sm-reactivate"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_home sm-reactivate)
+  fm_write_secondmate_meta "$home/state/domain.meta" "$home" "sess:fm-domain"
+  printf 'state=resting\n' >> "$home/state/domain.meta"
+  run_send "$fb" "$home" "$log" "domain" "audit the build"; rc=$?
+  expect_code 0 "$rc" "send to a resting secondmate should succeed"
+  state=$(grep '^state=' "$home/state/domain.meta" | tail -1)
+  [ "$state" = "state=active" ] || fail "routed text did not reactivate the secondmate: $state"
+  [ "$(grep -c '^state=' "$home/state/domain.meta")" -eq 1 ] || fail "reactivation left duplicate state fields"
+  pass "fm-send: marked routed text reactivates a resting secondmate before delivery"
+}
+
 test_crewmate_target_is_not_marked() {
   local dir fb log home rc got
   dir="$TMP_ROOT/crew"; mkdir -p "$dir"
@@ -233,6 +248,7 @@ test_marked_send_preserves_trailing_newlines() {
 
 test_secondmate_target_is_marked
 test_exact_secondmate_task_id_is_marked
+test_routed_text_reactivates_resting_secondmate
 test_crewmate_target_is_not_marked
 test_explicit_window_is_not_marked
 test_key_path_is_not_marked

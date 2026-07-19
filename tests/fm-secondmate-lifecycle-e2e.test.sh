@@ -120,6 +120,7 @@ phase_spawn() {
 
   local meta="$HOME_DIR/state/design.meta"
   assert_grep 'kind=secondmate' "$meta" "spawn meta did not record kind=secondmate"
+  assert_grep 'state=active' "$meta" "spawn meta did not start the secondmate active for recovery"
   assert_grep "home=$SUB_ABS" "$meta" "spawn meta did not record the subhome"
   assert_grep 'projects=alpha, beta, gamma' "$meta" "spawn meta did not record the project list"
   # Launch ran in the subhome, with the persistent charter and cleared overrides,

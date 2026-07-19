@@ -2030,6 +2030,8 @@ test_secondmate_charter_brief_is_idle_by_default() {
   # Idle contract: waits for routed work, never self-initiates.
   grep -F 'go idle and wait silently for the main firstmate' "$brief" >/dev/null \
     || fail "charter brief does not tell the secondmate to go idle and wait for routed work"
+  grep -F "bin/fm-secondmate-state.sh resting '$home/state/idle-sm.meta'" "$brief" >/dev/null \
+    || fail "charter brief does not mark the parent record resting at the quiet idle boundary"
   grep -F 'Act only on tasks the main firstmate routes to you' "$brief" >/dev/null \
     || fail "charter brief does not restrict work to routed tasks"
   grep -F 'never spawn a survey, audit, or any self-directed' "$brief" >/dev/null \
@@ -2044,6 +2046,28 @@ test_secondmate_charter_brief_is_idle_by_default() {
     fail "charter brief still uses the over-broad 'supervise work that matches your scope' phrasing"
   fi
   pass "secondmate charter brief is idle by default and does not self-initiate work"
+}
+
+test_secondmate_state_helper_is_scoped_and_idempotent() {
+  local home meta ordinary
+  home="$TMP_ROOT/secondmate-state-helper"
+  mkdir -p "$home/state"
+  meta="$home/state/domain.meta"
+  ordinary="$home/state/ordinary.meta"
+  fm_write_secondmate_meta "$meta" "$home" "firstmate:fm-domain"
+  "$ROOT/bin/fm-secondmate-state.sh" resting "$meta" || fail "state helper refused a secondmate meta"
+  assert_grep 'state=resting' "$meta" "state helper did not mark the secondmate resting"
+  "$ROOT/bin/fm-secondmate-state.sh" resting "$meta" || fail "repeated resting transition was not idempotent"
+  "$ROOT/bin/fm-secondmate-state.sh" active "$meta" || fail "state helper did not reactivate the secondmate"
+  assert_grep 'state=active' "$meta" "state helper did not record active"
+  [ "$(grep -c '^state=' "$meta")" -eq 1 ] || fail "state helper left duplicate lifecycle fields"
+
+  fm_write_meta "$ordinary" "kind=ship" "state=active"
+  if "$ROOT/bin/fm-secondmate-state.sh" resting "$ordinary" >/dev/null 2>&1; then
+    fail "state helper accepted ordinary task metadata"
+  fi
+  assert_grep 'state=active' "$ordinary" "refused ordinary metadata was changed"
+  pass "fm-secondmate-state: transitions only secondmate metadata and stays idempotent"
 }
 
 test_backlog_handoff_aborts_safely() {
@@ -2222,5 +2246,6 @@ test_secondmate_force_teardown_refuses_unregistered_child_worktree
 test_secondmate_teardown_path_boundary_matrix
 test_secondmate_idle_pane_is_not_stale
 test_secondmate_charter_brief_is_idle_by_default
+test_secondmate_state_helper_is_scoped_and_idempotent
 test_backlog_handoff_aborts_safely
 test_backlog_handoff_refuses_done_items_and_non_secondmate_homes

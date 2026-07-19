@@ -2,12 +2,15 @@
 # Shared "supervision missing" predicate.
 # Usage: . bin/fm-supervision-lib.sh
 #
-# True exactly when a firstmate home has in-flight work (a state/<id>.meta
-# exists) but no watcher has a fresh liveness beacon (state/.last-watcher-beat,
-# touched every poll cycle, within the grace window). bin/fm-guard.sh uses this
-# grace-based warning predicate directly; bin/fm-turnend-guard.sh uses the status
-# fields here for its banner but performs its end-of-turn block decision with the
-# live watcher lock check in bin/fm-wake-lib.sh.
+# True exactly when a firstmate home has supervision-relevant work but no watcher
+# has a fresh liveness beacon (state/.last-watcher-beat, touched every poll cycle,
+# within the grace window). A state/<id>.meta normally counts as in flight. The
+# one exception is a kind=secondmate record whose explicit state=resting: it stays
+# registered and may stay alive, but has no work for Stop-hook supervision.
+# bin/fm-guard.sh uses this grace-based warning predicate directly;
+# bin/fm-turnend-guard.sh uses the status fields here for its banner but performs
+# its end-of-turn block decision with the live watcher lock check in
+# bin/fm-wake-lib.sh.
 
 # Portable mtime; Linux stat lacks -f, macOS stat lacks -c.
 fm_sup_stat_mtime() {
@@ -18,9 +21,21 @@ fm_sup_stat_mtime() {
   fi
 }
 
+fm_sup_meta_is_resting_secondmate() {
+  local meta=$1 key value kind='' lifecycle=''
+  while IFS='=' read -r key value || [ -n "$key$value" ]; do
+    case "$key" in
+      kind) kind=$value ;;
+      state) lifecycle=$value ;;
+    esac
+  done < "$meta"
+  [ "$kind" = secondmate ] && [ "$lifecycle" = resting ]
+}
+
 # fm_supervision_status <state-dir> [grace-seconds]
 # Populates, for the state dir at $1:
-#   FM_SUP_IN_FLIGHT      count of state/*.meta (in-flight tasks)
+#   FM_SUP_IN_FLIGHT      count of supervision-relevant state/*.meta records
+#   FM_SUP_RESTING        count of state=resting secondmate records
 #   FM_SUP_WATCHER_FRESH  true/false - a watcher beacon within the grace window
 #   FM_SUP_BEACON_DESC    human-readable beacon age, for banners ("never" if absent)
 #   FM_SUP_QUEUE_PENDING  true/false - state/.wake-queue has unread records
@@ -29,12 +44,17 @@ fm_sup_stat_mtime() {
 fm_supervision_status() {
   local state=$1 grace=${2:-${FM_GUARD_GRACE:-300}} meta beat m age
   FM_SUP_IN_FLIGHT=0
+  FM_SUP_RESTING=0
   FM_SUP_WATCHER_FRESH=false
   FM_SUP_BEACON_DESC=never
   FM_SUP_QUEUE_PENDING=false
 
   for meta in "$state"/*.meta; do
     [ -e "$meta" ] || continue
+    if fm_sup_meta_is_resting_secondmate "$meta"; then
+      FM_SUP_RESTING=$((FM_SUP_RESTING + 1))
+      continue
+    fi
     FM_SUP_IN_FLIGHT=$((FM_SUP_IN_FLIGHT + 1))
   done
 

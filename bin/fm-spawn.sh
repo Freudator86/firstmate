@@ -1021,6 +1021,7 @@ META_WINDOW=$T
   echo "project=$PROJ_ABS"
   echo "harness=$HARNESS"
   echo "kind=$KIND"
+  [ "$KIND" != secondmate ] || echo "state=active"
   echo "mode=$MODE"
   echo "yolo=$YOLO"
   echo "tasktmp=$TASK_TMP"
