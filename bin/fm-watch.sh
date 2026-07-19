@@ -556,7 +556,10 @@ bridge_pending_priority() {
   if [ "$sig" = timeout ]; then printf '%s' "${cached_priority:-none}"; return; fi
   if [ -n "$cached_sig" ] && [ "$sig" = "$cached_sig" ]; then printf '%s' "${cached_priority:-none}"; return; fi
   out=$(BRIDGE_ROOT="$BRIDGE_ROOT" BRIDGE_VESSEL="$BRIDGE_VESSEL" run_bounded bash -c 'bridge_pending_priority_scan')
-  if [ -z "$out" ]; then printf '%s' "${cached_priority:-none}"; return; fi
+  if [ -z "$out" ]; then
+    printf '%s' none
+    return
+  fi
   printf '%s\t%s\n' "$sig" "$out" > "$cache" 2>/dev/null || true
   printf '%s' "$out"
 }

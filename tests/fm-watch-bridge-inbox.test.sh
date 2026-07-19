@@ -272,6 +272,43 @@ EOF
   pass "an in-place envelope edit under an unchanged filename invalidates the cached priority"
 }
 
+test_changed_inbox_failed_scan_does_not_reuse_stale_priority() {
+  local home fakebin out1 out2 out3 new_sig
+  home=$(make_home failed-rescan)
+  fakebin="$TMP_ROOT/fakebin-failed-rescan"
+  mkdir -p "$fakebin"
+  cat > "$fakebin/timeout" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *bridge_pending_priority_scan*) exit 124 ;;
+esac
+exec /usr/bin/timeout "$@"
+EOF
+  chmod +x "$fakebin/timeout"
+  write_envelope "$home" first normal
+  out1=$(
+    FM_HOME="$home" FM_CHECK_INTERVAL=300 FM_BRIDGE_URGENT_CHECK_INTERVAL=30 \
+      bash -c '. "$1"; bridge_pending_priority' _ "$WATCH"
+  )
+  [ "$out1" = normal ] || fail "first priority read was $out1, expected normal"
+  write_envelope "$home" second immediate
+  new_sig=$(
+    FM_HOME="$home" FM_CHECK_INTERVAL=300 FM_BRIDGE_URGENT_CHECK_INTERVAL=30 \
+      bash -c '. "$1"; bridge_inbox_signature' _ "$WATCH"
+  )
+  out2=$(
+    PATH="$fakebin:$PATH" FM_HOME="$home" FM_CHECK_INTERVAL=300 FM_BRIDGE_URGENT_CHECK_INTERVAL=30 \
+      bash -c '. "$1"; bridge_pending_priority "$2"' _ "$WATCH" "$new_sig"
+  )
+  [ "$out2" = none ] || fail "failed changed-signature priority scan reused stale priority $out2"
+  out3=$(
+    FM_HOME="$home" FM_CHECK_INTERVAL=300 FM_BRIDGE_URGENT_CHECK_INTERVAL=30 \
+      bash -c '. "$1"; bridge_pending_priority "$2"' _ "$WATCH" "$new_sig"
+  )
+  [ "$out3" = immediate ] || fail "priority after retry was $out3, expected immediate"
+  pass "failed priority scans for changed Bridge inboxes do not reuse stale cache"
+}
+
 test_missing_inbox_short_circuits_without_scan() {
   local home fakebin counter out pid
   home="$TMP_ROOT/missing"
@@ -366,6 +403,7 @@ test_empty_inbox_is_silent
 test_priority_tightens_only_bridge_cadence
 test_cache_skips_rescan_when_unchanged
 test_inplace_edit_invalidates_cache
+test_changed_inbox_failed_scan_does_not_reuse_stale_priority
 test_missing_inbox_short_circuits_without_scan
 test_discovery_gated_by_urgent_interval
 test_acked_on_origin_ignores_stale_working_tree
