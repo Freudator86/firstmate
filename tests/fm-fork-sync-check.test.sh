@@ -82,6 +82,37 @@ test_up_to_date_clears_diagnostics() {
   pass "a fork containing upstream clears persisted diagnostics"
 }
 
+test_pending_diagnostic_lists_are_bounded() {
+  local repo state base fork upstream out i
+  repo="$TMP_ROOT/bounded"
+  state="$TMP_ROOT/bounded-state"
+  fm_git_init_commit "$repo"
+  base=$(git -C "$repo" rev-parse HEAD)
+  for i in $(seq 1 22); do
+    upstream=$(commit_file "$repo" "upstream-$i.txt" "upstream-$i")
+  done
+  git -C "$repo" reset -q --hard "$base"
+  for i in $(seq 1 23); do
+    fork=$(commit_file "$repo" "fork-$i.txt" "fork-$i")
+  done
+
+  out=$(run_check "$repo" "$state" "$fork" "$upstream" 4000000)
+  assert_contains "$out" '22 upstream-only commits' "upstream summary count was not preserved"
+  assert_contains "$out" '23 local patches to re-evaluate' "fork summary count was not preserved"
+  assert_contains "$out" '(+2 more; full compare: git rev-list --oneline ' "upstream truncation was not reported"
+  assert_contains "$out" '(+3 more; full compare: git rev-list --oneline --no-merges ' "fork truncation was not reported"
+  assert_contains "$out" 'upstream-22' "newest upstream commit was not listed"
+  assert_contains "$out" 'fork-23' "newest fork verdict was not listed"
+  if grep -q '    upstream-1$' "$state/fork-sync.pending"; then
+    fail "upstream-only list was not bounded"
+  fi
+  if grep -q '    needs-review .* fork-1$' "$state/fork-sync.pending"; then
+    fail "fork-only patch list was not bounded"
+  fi
+  pass "persisted divergence diagnostics bound large commit lists"
+}
+
 test_pending_lists_and_cadence_gate
 test_content_convergence_prefilters_absorbed_patch
 test_up_to_date_clears_diagnostics
+test_pending_diagnostic_lists_are_bounded

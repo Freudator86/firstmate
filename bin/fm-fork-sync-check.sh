@@ -31,6 +31,7 @@ PENDING="$STATE/fork-sync.pending"
 STUCK="$STATE/fork-sync.stuck"
 LAST_RUN="$STATE/fork-sync.last-run"
 INTERVAL=$((3 * 24 * 60 * 60))
+LIST_LIMIT=20
 NOW=${FM_FORK_SYNC_NOW:-$(date +%s)}
 
 mkdir -p "$STATE" 2>/dev/null || {
@@ -42,6 +43,19 @@ record_stuck() {
   printf 'FORK_SYNC_STUCK: %s\n' "$1" > "$STUCK"
   cat "$STUCK"
   exit 0
+}
+
+print_limited_list() {
+  local total=$1 range=$2 option=$3 prefix=${4:-"    "} line_count=0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    line_count=$((line_count + 1))
+    [ "$line_count" -le "$LIST_LIMIT" ] || continue
+    printf '%s%s\n' "$prefix" "$line"
+  done
+  if [ "$total" -gt "$LIST_LIMIT" ]; then
+    printf '    (+%s more; full compare: git rev-list --oneline %s%s)\n' "$((total - LIST_LIMIT))" "$option" "$range"
+  fi
 }
 
 case $NOW in *[!0-9]*|'') record_stuck "current epoch is invalid" ;; esac
@@ -111,9 +125,9 @@ EOF
 {
   printf 'FORK_SYNC: upstream %.7s not merged into fork (%s upstream-only commits); %s local patches to re-evaluate (%s provably absorbed): dispatch a fork-sync crewmate\n' "$upstream" "$upstream_count" "$fork_count" "$absorbed_count"
   printf '  upstream-only commits:\n'
-  printf '%s\n' "$upstream_list" | sed '/^$/d; s/^/    /'
+  printf '%s\n' "$upstream_list" | print_limited_list "$upstream_count" "$fork..$upstream" ""
   printf '  fork-only patches:\n'
-  printf '%s' "$review_detail"
+  printf '%s' "$review_detail" | print_limited_list "$fork_count" "$upstream..$fork" "--no-merges " ""
 } > "$PENDING"
 printf '%s\n' "$NOW" > "$LAST_RUN"
 rm -f "$STUCK"
