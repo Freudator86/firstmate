@@ -454,6 +454,7 @@ When bootstrap prints `FIRSTMATE_UPDATE_AVAILABLE:`, dispatch a crewmate to noti
 Fork `main` advances without rewriting history, and every upstream-sync PR must land as a true merge commit rather than a squash.
 When the captain invokes `/updatefirstmate` or asks to update firstmate, load the `/updatefirstmate` skill.
 It performs guarded fast-forward updates of firstmate and registered secondmate homes, refreshes instructions, and never touches anything under `projects/`.
+Bootstrap separately detects when the primary checkout's own default branch has drifted from its own origin and reports `SELF_DRIFT:`; `/updatefirstmate` resolves only the clean fast-forward (behind-only) case, while an ahead or diverged primary needs a manual preserve-and-merge crewmate task instead - `bootstrap-diagnostics` owns the exact remediation text.
 
 ## 13. Agent-only reference skills
 
