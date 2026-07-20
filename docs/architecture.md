@@ -239,6 +239,9 @@ The origin-based updater and the local secondmate sync share the same guarded fa
 The mechanics are owned by the `/updatefirstmate` skill and firstmate's operating manual in [`AGENTS.md`](../AGENTS.md) (self-update).
 The separately scheduled `bin/fm-firstmate-update-check.sh` reports upstream-only instruction-surface changes without updating the checkout.
 The curator-only `bin/fm-fork-sync-check.sh` reports when the curated fork is behind real upstream and points its patch review at `docs/fork-patches.md`.
+None of those checks cover drift between the primary checkout's own default branch and its own origin, so bootstrap's `self_drift_check` fills that gap: on the primary's default branch it fetches origin under a bounded `FM_SELF_DRIFT_BOOTSTRAP_TIMEOUT` (default 10s), then compares local and `origin/<default>` with `rev-list`/`merge-base`, and is stateless and detect-only - it never fast-forwards, checks out, merges, or stashes.
+A matching branch stays silent, and missing origin, off-default branch, fetch failure, and timeout are benign skips left to the TANGLE and fleet-sync checks above; a real ahead, behind, or diverged mismatch reports `SELF_DRIFT:` with both commit counts, and it runs in both locked and read-only detect-only bootstrap paths.
+Remediation is proportional to the mismatch: `/updatefirstmate` only covers the clean fast-forward (behind-only) case, while ahead or diverged history needs a manual preserve-and-merge crewmate task instead.
 
 ## Restart-proof
 
