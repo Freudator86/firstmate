@@ -112,6 +112,37 @@ test_off_default_reports_only_tangle() {
   pass "self drift: off-default primary leaves reporting to TANGLE"
 }
 
+test_detached_head_is_silent() {
+  local fixture primary out
+  fixture=$(make_case detached)
+  primary=${fixture%%|*}
+  git -C "$primary" checkout -q --detach
+  out=$(run_bootstrap "$primary")
+  assert_not_contains "$out" "SELF_DRIFT:" "detached-HEAD primary emitted drift"
+  assert_not_contains "$out" "TANGLE:" "detached-HEAD primary emitted tangle"
+  pass "self drift: detached-HEAD primary is silent"
+}
+
+test_fetch_failure_is_silent() {
+  local fixture primary fakebin real_git out
+  fixture=$(make_case fetch-fail)
+  primary=${fixture%%|*}
+  fakebin=$(fm_fakebin "$TMP_ROOT/fetch-fail-fake")
+  real_git=$(command -v git)
+  cat > "$fakebin/git" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = -C ] && [ "${2:-}" = "${FM_FAIL_GIT_ROOT:-}" ] && [ "${3:-}" = fetch ]; then
+  exit 1
+fi
+exec "$FM_REAL_GIT" "$@"
+SH
+  chmod +x "$fakebin/git"
+  out=$(PATH="$fakebin:$PATH" FM_REAL_GIT="$real_git" FM_FAIL_GIT_ROOT="$primary" \
+    self_drift_line "$primary")
+  [ -z "$out" ] || fail "fetch failure emitted drift instead of skipping: $out"
+  pass "self drift: plain fetch failure is silently skipped"
+}
+
 test_slow_origin_is_bounded_and_silent() {
   local fixture primary fakebin real_git out start elapsed
   fixture=$(make_case slow)
@@ -141,4 +172,6 @@ test_behind_only_is_quantified
 test_diverged_is_quantified
 test_no_origin_is_silent
 test_off_default_reports_only_tangle
+test_detached_head_is_silent
+test_fetch_failure_is_silent
 test_slow_origin_is_bounded_and_silent
