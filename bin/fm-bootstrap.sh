@@ -12,6 +12,7 @@
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "PR_CHECK_MIGRATION: <private remediation>",
 #                 "TANGLE: <remediation>",
+#                 "SELF_DRIFT: primary checkout default branch '<branch>' is <N> ahead, <M> behind origin/<branch> (<state>) - needs attention",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
@@ -46,6 +47,10 @@
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
 #          on a feature branch instead of its default branch - a crewmate's work
 #          landed in the primary instead of its own worktree; restore it per the line.
+#          A SELF_DRIFT line means that checkout's default branch differs from its
+#          own origin; the check fetches origin without advancing any local branch,
+#          is bounded by FM_SELF_DRIFT_BOOTSTRAP_TIMEOUT (default 10s), and silently
+#          skips missing origins, off-default branches, and fetch failures/timeouts.
 #          treehouse is also MISSING when its installed version lacks
 #          "treehouse get --lease" support.
 #          no-mistakes is also MISSING when its installed version is older than
@@ -185,6 +190,69 @@ fleet_sync() {
 
   fleet_sync_relay_filtered_output "$tmp"
   rm -f "$tmp"
+}
+
+self_drift_bootstrap_timeout() {
+  case "${FM_SELF_DRIFT_BOOTSTRAP_TIMEOUT:-}" in
+    ''|*[!0-9]*) echo 10 ;;
+    *) echo "$FM_SELF_DRIFT_BOOTSTRAP_TIMEOUT" ;;
+  esac
+}
+
+# Detect drift between the primary checkout's checked-out default branch and its
+# own origin. Fetch is bounded and best-effort; this never advances a local
+# branch, checks out a ref, or reports an off-default TANGLE state twice.
+self_drift_check() {
+  local default current base timeout monitor_was_on pid start elapsed fetch_ok
+  local ahead behind state
+
+  git -C "$FM_ROOT" remote get-url origin >/dev/null 2>&1 || return 0
+  default=$(fm_default_branch "$FM_ROOT" 2>/dev/null) || return 0
+  current=$(git -C "$FM_ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  [ "$current" = "$default" ] || return 0
+
+  timeout=$(self_drift_bootstrap_timeout)
+  monitor_was_on=0
+  case $- in *m*) monitor_was_on=1 ;; esac
+  set -m 2>/dev/null || true
+  git -C "$FM_ROOT" fetch origin --prune --quiet >/dev/null 2>&1 &
+  pid=$!
+  start=$SECONDS
+  fetch_ok=1
+  while jobs -r -p | grep -qx "$pid"; do
+    elapsed=$((SECONDS - start))
+    if [ "$elapsed" -ge "$timeout" ]; then
+      kill -TERM "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      fetch_ok=0
+      break
+    fi
+    sleep 1
+  done
+  if [ "$fetch_ok" -eq 1 ] && ! wait "$pid" 2>/dev/null; then
+    fetch_ok=0
+  fi
+  [ "$monitor_was_on" -eq 1 ] || set +m 2>/dev/null || true
+  [ "$fetch_ok" -eq 1 ] || return 0
+
+  # Recheck after the network wait so a concurrent branch switch cannot turn
+  # this into a duplicate or stale off-default diagnostic.
+  current=$(git -C "$FM_ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  [ "$current" = "$default" ] || return 0
+  base="origin/$default"
+  git -C "$FM_ROOT" rev-parse --verify --quiet "$base^{commit}" >/dev/null || return 0
+  ahead=$(git -C "$FM_ROOT" rev-list --count "$base..$default" 2>/dev/null) || return 0
+  behind=$(git -C "$FM_ROOT" rev-list --count "$default..$base" 2>/dev/null) || return 0
+  [ "$ahead" -ne 0 ] || [ "$behind" -ne 0 ] || return 0
+
+  if git -C "$FM_ROOT" merge-base --is-ancestor "$default" "$base" 2>/dev/null; then
+    state=behind
+  elif git -C "$FM_ROOT" merge-base --is-ancestor "$base" "$default" 2>/dev/null; then
+    state=ahead
+  else
+    state=diverged
+  fi
+  echo "SELF_DRIFT: primary checkout default branch '$default' is $ahead ahead, $behind behind $base ($state) - needs attention"
 }
 
 secondmate_sync() {
@@ -791,6 +859,8 @@ if [ -n "$tangle_branch" ]; then
   else
     echo "TANGLE: primary checkout on feature branch '$tangle_branch' (expected '$tangle_default'); the work is safe on that ref - restore the primary with: git -C $FM_ROOT checkout $tangle_default, then re-validate the branch in a proper worktree"
   fi
+else
+  self_drift_check
 fi
 crew=
 [ -f "$CONFIG/crew-harness" ] && crew=$(tr -d '[:space:]' < "$CONFIG/crew-harness" || true)
