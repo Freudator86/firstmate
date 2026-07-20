@@ -6,9 +6,10 @@
 # is absorbed only when the crew shows POSITIVE evidence it is still working (an
 # actively-running no-mistakes step, or a backend busy signal), and surfaced
 # otherwise, so a crew that finishes (or stops and waits) without a current
-# working signal is never silently swallowed. A declared external-wait pause is
-# the separate idle absorb case and re-surfaces only on its long bounded cadence,
-# although its initial no-verb status signal still surfaces in normal mode.
+# working signal is never silently swallowed. A declared external-wait pause or
+# a firstmate-declared parked terminal task is the separate idle absorb case and
+# re-surfaces only on its long bounded cadence. A new status write still surfaces
+# immediately in normal mode and clears parked tracking.
 # While state/.afk exists, the daemon owns triage and this watcher queues and exits
 # on every wake. Printed reason lines:
 #   signal: <file>...      status/turn-end signals, surfaced when a listed status
@@ -19,9 +20,10 @@
 #                          run-step or busy pane outranks even a captain-relevant log
 #                          line, since the crew's own log gets no new entry once
 #                          firstmate hands it to a no-mistakes validation. A declared
-#                          external-wait pause is absorbed instead with its own long
-#                          re-surface cadence, never as a wedge. Only when neither
-#                          absorb class applies does the log's last line decide:
+#                          external-wait pause or firstmate-declared parked terminal
+#                          wait is absorbed instead with its own long re-surface
+#                          cadence, never as a wedge. Only when neither absorb class
+#                          applies does the log's last line decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
 #                          both surfaced at once. A provably-working stale past the
 #                          wedge threshold also surfaces, with an "escalation N"
@@ -149,10 +151,12 @@ BUSY_REGEX=${FM_BUSY_REGEX:-'esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel'}
 # daemon owns triage, so this watcher reverts to one-shot (enqueue + exit on every
 # wake) and never double-triages - and never runs the costly provably-working read.
 STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provably-working stale escalates as a possible wedge
-# A crew that DECLARED a pause (paused: <reason>, fm-classify-lib.sh) is idling on
-# a known external wait, so its stale pane is absorbed rather than wedge-escalated;
-# it re-surfaces once for a recheck every PAUSE_RESURFACE_SECS - far longer than the
-# wedge threshold, but finite so a forgotten pause cannot rot invisibly.
+# A crew that DECLARED a pause (paused: <reason>, fm-classify-lib.sh), or a terminal
+# task that firstmate marks state/.parked-<window-key> after relaying its outcome,
+# is idling on a known external wait. Its stale pane is absorbed rather than
+# wedge-escalated and re-surfaces once for a recheck every PAUSE_RESURFACE_SECS -
+# far longer than the wedge threshold, but finite so a forgotten wait cannot rot
+# invisibly. Status writes and metadata changes clear a parked declaration.
 PAUSE_RESURFACE_SECS=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
 TRIAGE_LOG="$STATE/.watch-triage.log"
 TRIAGE_LOG_MAX_BYTES=${FM_WATCH_TRIAGE_LOG_MAX_BYTES:-262144}
@@ -363,6 +367,135 @@ clear_pause_tracking() {  # <window>
   key=${key//./_}
   clear_pause_state "$win"
   rm -f "$STATE/.stale-$key" "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key"
+}
+
+window_state_key() {  # <window>
+  local key=${1//:/_}
+  key=${key//\//_}
+  key=${key//./_}
+  printf '%s' "$key"
+}
+
+clear_parked_key_tracking() {  # <window-key>
+  local key=$1
+  rm -f "$STATE/.parked-$key" "$STATE/.parkedmeta-$key" "$STATE/.parkedresurfaced-$key"
+  rm -f "$STATE/.stale-$key" "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key"
+}
+
+clear_parked_tracking() {  # <window>
+  clear_parked_key_tracking "$(window_state_key "$1")"
+}
+
+# A status write is authoritative new task information. Clear both the marker
+# for the task's current target and any registered marker for its prior target
+# before classifying the signal, so the signal wakes normally and a later stale
+# cannot remain muted under an obsolete declaration.
+clear_parked_for_status_file() {  # <status-file>
+  local f=$1 base task meta win tf key _marker_sig recorded_meta _meta_sig
+  case "$f" in
+    "$STATE"/*.status) ;;
+    *) return 0 ;;
+  esac
+  base=$(basename "$f")
+  task=${base%.status}
+  meta="$STATE/$task.meta"
+  if [ -e "$meta" ]; then
+    win=$(fm_backend_target_of_meta "$meta" 2>/dev/null || true)
+    [ -z "$win" ] || clear_parked_tracking "$win"
+  fi
+  for tf in "$STATE"/.parkedmeta-*; do
+    [ -e "$tf" ] || continue
+    IFS=$(printf '\t') read -r _marker_sig recorded_meta _meta_sig < "$tf" || true
+    [ "$recorded_meta" = "$meta" ] || continue
+    key=$(basename "$tf")
+    key=${key#.parkedmeta-}
+    clear_parked_key_tracking "$key"
+  done
+}
+
+# Bind each explicit parked marker to the metadata that currently resolves its
+# window key. A later metadata content/mtime signature change, target change, or
+# removal invalidates the declaration and clears stale suppressors so the task is
+# classified afresh. Re-touching the marker is a new firstmate declaration and
+# refreshes the binding to the then-current metadata.
+reconcile_parked_markers() {
+  local marker base key tracking meta candidate win marker_sig meta_sig
+  local recorded_marker recorded_meta recorded_meta_sig
+  for marker in "$STATE"/.parked-*; do
+    [ -e "$marker" ] || continue
+    base=$(basename "$marker")
+    key=${base#.parked-}
+    meta=
+    for candidate in "$STATE"/*.meta; do
+      [ -e "$candidate" ] || continue
+      win=$(fm_backend_target_of_meta "$candidate" 2>/dev/null || true)
+      [ -n "$win" ] || continue
+      if [ "$(window_state_key "$win")" = "$key" ]; then
+        meta=$candidate
+        break
+      fi
+    done
+    if [ -z "$meta" ]; then
+      clear_parked_key_tracking "$key"
+      continue
+    fi
+    tracking="$STATE/.parkedmeta-$key"
+    marker_sig=$(stat_sig "$marker" 2>/dev/null || true)
+    meta_sig=$(stat_sig "$meta" 2>/dev/null || true)
+    if [ ! -e "$tracking" ]; then
+      if [ "$meta" -nt "$marker" ]; then
+        clear_parked_key_tracking "$key"
+      else
+        printf '%s\t%s\t%s\n' "$marker_sig" "$meta" "$meta_sig" > "$tracking"
+      fi
+      continue
+    fi
+    recorded_marker=
+    recorded_meta=
+    recorded_meta_sig=
+    IFS=$(printf '\t') read -r recorded_marker recorded_meta recorded_meta_sig < "$tracking" || true
+    if [ "$recorded_marker" != "$marker_sig" ]; then
+      printf '%s\t%s\t%s\n' "$marker_sig" "$meta" "$meta_sig" > "$tracking"
+    elif [ "$recorded_meta" != "$meta" ] || [ "$recorded_meta_sig" != "$meta_sig" ]; then
+      clear_parked_key_tracking "$key"
+    fi
+  done
+}
+
+# Print the bounded recheck reason when a parked wait is due, or nothing while
+# still inside the cadence. Pure detection lets both poll and backend-push paths
+# enqueue before advancing their respective suppression markers.
+parked_recheck_reason() {  # <window>
+  local win=$1 key marker mtime age rf rf_age
+  key=$(window_state_key "$win")
+  marker="$STATE/.parked-$key"
+  [ -e "$marker" ] || return 1
+  mtime=$(stat_mtime "$marker")
+  case "$mtime" in ''|*[!0-9]*) mtime=$(date +%s) ;; esac
+  age=$(( $(date +%s) - mtime ))
+  rf="$STATE/.parkedresurfaced-$key"
+  rf_age=$(age_of "$rf")
+  if [ "$age" -ge "$PAUSE_RESURFACE_SECS" ] && [ "$rf_age" -ge "$PAUSE_RESURFACE_SECS" ]; then
+    printf 'stale: %s (parked %ss, awaiting external human action - supervisor-declared terminal wait, rechecked on a long cadence not a wedge; confirm the wait still holds)' "$win" "$age"
+  fi
+}
+
+# Absorb pane churn for a terminal task whose outcome firstmate already relayed
+# and explicitly parked while external human action remains. The marker mtime is
+# the cadence anchor, so pane redraws cannot postpone the bounded recheck.
+handle_parked_stale() {  # <window> <hash>
+  local win=$1 h=$2 key reason age
+  key=$(window_state_key "$win")
+  printf '%s' "$h" > "$STATE/.stale-$key"
+  rm -f "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key"
+  reason=$(parked_recheck_reason "$win")
+  if [ -n "$reason" ]; then
+    fm_wake_append stale "$win" "$reason" || exit 1
+    date +%s > "$STATE/.parkedresurfaced-$key"
+    wake "$reason"
+  fi
+  age=$(age_of "$STATE/.parked-$key")
+  triage_log "absorbed stale (parked terminal wait, age ${age}s): $win"
 }
 
 pause_state_class() {  # <window> <task>
@@ -708,15 +841,15 @@ event_wait_or_sleep() {
 
 # handle_push_transition: act on a fresh actionable (blocked) transition record
 # the backend returned. Maps the pane back to its window and task, applies the
-# declared-pause exemption (a crew waiting on a known external dependency is not
-# a surprise block - absorb it on the poll loop's long pause cadence instead),
+# declared-pause and supervisor-parked exemptions (a known external wait is not
+# a surprise block - absorb it on the poll loop's long cadence instead),
 # and otherwise enqueues an immediate `stale` wake and wakes the supervisor. The
 # `stale` kind is deliberate: the supervisor's handler for it ("peek the pane to
 # diagnose") is exactly right for a blocked crew, and the drain/dedupe/guard
 # machinery already understands it (queued by key=window, so a later poll-path
 # stale for the same pane collapses on drain).
 handle_push_transition() {  # <backend> <session> <record>
-  local backend=$1 session=$2 record=$3 pane_id to window task reason
+  local backend=$1 session=$2 record=$3 pane_id to window task key reason
   pane_id=$(fm_transition_pane_id "$record")
   to=$(fm_transition_to_status "$record")
   [ -n "$pane_id" ] || { sleep 1; return; }
@@ -724,6 +857,22 @@ handle_push_transition() {  # <backend> <session> <record>
   task=$(window_to_task "$window" "$STATE")
   if status_is_paused "$(last_status_line "$STATE/$task.status")"; then
     triage_log "absorbed push $to (declared pause, awaiting external): $window"
+    fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
+    return
+  fi
+  reconcile_parked_markers
+  key=$(window_state_key "$window")
+  if ! afk_present && [ -e "$STATE/.parked-$key" ]; then
+    reason=$(parked_recheck_reason "$window")
+    if [ -n "$reason" ]; then
+      fm_wake_append stale "$window" "$reason" || exit 1
+      fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
+      date +%s > "$STATE/.parkedresurfaced-$key"
+      wake "$reason"
+      # shellcheck disable=SC2317  # wake exits in production; unit tests override it to verify ordering.
+      return
+    fi
+    triage_log "absorbed push $to (parked terminal wait, awaiting external human action): $window"
     fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
     return
   fi
@@ -926,6 +1075,12 @@ while :; do
 $pending
 EOF
     reason="signal:$files"
+    while IFS=$(printf '\t') read -r sf sig f; do
+      [ -n "$sf" ] || continue
+      clear_parked_for_status_file "$f"
+    done <<EOF
+$pending
+EOF
     # Triage: a signal is ACTIONABLE when any of these holds (cheapest first):
     #   - the away-mode daemon owns triage (afk) and wants every wake;
     #   - any status file carries a captain-relevant verb;
@@ -966,6 +1121,8 @@ EOF
     fi
   fi
 
+  reconcile_parked_markers
+
   # Layer 1 backbone: pane staleness. Two consecutive identical hashes with no busy
   # signature means the crewmate finished, is waiting, or is wedged. Each distinct
   # stale hash is surfaced, absorbed, or timed toward escalation once (.stale-*
@@ -976,6 +1133,7 @@ EOF
     key=${w//:/_}
     key=${key//\//_}
     key=${key//./_}
+    pkf="$STATE/.parked-$key"
     last=$(last_status_line "$STATE/$task.status")
     if ! status_is_paused "$last" && [ -e "$STATE/.paused-$key" ]; then
       clear_pause_tracking "$w"
@@ -1015,6 +1173,8 @@ EOF
             printf '%s' "$h" > "$sf"
             wake "stale: $w"
           fi
+        elif [ -e "$pkf" ]; then
+          handle_parked_stale "$w" "$h"
         elif stale_is_terminal "$w" "$STATE"; then
           # The log's last line is captain-relevant - but that alone is not
           # proof the crew is actually done: a crew's own status log gets no
@@ -1111,7 +1271,9 @@ EOF
       echo 0 > "$cf"
       rm -f "$ssf" "$ewf"
       task=$(window_to_task "$w" "$STATE")
-      if ! afk_present && status_is_paused "$(last_status_line "$STATE/$task.status")" && ! window_is_busy "$w" "$tail40"; then
+      if ! afk_present && [ -e "$pkf" ] && ! window_is_busy "$w" "$tail40"; then
+        handle_parked_stale "$w" "$h"
+      elif ! afk_present && status_is_paused "$(last_status_line "$STATE/$task.status")" && ! window_is_busy "$w" "$tail40"; then
         case "$(pause_state_class "$w" "$task")" in
           paused) handle_paused_stale "$w" "$task" "$h" ;;
           *)      clear_pause_tracking "$w" ;;

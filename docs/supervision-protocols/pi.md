@@ -12,6 +12,9 @@ When this session owns supervision and away mode is not active:
 7. If the extension reports a watcher failure, drain queued wakes, inspect the failure text, and restart Pi with both extensions loaded if needed.
 8. Never use shell `&` for watcher supervision.
    The arm mechanism above is extension-owned, not a model tool call, but a manual recovery probe that backgrounds, pipes, or bundles the arm is denied automatically by the PreToolUse seatbelt (`bin/fm-arm-pretool-check.sh`, wired into the turn-end guard extension at `__FM_PI_TURNEND_EXT__`).
+9. On an extension wake, drain queued wakes, immediately call `fm_watch_arm_pi` before composing any reply or beginning long work, then handle the drained wakes.
+10. If nothing reaches `AGENTS.md` section 9's escalation bar, including a review-ready PR, findings, a needed decision, a real blocker or failure, or a needed credential, end the turn with tool calls only and send no chat text.
+    Any no-change wake turn that sends chat text is a protocol violation, not politeness.
 
 The turn-end guard extension lives at `__FM_PI_TURNEND_EXT__`.
 The watcher extension lives at `__FM_PI_EXT__`.

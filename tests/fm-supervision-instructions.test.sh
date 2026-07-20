@@ -53,6 +53,7 @@ test_repair_lines() {
   out=$(FM_HOME="$home" "$RENDER" --harness claude --queue-pending 1 --repair-line)
   assert_contains "$out" "After draining queued wakes" "queue-pending prefix missing"
   assert_contains "$out" "Claude Code background task" "claude repair line missing background-task mechanism"
+  assert_contains "$out" "end this forced continuation silently" "claude repair line omitted silent maintenance handling"
 
   : > "$home/config/x-mode.env"
   out=$(FM_HOME="$home" FM_CODEX_WATCH_CHECKPOINT=7 "$RENDER" --harness codex --x-mode 1 --repair-line)
@@ -79,7 +80,18 @@ test_grok_is_background_notify() {
   assert_not_contains "$out" "foreground checkpoint" "grok snippet must not be Codex-style foreground checkpoint"
   out=$("$RENDER" --harness grok --repair-line)
   assert_contains "$out" "Grok tracked background task" "grok repair line is not background-notify shaped"
+  assert_contains "$out" "end this forced continuation silently" "grok repair line omitted silent maintenance handling"
   pass "grok supervision is Claude-shaped background notify with passive Stop-hook backstop"
+}
+
+test_no_change_wakes_are_explicitly_silent() {
+  local harness out
+  for harness in claude codex grok opencode pi; do
+    out=$("$RENDER" --harness "$harness")
+    assert_contains "$out" "tool calls only and send no chat text" "$harness snippet omitted tool-only no-change turns"
+    assert_contains "$out" "protocol violation, not politeness" "$harness snippet did not make no-change chat a violation"
+  done
+  pass "every supported harness makes no-change wake turns explicitly silent"
 }
 
 test_grok_command_sources_effective_config() {
@@ -113,5 +125,6 @@ test_unknown_fallback
 test_conditional_stanzas
 test_repair_lines
 test_grok_is_background_notify
+test_no_change_wakes_are_explicitly_silent
 test_grok_command_sources_effective_config
 test_pi_snippet_uses_effective_extension_path
