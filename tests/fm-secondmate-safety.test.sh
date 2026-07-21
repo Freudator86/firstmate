@@ -2071,23 +2071,23 @@ test_secondmate_state_helper_is_scoped_and_idempotent() {
 }
 
 test_secondmate_state_helper_shares_lock_with_spawn_respawn() {
-  local home subhome id meta lockdir fakebin log ready release holder spawn_pid i saw_window blocked_state spawn_live holder_status spawn_status
-  home="$TMP_ROOT/secondmate-state-lock-share"
+  local parent_home subhome secondmate_id meta lockdir fakebin log ready release holder spawn_pid i saw_window blocked_state spawn_live holder_status spawn_status
+  parent_home="$TMP_ROOT/secondmate-state-lock-share"
   subhome="$TMP_ROOT/secondmate-state-lock-subhome"
-  id=lock-sm
+  secondmate_id=lock-sm
   fakebin=$(make_fake_tmux "$TMP_ROOT/secondmate-state-lock-fake")
   log="$TMP_ROOT/secondmate-state-lock-fake/tmux.log"
   ready="$TMP_ROOT/secondmate-state-lock.ready"
   release="$TMP_ROOT/secondmate-state-lock.release"
-  mkdir -p "$home/projects" "$home/data" "$home/state"
-  FM_HOME="$home" FM_SECONDMATE_CHARTER='lock test domain' FM_SECONDMATE_SCOPE='lock test work' \
-    "$ROOT/bin/fm-home-seed.sh" "$id" "$subhome" --no-projects >/dev/null \
+  mkdir -p "$parent_home/projects" "$parent_home/data" "$parent_home/state"
+  FM_HOME="$parent_home" FM_SECONDMATE_CHARTER='lock test domain' FM_SECONDMATE_SCOPE='lock test work' \
+    "$ROOT/bin/fm-home-seed.sh" "$secondmate_id" "$subhome" --no-projects >/dev/null \
     || fail "failed to seed secondmate for real respawn lock test"
 
-  meta="$home/state/$id.meta"
-  fm_write_secondmate_meta "$meta" "$subhome" "firstmate:fm-$id"
+  meta="$parent_home/state/$secondmate_id.meta"
+  fm_write_secondmate_meta "$meta" "$subhome" "firstmate:fm-$secondmate_id"
   printf 'state=resting\n' >> "$meta"
-  lockdir="$home/state/.spawn-$id.lock"
+  lockdir="$parent_home/state/.spawn-$secondmate_id.lock"
   (
     . "$ROOT/bin/fm-wake-lib.sh"
     fm_lock_try_acquire "$lockdir" || exit 7
@@ -2106,9 +2106,9 @@ test_secondmate_state_helper_shares_lock_with_spawn_respawn() {
     fail "lock holder did not acquire the shared respawn lock"
   }
 
-  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" \
+  PATH="$fakebin:$PATH" FM_HOME="$parent_home" FM_FAKE_TMUX_LOG="$log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/secondmate-state-lock-fake/pane.txt" \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$subhome" codex --secondmate >/dev/null 2>&1 &
+    "$ROOT/bin/fm-spawn.sh" "$secondmate_id" "$subhome" codex --secondmate >/dev/null 2>&1 &
   spawn_pid=$!
   saw_window=0
   for i in $(seq 1 100); do

@@ -192,8 +192,6 @@ fi
 if [ "$BACKEND" = orca ]; then
   fm_backend_orca_runtime_check || exit 1
 fi
-# shellcheck source=bin/fm-wake-lib.sh
-. "$SCRIPT_DIR/fm-wake-lib.sh"
 ORCA_ABORT_CLEANUP=0
 ORCA_WORKTREE_ID=
 ORCA_TERMINAL=
@@ -1023,6 +1021,8 @@ CODEXCONFIG=$(codex_config_flags_for_harness "$HARNESS")
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
 if [ "$KIND" = secondmate ]; then
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$SCRIPT_DIR/fm-wake-lib.sh"
   SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
   fm_lock_acquire_wait "$SPAWN_TASK_LOCK"
 fi
