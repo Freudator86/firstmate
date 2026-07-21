@@ -110,6 +110,7 @@ printf 'start\n' >> "$FM_HOME/state/receiver.starts"
 while [ ! -f "$FM_HOME/state/stop-receiver" ]; do
   sleep 0.1
 done
+printf 'CAPTAIN-TELEGRAM: after abandoned wrapper\n'
 SH
 chmod +x "$home/config/fm-tg-recv.sh"
 rm -f "$home/state/receiver.pid" "$home/state/receiver.starts" "$home/state/stop-receiver"
@@ -128,6 +129,9 @@ wait "$term_arm1" 2>/dev/null
 fm_pid_alive=$(FM_HOME="$home" bash -c '. "$1"; fm_pid_alive "$2"; printf "%s\n" "$?"' sh "$ROOT/bin/fm-wake-lib.sh" "$receiver_pid")
 [ "$fm_pid_alive" = 0 ] || fail "signal cleanup killed slow receiver before bounded wait check"
 [ -L "$home/state/.tg-recv.lock" ] || fail "signal cleanup dropped live receiver lock"
+capture_path=$(cat "$home/state/.tg-recv.lock/output-path" 2>/dev/null || true)
+[ -n "$capture_path" ] || fail "signal cleanup did not preserve output capture metadata"
+[ -e "$capture_path" ] || fail "signal cleanup removed live receiver output capture"
 
 FM_HOME="$home" "$ARM" > "$home/state/term-arm2.out" 2>&1 &
 term_arm2=$!
@@ -141,6 +145,7 @@ grep -q 'telegram receiver: attached pid=' "$home/state/term-arm2.out" || fail "
 [ "$(wc -l < "$home/state/receiver.starts")" -eq 1 ] || fail "signal cleanup allowed duplicate receiver start"
 touch "$home/state/stop-receiver"
 wait "$term_arm2"
+grep -q 'CAPTAIN-TELEGRAM: after abandoned wrapper' "$home/state/term-arm2.out" || fail "attached arm did not relay abandoned receiver output: $(cat "$home/state/term-arm2.out")"
 
 rm -f "$home/state/.tg-recv.lock"
 rm -rf "$home/state"/.tg-recv.lock.owner.*

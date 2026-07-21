@@ -78,12 +78,31 @@ clear_dead_recorded_receiver_lock() {
   fm_lock_remove_path "$RECV_LOCK" || true
 }
 
+relay_output_file_once() {
+  local output_path=$1 relay_path
+  [ -n "$output_path" ] || return 0
+  [ -e "$output_path" ] || return 0
+  relay_path="$output_path.relay.$$"
+  if mv "$output_path" "$relay_path" 2>/dev/null; then
+    [ -s "$relay_path" ] && cat "$relay_path"
+    rm -f "$relay_path" 2>/dev/null || true
+  fi
+}
+
+relay_recorded_receiver_output_once() {
+  local output_path
+  output_path=$(cat "$RECV_LOCK/output-path" 2>/dev/null || true)
+  relay_output_file_once "$output_path"
+}
+
 attach_and_wait() {
   while :; do
     if healthy_receiver; then
       sleep "$ATTACH_POLL"
       continue
     fi
+    relay_recorded_receiver_output_once
+    clear_dead_recorded_receiver_lock
     exit 0
   done
 }
@@ -140,6 +159,7 @@ record_child_lock_metadata_if_possible() {
     printf '%s\n' "$FM_HOME" > "$ownerdir/fm-home"
     printf '%s\n' "$current_identity" > "$ownerdir/pid-identity"
     printf '%s\n' "$RECV" > "$ownerdir/receiver-path"
+    [ -n "$child_out" ] && printf '%s\n' "$child_out" > "$ownerdir/output-path"
   } 2>/dev/null || true
 }
 
@@ -174,8 +194,10 @@ cleanup() {
   record_child_lock_metadata_if_possible
   if terminate_child_bounded; then
     release_lock_if_owned
+    [ -n "$child_out" ] && relay_output_file_once "$child_out"
+    [ -n "$child_out" ] && rm -f "$child_out" 2>/dev/null || true
+    return
   fi
-  [ -n "$child_out" ] && rm -f "$child_out" 2>/dev/null || true
 }
 trap 'cleanup; exit 129' HUP
 trap 'cleanup; exit 143' TERM INT
@@ -209,6 +231,7 @@ fi
   printf '%s\n' "$FM_HOME" > "$ownerdir/fm-home"
   printf '%s\n' "$identity" > "$ownerdir/pid-identity"
   printf '%s\n' "$RECV" > "$ownerdir/receiver-path"
+  printf '%s\n' "$child_out" > "$ownerdir/output-path"
 } 2>/dev/null || {
   cleanup
   printf 'telegram receiver: FAILED - could not record receiver lock metadata\n'
@@ -218,7 +241,7 @@ fi
 printf 'telegram receiver: started pid=%s\n' "$child"
 wait "$child"
 rc=$?
-[ -s "$child_out" ] && cat "$child_out"
+relay_output_file_once "$child_out"
 release_lock_if_owned
 rm -f "$child_out" 2>/dev/null || true
 trap - HUP TERM INT

@@ -90,6 +90,7 @@ fm_lock_clean_known_files() {
     "$lockdir/pid-identity" \
     "$lockdir/watcher-path" \
     "$lockdir/receiver-path" \
+    "$lockdir/output-path" \
     2>/dev/null || true
 }
 
