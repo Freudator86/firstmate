@@ -2070,6 +2070,35 @@ test_secondmate_state_helper_is_scoped_and_idempotent() {
   pass "fm-secondmate-state: transitions only secondmate metadata and stays idempotent"
 }
 
+test_secondmate_state_helper_shares_lock_with_spawn_respawn() {
+  local home id meta lockdir holder start elapsed
+  home="$TMP_ROOT/secondmate-state-lock-share"
+  mkdir -p "$home/state"
+  id=lock-sm
+  meta="$home/state/$id.meta"
+  fm_write_secondmate_meta "$meta" "$home" "firstmate:fm-domain"
+  # Identical to the SPAWN_TASK_LOCK path fm-spawn.sh computes for a respawn of
+  # this id ("$STATE/.spawn-$ID.lock"). Holding it here simulates a respawn
+  # mid-rewrite of this same meta file and proves fm-secondmate-state.sh now
+  # waits on that lock instead of racing its own read-decide-write against it.
+  lockdir="$home/state/.spawn-$id.lock"
+  (
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$lockdir" || exit 7
+    sleep 1
+    fm_lock_release "$lockdir"
+  ) &
+  holder=$!
+  sleep 0.2
+  start=$SECONDS
+  "$ROOT/bin/fm-secondmate-state.sh" resting "$meta" || fail "state helper failed while the respawn lock was held"
+  elapsed=$((SECONDS - start))
+  wait "$holder" 2>/dev/null || true
+  [ "$elapsed" -ge 1 ] || fail "state helper did not wait for the shared respawn lock (elapsed ${elapsed}s)"
+  assert_grep 'state=resting' "$meta" "state helper did not apply the queued transition once the shared lock cleared"
+  pass "fm-secondmate-state waits on fm-spawn.sh's respawn lock instead of racing the meta rewrite"
+}
+
 test_backlog_handoff_aborts_safely() {
   # The happy move (verbatim into the Queued section, out-of-scope left alone,
   # idempotent re-run) is asserted in the lifecycle e2e. Here: every refusal path
@@ -2247,5 +2276,6 @@ test_secondmate_teardown_path_boundary_matrix
 test_secondmate_idle_pane_is_not_stale
 test_secondmate_charter_brief_is_idle_by_default
 test_secondmate_state_helper_is_scoped_and_idempotent
+test_secondmate_state_helper_shares_lock_with_spawn_respawn
 test_backlog_handoff_aborts_safely
 test_backlog_handoff_refuses_done_items_and_non_secondmate_homes

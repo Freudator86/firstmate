@@ -10,6 +10,10 @@
 # itself to resting only at the charter's quiet idle boundary.
 set -eu
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
+
 usage() {
   cat <<'EOF'
 Usage: fm-secondmate-state.sh <active|resting> <absolute-parent-meta-file>
@@ -40,33 +44,42 @@ grep -qx 'kind=secondmate' "$META" 2>/dev/null || {
   exit 1
 }
 
-CURRENT=$(grep '^state=' "$META" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-[ "$CURRENT" = "$NEXT" ] && exit 0
-
 DIR=$(dirname "$META")
 BASE=$(basename "$META")
-TMP=$(mktemp "$DIR/.${BASE}.state.XXXXXX") || exit 1
+# Shared with fm-spawn.sh's respawn rewrite of this same $STATE/$ID.meta file
+# (SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"): using the identical lock path
+# here closes the active/resting vs. respawn read-decide-write race across
+# every writer of this meta file.
+META_LOCK="$DIR/.spawn-${BASE%.meta}.lock"
+TMP=
 # shellcheck disable=SC2329 # Invoked indirectly by the traps below.
 cleanup() {
   rm -f "$TMP"
+  fm_lock_release "$META_LOCK"
 }
+fm_lock_acquire_wait "$META_LOCK"
 trap cleanup EXIT HUP INT TERM
 
-awk -v next_state="$NEXT" '
-  BEGIN { wrote = 0 }
-  /^state=/ {
-    if (!wrote) {
-      print "state=" next_state
-      wrote = 1
+CURRENT=$(grep '^state=' "$META" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+if [ "$CURRENT" != "$NEXT" ]; then
+  TMP=$(mktemp "$DIR/.${BASE}.state.XXXXXX") || exit 1
+  awk -v next_state="$NEXT" '
+    BEGIN { wrote = 0 }
+    /^state=/ {
+      if (!wrote) {
+        print "state=" next_state
+        wrote = 1
+      }
+      next
     }
-    next
-  }
-  { print }
-  END {
-    if (!wrote) print "state=" next_state
-  }
-' "$META" > "$TMP"
-chmod 600 "$TMP"
-mv -f "$TMP" "$META"
+    { print }
+    END {
+      if (!wrote) print "state=" next_state
+    }
+  ' "$META" > "$TMP"
+  chmod 600 "$TMP"
+  mv -f "$TMP" "$META"
+fi
 trap - EXIT HUP INT TERM
+fm_lock_release "$META_LOCK"
 exit 0
