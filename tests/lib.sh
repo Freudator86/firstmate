@@ -96,18 +96,18 @@ fm_test_install_cleanup_traps() {
 }
 
 fm_test_tmproot() {
-  local output_var=${1:-} prefix=${2:-fm-test} root
-  case "$output_var" in
+  local _fm_test_tmproot_output_var=${1:-} _fm_test_tmproot_prefix=${2:-fm-test} _fm_test_tmproot_root
+  case "$_fm_test_tmproot_output_var" in
     ''|[0-9]*|*[!a-zA-Z0-9_]*)
       printf 'fm_test_tmproot: first argument must be an output variable name\n' >&2
       return 2
       ;;
   esac
-  root=$(mktemp -d "${TMPDIR:-/tmp}/${prefix}.XXXXXX") \
+  _fm_test_tmproot_root=$(mktemp -d "${TMPDIR:-/tmp}/${_fm_test_tmproot_prefix}.XXXXXX") \
     || fail "could not create test temp root under ${TMPDIR:-/tmp}"
   fm_test_install_cleanup_traps
-  FM_TEST_CLEANUP_DIRS+=("$root")
-  printf -v "$output_var" '%s' "$root"
+  FM_TEST_CLEANUP_DIRS+=("$_fm_test_tmproot_root")
+  printf -v "$_fm_test_tmproot_output_var" '%s' "$_fm_test_tmproot_root"
 }
 
 # --- fakebin / PATH shims ---------------------------------------------------
