@@ -82,6 +82,23 @@ test_project_management_owner_covers_guarded_operations() {
   pass "project-management owns registry, delivery posture, consent, initialization, and removal safety"
 }
 
+test_secrets_owner_covers_exposure_response() {
+  for phrase in \
+    'Do not run `cat`, `head`, `tail`, `sed`, `awk`, or `rg` against a secrets file to discover a value.' \
+    'Do not run `echo "$TOKEN"`, `printf '"'"'%s\n'"'"' "$TOKEN"`, `env`, or `printenv` to check a credential.' \
+    'Do not run `docker inspect <container> --format '"'"'{{json .Config.Env}}'"'"'` or `docker exec <container> env` when credentials may be present.' \
+    'Do not run `ps eww` because it appends the process environment to the listing.'; do
+    assert_grep "$phrase" "$SECRETS" "secrets-handling owner is missing dangerous-command doctrine: '$phrase'"
+  done
+  assert_grep 'Stow-and-clear is sufficient only when the value appeared in an authorized agent or tool transcript, remained session-local and ephemeral, and there is no evidence that it reached a durable artifact, shared log, message, repository, remote service, public output, or untrusted reader.' "$SECRETS" \
+    "secrets-handling owner lost the contained-exposure stow-and-clear scope"
+  assert_grep 'Do not rotate automatically for a contained, session-local, ephemeral exposure.' "$SECRETS" \
+    "secrets-handling owner lost the no-automatic-rotation posture"
+  assert_grep 'Escalate immediately when the exposure reached or may have reached durable storage, a shared or remote channel, source control, an untrusted audience, or an unknown boundary, or when suspicious use means containment is uncertain.' "$SECRETS" \
+    "secrets-handling owner lost the durable/shared/remote/untrusted/uncertain escalation trigger"
+  pass "secrets-handling owns the dangerous-command doctrine, contained stow-and-clear scope, and escalation triggers"
+}
+
 test_generic_effort_fallback_respects_precedence() {
   local section
   section=$(awk '
@@ -229,6 +246,7 @@ test_compressed_agents_retains_authority_and_supervision_safety() {
 test_new_skill_metadata_and_triggers
 test_diagnostic_owner_covers_causal_procedure
 test_project_management_owner_covers_guarded_operations
+test_secrets_owner_covers_exposure_response
 test_generic_effort_fallback_respects_precedence
 test_shared_authoring_requirements_are_owned
 test_secondmate_registry_contract_stays_concise
