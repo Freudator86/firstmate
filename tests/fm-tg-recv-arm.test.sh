@@ -204,3 +204,42 @@ kill "$race_pid" 2>/dev/null || true
 wait "$race_pid" 2>/dev/null || true
 wait "$publisher"
 wait "$race_arm"
+
+cat > "$home/config/fm-tg-recv.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf 'CAPTAIN-TELEGRAM: fresh receiver\n'
+SH
+chmod +x "$home/config/fm-tg-recv.sh"
+rm -f "$home/state/.tg-recv.lock"
+rm -rf "$home/state"/.tg-recv.lock.owner.*
+orphan_owner="$home/state/.tg-recv.lock.owner.orphan"
+orphan_capture="$home/state/.tg-recv-output.orphan"
+mkdir "$orphan_owner"
+printf '999999\n' > "$orphan_owner/pid"
+printf '%s\n' "$home" > "$orphan_owner/fm-home"
+printf '%s\n' "$home/config/fm-tg-recv.sh" > "$orphan_owner/receiver-path"
+printf '%s\n' "$orphan_capture" > "$orphan_owner/output-path"
+printf 'CAPTAIN-TELEGRAM: orphaned message\n' > "$orphan_capture"
+ln -s "$orphan_owner" "$home/state/.tg-recv.lock"
+out=$(FM_HOME="$home" "$ARM" 2>&1)
+case "$out" in
+  *'CAPTAIN-TELEGRAM: orphaned message'*) : ;;
+  *) fail "dead recorded receiver output was not relayed before lock cleanup: $out" ;;
+esac
+[ ! -e "$orphan_capture" ] || fail "dead recorded receiver output capture was left after relay"
+
+rm -f "$home/state/.tg-recv.lock"
+rm -rf "$home/state"/.tg-recv.lock.owner.*
+partial_owner="$home/state/.tg-recv.lock.owner.partial"
+mkdir "$partial_owner"
+printf '999999\n' > "$partial_owner/pid"
+ln -s "$partial_owner" "$home/state/.tg-recv.lock"
+out=$(FM_TG_RECV_ATTACH_CONFIRM_TIMEOUT=0 FM_HOME="$home" "$ARM" 2>&1)
+case "$out" in
+  *'CAPTAIN-TELEGRAM: fresh receiver'*) : ;;
+  *) fail "stale partial receiver lock was not reclaimed: $out" ;;
+esac
+if [ -e "$home/state/.tg-recv.lock" ] || [ -L "$home/state/.tg-recv.lock" ]; then
+  fail "stale partial receiver lock was left after reclaimed receiver exited"
+fi

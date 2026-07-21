@@ -75,6 +75,7 @@ clear_dead_recorded_receiver_lock() {
   [ "$lock_home" = "$FM_HOME" ] || return 0
   [ "$lock_path" = "$RECV" ] || return 0
   fm_pid_alive "$pid" && return 0
+  relay_recorded_receiver_output_once
   fm_lock_remove_path "$RECV_LOCK" || true
 }
 
@@ -130,9 +131,9 @@ fi
 clear_dead_recorded_receiver_lock
 
 ownerdir=
-if ! fm_lock_try_create "$RECV_LOCK"; then
+if ! fm_lock_try_acquire "$RECV_LOCK"; then
   attach_if_receiver_becomes_healthy
-  if ! fm_lock_try_create "$RECV_LOCK"; then
+  if ! fm_lock_try_acquire "$RECV_LOCK"; then
     printf 'telegram receiver: FAILED - receiver lock is held but no live matching receiver was confirmed\n'
     exit 1
   fi
