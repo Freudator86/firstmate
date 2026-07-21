@@ -212,6 +212,10 @@ EOF
 }
 
 test_pi_arm_distinguishes_session_lock_ownership() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log out status
   repo="$TMP_ROOT/pi-lock-ownership-root"
   home="$TMP_ROOT/pi-lock-ownership-home"
