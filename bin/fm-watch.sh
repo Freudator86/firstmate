@@ -1268,7 +1268,12 @@ EOF
       echo 0 > "$cf"
       rm -f "$ssf" "$ewf"
       task=$(window_to_task "$w" "$STATE")
-      if ! afk_present && [ -e "$pkf" ] && ! window_is_busy "$w" "$tail40"; then
+      if [ "$kind" = secondmate ]; then
+        case "$(pause_state_class "$w" "$task")" in
+          paused) handle_paused_stale "$w" "$task" "$h" ;;
+          *)      clear_pause_tracking "$w" ;;
+        esac
+      elif ! afk_present && [ -e "$pkf" ] && ! window_is_busy "$w" "$tail40"; then
         handle_parked_stale "$w" "$h"
       elif ! afk_present && status_is_paused "$(last_status_line "$STATE/$task.status")" && ! window_is_busy "$w" "$tail40"; then
         case "$(pause_state_class "$w" "$task")" in
