@@ -313,14 +313,15 @@ export default function (pi: ExtensionAPI) {
         retryFailures = 0;
         restoring = true;
         void (async () => {
+          let failure = "";
           try {
-            const failure = await restoreAfterActionableClose(predecessor);
-            if (stopping) return;
-            const message = failure ? `${classification.message}\n\n${failure}` : classification.message;
-            await sendWake(message);
+            failure = await restoreAfterActionableClose(predecessor);
           } finally {
             restoring = false;
           }
+          if (stopping) return;
+          const message = failure ? `${classification.message}\n\n${failure}` : classification.message;
+          await sendWake(message);
         })().catch(() => {
         });
         return;
