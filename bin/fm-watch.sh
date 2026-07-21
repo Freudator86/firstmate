@@ -778,6 +778,9 @@ watch_arm_owner_is_parent() {
   local current_parent
   [ -n "$WATCH_ARM_OWNER_PID" ] || return 0
   current_parent=$(LC_ALL=C ps -p "$WATCHER_PID" -o ppid= 2>/dev/null | tr -d '[:space:]')
+  # A failed or empty ps read is inconclusive, not proof the arm owner is gone;
+  # only exit on a reliable read that names a different parent.
+  [ -n "$current_parent" ] || return 0
   [ "$current_parent" = "$WATCH_ARM_OWNER_PID" ]
 }
 
