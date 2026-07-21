@@ -38,6 +38,14 @@ write_envelope() {
 
 # Existing Bridge fixtures explicitly opt into the historical vessel name.
 export FM_BRIDGE_VESSEL=coditan
+# An operator's shell commonly exports FM_BRIDGE_ROOT globally for the live
+# vessel, which outranks FM_HOME in fm-watch.sh's own resolution and would
+# silently point every fixture below at that real clone instead. Since a
+# misdirected BRIDGE_ROOT/.git check makes the watcher treat Bridge as
+# unconfigured (never producing the wake this file's assertions wait on
+# without an external timeout), an inherited override here hangs the suite
+# rather than failing it.
+unset FM_BRIDGE_ROOT
 
 test_vessel_resolution_precedence() {
   local home resolved
