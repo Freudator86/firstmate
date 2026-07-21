@@ -208,7 +208,7 @@ child_out=$(mktemp "$STATE/.tg-recv-output.XXXXXX") || {
   exit 1
 }
 
-"$RECV" >"$child_out" &
+FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" FM_STATE_OVERRIDE="$STATE" "$RECV" >"$child_out" &
 child=$!
 identity=$(fm_pid_identity "$child" 2>/dev/null || true)
 if [ -z "$identity" ]; then

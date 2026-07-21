@@ -41,6 +41,34 @@ esac
 owner_leaks=$(find "$home/state" -maxdepth 1 -type d -name '.tg-recv.lock.owner.*' -print)
 [ -z "$owner_leaks" ] || fail "receiver arm left lock owner directories behind: $owner_leaks"
 
+plain_home="$TMP_ROOT/plain-home"
+mkdir -p "$plain_home/config" "$plain_home/state"
+printf 'BOT_TOKEN=x\nCHAT_ID=y\n' > "$plain_home/config/telegram.env"
+cat > "$plain_home/config/fm-tg-recv.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+[ "$FM_HOME" = "$EXPECTED_FM_HOME" ] || {
+  printf 'bad FM_HOME: %s\n' "${FM_HOME-}"
+  exit 7
+}
+[ "$FM_CONFIG_OVERRIDE" = "$EXPECTED_FM_HOME/config" ] || {
+  printf 'bad FM_CONFIG_OVERRIDE: %s\n' "${FM_CONFIG_OVERRIDE-}"
+  exit 8
+}
+[ "$FM_STATE_OVERRIDE" = "$EXPECTED_FM_HOME/state" ] || {
+  printf 'bad FM_STATE_OVERRIDE: %s\n' "${FM_STATE_OVERRIDE-}"
+  exit 9
+}
+printf 'CAPTAIN-TELEGRAM: env ok\n'
+SH
+chmod +x "$plain_home/config/fm-tg-recv.sh"
+
+out=$(EXPECTED_FM_HOME="$plain_home" FM_ROOT_OVERRIDE="$plain_home" env -u FM_HOME -u FM_CONFIG_OVERRIDE -u FM_STATE_OVERRIDE "$ARM" 2>&1)
+case "$out" in
+  *'CAPTAIN-TELEGRAM: env ok'*) : ;;
+  *) fail "expected receiver to inherit resolved home env, got: $out" ;;
+esac
+
 cat > "$home/config/fm-tg-recv.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
