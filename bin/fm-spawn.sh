@@ -195,6 +195,7 @@ fi
 ORCA_ABORT_CLEANUP=0
 ORCA_WORKTREE_ID=
 ORCA_TERMINAL=
+SPAWN_TASK_LOCK=
 
 parse_orca_worktree_result() {
   local raw=$1 rest
@@ -215,6 +216,10 @@ parse_orca_worktree_result() {
 
 orca_spawn_abort_cleanup() {
   local status=$?
+  if [ -n "$SPAWN_TASK_LOCK" ]; then
+    fm_lock_release "$SPAWN_TASK_LOCK"
+    SPAWN_TASK_LOCK=
+  fi
   [ "$ORCA_ABORT_CLEANUP" = 1 ] || return "$status"
   ORCA_ABORT_CLEANUP=0
   if [ -n "${ORCA_TERMINAL:-}" ]; then
@@ -1015,12 +1020,19 @@ EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
 CODEXCONFIG=$(codex_config_flags_for_harness "$HARNESS")
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
+if [ "$KIND" = secondmate ]; then
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$SCRIPT_DIR/fm-wake-lib.sh"
+  SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
+  fm_lock_acquire_wait "$SPAWN_TASK_LOCK"
+fi
 {
   echo "window=$META_WINDOW"
   echo "worktree=$WT"
   echo "project=$PROJ_ABS"
   echo "harness=$HARNESS"
   echo "kind=$KIND"
+  [ "$KIND" != secondmate ] || echo "state=active"
   echo "mode=$MODE"
   echo "yolo=$YOLO"
   echo "tasktmp=$TASK_TMP"
@@ -1054,6 +1066,10 @@ META_WINDOW=$T
     echo "projects=$SECONDMATE_PROJECTS"
   fi
 } > "$STATE/$ID.meta"
+if [ -n "$SPAWN_TASK_LOCK" ]; then
+  fm_lock_release "$SPAWN_TASK_LOCK"
+  SPAWN_TASK_LOCK=
+fi
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
 sq_brief=$(shell_quote "$BRIEF")

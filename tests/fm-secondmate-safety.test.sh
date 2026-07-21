@@ -2030,6 +2030,8 @@ test_secondmate_charter_brief_is_idle_by_default() {
   # Idle contract: waits for routed work, never self-initiates.
   grep -F 'go idle and wait silently for the main firstmate' "$brief" >/dev/null \
     || fail "charter brief does not tell the secondmate to go idle and wait for routed work"
+  grep -F "bin/fm-secondmate-state.sh resting '$home/state/idle-sm.meta'" "$brief" >/dev/null \
+    || fail "charter brief does not mark the parent record resting at the quiet idle boundary"
   grep -F 'Act only on tasks the main firstmate routes to you' "$brief" >/dev/null \
     || fail "charter brief does not restrict work to routed tasks"
   grep -F 'never spawn a survey, audit, or any self-directed' "$brief" >/dev/null \
@@ -2044,6 +2046,94 @@ test_secondmate_charter_brief_is_idle_by_default() {
     fail "charter brief still uses the over-broad 'supervise work that matches your scope' phrasing"
   fi
   pass "secondmate charter brief is idle by default and does not self-initiate work"
+}
+
+test_secondmate_state_helper_is_scoped_and_idempotent() {
+  local home meta ordinary
+  home="$TMP_ROOT/secondmate-state-helper"
+  mkdir -p "$home/state"
+  meta="$home/state/domain.meta"
+  ordinary="$home/state/ordinary.meta"
+  fm_write_secondmate_meta "$meta" "$home" "firstmate:fm-domain"
+  "$ROOT/bin/fm-secondmate-state.sh" resting "$meta" || fail "state helper refused a secondmate meta"
+  assert_grep 'state=resting' "$meta" "state helper did not mark the secondmate resting"
+  "$ROOT/bin/fm-secondmate-state.sh" resting "$meta" || fail "repeated resting transition was not idempotent"
+  "$ROOT/bin/fm-secondmate-state.sh" active "$meta" || fail "state helper did not reactivate the secondmate"
+  assert_grep 'state=active' "$meta" "state helper did not record active"
+  [ "$(grep -c '^state=' "$meta")" -eq 1 ] || fail "state helper left duplicate lifecycle fields"
+
+  fm_write_meta "$ordinary" "kind=ship" "state=active"
+  if "$ROOT/bin/fm-secondmate-state.sh" resting "$ordinary" >/dev/null 2>&1; then
+    fail "state helper accepted ordinary task metadata"
+  fi
+  assert_grep 'state=active' "$ordinary" "refused ordinary metadata was changed"
+  pass "fm-secondmate-state: transitions only secondmate metadata and stays idempotent"
+}
+
+test_secondmate_state_helper_shares_lock_with_spawn_respawn() {
+  local parent_home subhome secondmate_id meta lockdir fakebin log ready release holder spawn_pid i saw_window blocked_state spawn_live holder_status spawn_status
+  parent_home="$TMP_ROOT/secondmate-state-lock-share"
+  subhome="$TMP_ROOT/secondmate-state-lock-subhome"
+  secondmate_id='lock-sm'
+  fakebin=$(make_fake_tmux "$TMP_ROOT/secondmate-state-lock-fake")
+  log="$TMP_ROOT/secondmate-state-lock-fake/tmux.log"
+  ready="$TMP_ROOT/secondmate-state-lock.ready"
+  release="$TMP_ROOT/secondmate-state-lock.release"
+  mkdir -p "$parent_home/projects" "$parent_home/data" "$parent_home/state"
+  FM_HOME="$parent_home" FM_SECONDMATE_CHARTER='lock test domain' FM_SECONDMATE_SCOPE='lock test work' \
+    "$ROOT/bin/fm-home-seed.sh" "$secondmate_id" "$subhome" --no-projects >/dev/null \
+    || fail "failed to seed secondmate for real respawn lock test"
+
+  meta="$parent_home/state/$secondmate_id.meta"
+  fm_write_secondmate_meta "$meta" "$subhome" "firstmate:fm-$secondmate_id"
+  printf 'state=resting\n' >> "$meta"
+  lockdir="$parent_home/state/.spawn-$secondmate_id.lock"
+  (
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$lockdir" || exit 7
+    : > "$ready"
+    while [ ! -e "$release" ]; do sleep 0.02; done
+    fm_lock_release "$lockdir"
+  ) &
+  holder=$!
+  for i in $(seq 1 50); do
+    [ ! -e "$ready" ] || break
+    kill -0 "$holder" 2>/dev/null || break
+    sleep 0.02
+  done
+  [ -e "$ready" ] || {
+    wait "$holder" 2>/dev/null || true
+    fail "lock holder did not acquire the shared respawn lock"
+  }
+
+  PATH="$fakebin:$PATH" FM_HOME="$parent_home" FM_FAKE_TMUX_LOG="$log" \
+    FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/secondmate-state-lock-fake/pane.txt" \
+    "$ROOT/bin/fm-spawn.sh" "$secondmate_id" "$subhome" codex --secondmate >/dev/null 2>&1 &
+  spawn_pid=$!
+  saw_window=0
+  for i in $(seq 1 100); do
+    if grep -F 'new-window' "$log" >/dev/null 2>&1; then
+      saw_window=1
+      break
+    fi
+    kill -0 "$spawn_pid" 2>/dev/null || break
+    sleep 0.02
+  done
+  sleep 0.5
+  blocked_state=$(grep '^state=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+  spawn_live=0
+  kill -0 "$spawn_pid" 2>/dev/null && spawn_live=1
+  : > "$release"
+  if wait "$holder"; then holder_status=0; else holder_status=$?; fi
+  if wait "$spawn_pid"; then spawn_status=0; else spawn_status=$?; fi
+
+  [ "$saw_window" -eq 1 ] || fail "real secondmate respawn never reached its metadata publication path"
+  [ "$blocked_state" = resting ] || fail "fm-spawn rewrote resting metadata before the shared lock cleared (state=$blocked_state)"
+  [ "$spawn_live" -eq 1 ] || fail "fm-spawn did not wait while the shared metadata lock was held"
+  [ "$holder_status" -eq 0 ] || fail "shared lock holder failed with status $holder_status"
+  [ "$spawn_status" -eq 0 ] || fail "secondmate respawn failed after the shared lock cleared (status $spawn_status)"
+  assert_grep 'state=active' "$meta" "real secondmate respawn did not conservatively publish active after acquiring the lock"
+  pass "fm-spawn and fm-secondmate-state serialize real metadata rewrites on one lock"
 }
 
 test_backlog_handoff_aborts_safely() {
@@ -2222,5 +2312,7 @@ test_secondmate_force_teardown_refuses_unregistered_child_worktree
 test_secondmate_teardown_path_boundary_matrix
 test_secondmate_idle_pane_is_not_stale
 test_secondmate_charter_brief_is_idle_by_default
+test_secondmate_state_helper_is_scoped_and_idempotent
+test_secondmate_state_helper_shares_lock_with_spawn_respawn
 test_backlog_handoff_aborts_safely
 test_backlog_handoff_refuses_done_items_and_non_secondmate_homes

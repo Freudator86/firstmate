@@ -2,8 +2,8 @@
 name: secondmate-provisioning
 description: >-
   Agent-only reference for persistent secondmate setup and retirement.
-  Use when creating, seeding, validating, launching, recovering, handing backlog to, pushing inherited local material into, or retiring a secondmate home, or when editing data/secondmates.md.
-  Covers home leases, transactional seeding, project clone restrictions, secondmate harness pins, inherited local-material push, idle charter, handoff helper, and teardown safety.
+  Use when creating, seeding, validating, launching, recovering, transitioning active/resting, handing backlog to, pushing inherited local material into, or retiring a secondmate home, or when editing data/secondmates.md.
+  Covers home leases, transactional seeding, project clone restrictions, secondmate harness pins, inherited local-material push, idle and resting lifecycle, handoff helper, and teardown safety.
 user-invocable: false
 metadata:
   internal: true
@@ -11,7 +11,7 @@ metadata:
 
 # secondmate-provisioning
 
-Use this reference before creating, seeding, validating, launching, handing backlog to, recovering, pushing inherited local material into, or retiring a persistent secondmate, and before editing `data/secondmates.md`.
+Use this reference before creating, seeding, validating, launching, handing backlog to, recovering, transitioning active/resting, pushing inherited local material into, or retiring a persistent secondmate, and before editing `data/secondmates.md`.
 
 Keep the always-inline routing rules in `AGENTS.md` authoritative: route by natural-language `scope:`, local-only projects stay with the main firstmate, and secondmates are idle by default.
 
@@ -148,6 +148,23 @@ The main firstmate reconciles only direct reports.
 Each secondmate is a firstmate in its own home, so it runs recovery on startup and reconciles its own crewmates.
 A secondmate's recovery reconciles only work that is already its own and then idles.
 It never initiates a survey or audit during recovery.
+
+## Active and resting states
+
+The parent home's `state/<id>.meta` remains present throughout a live secondmate's lifecycle.
+`state=active` means the secondmate may have assigned work, local work under way, an open escalation, or a fresh result, so it counts as supervision-relevant work exactly like any other direct report.
+`state=resting` means the secondmate has finished its own startup reconciliation and has no assigned or in-flight work, open escalation, or fresh result left to report.
+It remains registered and may remain alive while resting.
+
+`fm-spawn.sh --secondmate` starts or restarts the parent record conservatively at `state=active` so recovery work can never disappear from supervision.
+A marked routed-text send through `fm-send.sh` switches the record to `state=active` before delivering the message.
+After reconciliation or routed work is fully clear, the scaffolded charter tells the secondmate to run `bin/fm-secondmate-state.sh resting <absolute-parent-meta-file>` before it waits silently.
+The helper accepts only ordinary, non-symlinked `kind=secondmate` metadata and atomically replaces the state field, serialized on the same per-secondmate meta lock `fm-spawn.sh` holds during a respawn rewrite of that record, closing read-decide-write races between every writer.
+
+The shared supervision predicate excludes only the exact `kind=secondmate` plus `state=resting` combination.
+An ordinary task can never bypass supervision by carrying that field, and an older secondmate record with no state remains active for backward-compatible safety.
+Bootstrap, sync, liveness checks, routing, and explicit retirement still discover the resting secondmate through its unchanged meta record.
+Resting changes only whether that idle direct report forces watcher and Stop-hook supervision; it does not weaken the rule that a secondmate reconciles only its own existing work on restart and never invents work.
 
 ## Retirement and teardown
 

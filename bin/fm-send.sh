@@ -25,8 +25,10 @@
 # records kind=secondmate, the text is prefixed with the from-firstmate marker
 # (bin/fm-marker-lib.sh) so the secondmate routes its reply via its status file
 # or a status-pointed doc instead of stranding it in chat the main firstmate
-# never reads. A crewmate/scout target, an explicit backend-target escape-hatch
-# target, and the --key path are never marked - their behavior is unchanged.
+# never reads. That marked text path first changes a resting secondmate's parent
+# metadata to state=active so routed work is supervision-relevant before delivery.
+# A crewmate/scout target, an explicit backend-target escape-hatch target, and the
+# --key path are never marked - their behavior is unchanged.
 # After a successful text submit fm-send pauses FM_SEND_SETTLE seconds (default 1,
 # 0 disables) before returning: submit confirmation only proves the text was
 # accepted, but the harness needs a beat to spin up the turn before its busy
@@ -211,6 +213,10 @@ if [ "${1:-}" = "--key" ]; then
 else
   MESSAGE=$*
   if [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
+    # A resting secondmate does not count as supervision-relevant work. Switch
+    # it back to active before delivering newly routed text so a successful send
+    # can never race ahead of the Stop-hook predicate.
+    "$SCRIPT_DIR/fm-secondmate-state.sh" active "$TARGET_META"
     fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
   fi
   # Slash commands open a completion popup in some TUIs (verified on codex);

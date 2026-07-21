@@ -78,6 +78,23 @@ test_predicate_queue_pending_flag() {
   pass "fm_supervision_status: FM_SUP_QUEUE_PENDING tracks state/.wake-queue"
 }
 
+test_predicate_ignores_only_resting_secondmates() {
+  local state="$TMP_ROOT/pred-resting/state"
+  mkdir -p "$state"
+  fm_write_meta "$state/resting.meta" "kind=secondmate" "state=resting"
+  fm_supervision_status "$state" 300
+  [ "$FM_SUP_IN_FLIGHT" -eq 0 ] || fail "resting secondmate counted as in flight"
+  [ "$FM_SUP_RESTING" -eq 1 ] || fail "expected one resting secondmate, got $FM_SUP_RESTING"
+
+  fm_write_meta "$state/active.meta" "kind=secondmate" "state=active"
+  fm_write_meta "$state/legacy.meta" "kind=secondmate"
+  fm_write_meta "$state/ordinary.meta" "kind=ship" "state=resting"
+  fm_supervision_status "$state" 300
+  [ "$FM_SUP_IN_FLIGHT" -eq 3 ] || fail "active, legacy, and ordinary records must count, got $FM_SUP_IN_FLIGHT"
+  [ "$FM_SUP_RESTING" -eq 1 ] || fail "resting count changed unexpectedly, got $FM_SUP_RESTING"
+  pass "fm_supervision_status: only explicit resting secondmates are excluded from in-flight work"
+}
+
 # --- HOOK: bin/fm-turnend-guard.sh ------------------------------------------
 #
 # Each scenario gets its own directory carrying a copy of the two guard scripts
@@ -395,6 +412,17 @@ test_hook_silent_in_idle_secondmate_home() {
   expect_code 0 "$status" "hook must stay silent in an idle, empty-queue secondmate home"
   [ -z "$out" ] || fail "idle secondmate home produced guard output: $out"
   pass "fm-turnend-guard: idle-by-default - silent in a secondmate home with nothing in flight"
+}
+
+test_hook_silent_with_resting_secondmate_direct_report() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/hook-resting-secondmate-report")
+  fm_write_meta "$dir/state/domain.meta" \
+    "window=firstmate:fm-domain" "kind=secondmate" "state=resting"
+  out=$(run_hook "$dir" false); status=$?
+  expect_code 0 "$status" "resting secondmate direct report must not block the parent primary's turn end"
+  [ -z "$out" ] || fail "resting secondmate direct report produced guard output: $out"
+  pass "fm-turnend-guard: a registered resting secondmate does not force Stop-hook supervision"
 }
 
 # The stop_hook_active loop guard bounds the secondmate to one forced
@@ -935,6 +963,7 @@ test_predicate_unhealthy_no_beacon
 test_predicate_unhealthy_stale_beacon
 test_predicate_healthy_fresh_beacon
 test_predicate_queue_pending_flag
+test_predicate_ignores_only_resting_secondmates
 test_hook_silent_when_no_work_in_flight
 test_hook_blocks_when_fresh_beacon_has_no_live_lock
 test_hook_blocks_when_dead_lock_has_fresh_beacon
@@ -948,6 +977,7 @@ test_hook_uses_state_override
 test_hook_loop_guard_allows_retry
 test_hook_blocks_in_secondmate_own_home
 test_hook_silent_in_idle_secondmate_home
+test_hook_silent_with_resting_secondmate_direct_report
 test_hook_secondmate_loop_guard_allows_retry
 test_hook_secondmate_reinvoke_recovery_loop
 test_hook_silent_in_secondmate_child_worktree
