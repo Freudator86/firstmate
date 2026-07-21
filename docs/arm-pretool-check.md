@@ -1,6 +1,6 @@
-# Watcher arm PreToolUse seatbelt
+# Supervision arm PreToolUse seatbelt
 
-This document is the authoritative human-readable contract for the watcher arm PreToolUse seatbelt.
+This document is the authoritative human-readable contract for the supervision arm PreToolUse seatbelt.
 `bin/fm-arm-command-policy.mjs` is the single semantic owner.
 `bin/fm-arm-pretool-check.sh` is only the stable harness transport and output renderer.
 The tracked harness adapters forward command text without classifying it.
@@ -8,12 +8,12 @@ The tracked harness adapters forward command text without classifying it.
 
 ## Purpose and boundary
 
-A firstmate primary must arm `bin/fm-watch-arm.sh` or run `bin/fm-watch-checkpoint.sh` through an observable harness call.
-A shell background operator, pipeline, redirection, wrapper, or unrelated command list can hide failure or let the watcher child die with the tool call.
+A firstmate primary must arm `bin/fm-watch-arm.sh`, run `bin/fm-watch-checkpoint.sh`, or arm `bin/fm-tg-recv-arm.sh` through an observable harness call.
+A shell background operator, pipeline, redirection, wrapper, or unrelated command list can hide failure or let the supervised child die with the tool call.
 The seatbelt rejects those command shapes before execution.
 
 This policy is not a post-arm liveness guarantee.
-`bin/fm-guard.sh`, `bin/fm-turnend-guard.sh`, the watcher lock, and the watcher beacon still prove whether supervision is healthy after an allowed call.
+`bin/fm-guard.sh`, `bin/fm-turnend-guard.sh`, the watcher lock, the watcher beacon, and the Telegram receiver lock still prove whether supervision is healthy after an allowed call.
 
 The classifier never executes, sources, evaluates, or expands any part of the submitted command.
 It tokenizes the bytes and classifies lexical execution positions only.
@@ -32,19 +32,19 @@ The wrapper discovers the code root from its own location.
 The active firstmate home is `${FM_HOME:-<code-root>}`.
 It passes both roots and the exact command string to the Node policy owner.
 
-The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain the `fm-watch` byte sequence even after the classifier's decoders run.
+The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain any protected byte sequence even after the classifier's decoders run.
 The fast path may allow only when both of these hold:
 
-1. The stripped text lacks the `fm-watch` watcher substring, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
+1. The stripped text lacks the `fm-watch` and `fm-tg-recv-arm` protected substrings, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
 2. The raw command carries no quoting-decoder marker: a `$` immediately followed by a single quote (ANSI-C `$'...'`) or a double quote (bash locale `$"..."`).
 
-Any `fm-watch` match or any quoting-decoder marker delegates to the classifier.
-Normalizing first keeps this a strict superset: a protected watcher path obfuscated as `fm-watc\<newline>h-arm.sh` or `fm-"watch"-arm.sh` still delegates, and stripping only those non-alphanumeric bytes can never destroy an existing `fm-watch` run.
-The quoting-decoder marker closes the case the byte strip cannot: `bin/fm-$'\x77'atch-arm.sh` and `bin/fm-$"watch"-arm.sh` both resolve to `bin/fm-watch-arm.sh` only after the classifier decodes the encoded character, so a cheap byte strip would otherwise lose the `fm-watch` bytes and fast-allow them.
+Any protected substring match or any quoting-decoder marker delegates to the classifier.
+Normalizing first keeps this a strict superset: a protected path obfuscated as `fm-watc\<newline>h-arm.sh`, `fm-"watch"-arm.sh`, or `fm-tg-recv-"arm".sh` still delegates, and stripping only those non-alphanumeric bytes can never destroy an existing protected run.
+The quoting-decoder marker closes the case the byte strip cannot: `bin/fm-$'\x77'atch-arm.sh`, `bin/fm-$"watch"-arm.sh`, and equivalent encoded `fm-tg-recv-arm` forms resolve to protected scripts only after the classifier decodes the encoded character, so a cheap byte strip would otherwise lose the protected bytes and fast-allow them.
 This marker set is coupled to the classifier's decoder set in `bin/fm-arm-command-policy.mjs`: adding any new quote or expansion form the classifier decodes requires extending this marker set in the same change, or the prefilter stops being a strict superset.
-The prefilter owns no semantic exception: it can only ever fast-allow a command that is definitely not a watcher command, so it never flips a classification and the classifier remains the single owner of every decision.
+The prefilter owns no semantic exception: it can only ever fast-allow a command that is definitely not protected, so it never flips a classification and the classifier remains the single owner of every decision.
 
-The seatbelt's threat model is agent mistakes: no one accidentally writes an ANSI-C- or locale-obfuscated watcher path, and deliberate obfuscation is the post-arm liveness guard's territory.
+The seatbelt's threat model is agent mistakes: no one accidentally writes an ANSI-C- or locale-obfuscated protected path, and deliberate obfuscation is the post-arm liveness guard's territory.
 The marker guard closes the static gap anyway because it is cheap and provable per encoding class.
 Tripwire: if a third strict-superset gap is ever found after this marker generalization, that falsifies the "provable per encoding class" claim and the decision flips to Option B - drop the prefilter and always invoke the classifier.
 Deeper decode-required obfuscation beyond the coupled marker set stays the classifier's and the post-arm liveness guards' responsibility.
@@ -58,12 +58,13 @@ Malformed or unsupported shell syntax that contains a protected command is a sem
 The tokenizer recognizes cooked words with quote provenance, comments, heredoc bodies, shell list operators, pipelines, redirections, command and process substitutions, parenthesized subshells, brace groups, and literal nested execution payloads.
 Quoted text, comments, heredoc bodies, and later argument words are data positions unless a recognized execution sink recursively executes them.
 
-A command word in executed position is a protected execution when its normalized path suffix matches one of the protected watcher scripts:
+A command word in executed position is a protected execution when its normalized path suffix matches one of the protected scripts:
 
 ```text
 bin/fm-watch-arm.sh          (arm; blessed entry point)
 bin/fm-watch-checkpoint.sh   (checkpoint; blessed entry point)
 bin/fm-watch.sh              (watch; protected but never blessed)
+bin/fm-tg-recv-arm.sh        (arm; blessed entry point)
 ```
 
 The relative form, the `<code-root>`-anchored absolute form, and any word ending in `/bin/<script>` all resolve to that identity.
@@ -89,8 +90,8 @@ An actual protected command with a heredoc still has a redirection and is denied
 
 ## Blessed syntax tree
 
-An allowed watcher program is one linear outer command list with zero or more approved setup nodes followed by exactly one direct protected node.
-`bin/fm-watch-arm.sh` and `bin/fm-watch-checkpoint.sh` are the only blessed final nodes, including their expanded-path forms; a `bin/fm-watch.sh` final node is never blessed and denies with `watcher-direct`.
+An allowed supervision-arm program is one linear outer command list with zero or more approved setup nodes followed by exactly one direct protected node.
+`bin/fm-watch-arm.sh`, `bin/fm-watch-checkpoint.sh`, and `bin/fm-tg-recv-arm.sh` are the blessed final nodes, including their expanded-path forms; a `bin/fm-watch.sh` final node is never blessed and denies with `watcher-direct`.
 
 Approved setup nodes are:
 
@@ -207,7 +208,7 @@ pi -p -e .pi/extensions/fm-primary-turnend-guard.ts --no-context-files --no-sess
 
 Observed output for the four allowed calls was `UNRELATED_EXECUTED`, a successful read-only `pgrep`, `CHECKPOINT_EXECUTED`, and two `TMUX_ARGS:` lines that preserved the watcher text as data.
 Each harness blocked the final command with exit 2 mapped through its native adapter behavior.
-The stable reason was `[watcher-background] a protected watcher command cannot run in an asynchronous shell list or through nohup/disown`.
+The stable reason was `[watcher-background] a protected command cannot run in an asynchronous shell list or through nohup/disown`.
 The dummy arm body would have created `<harness>.sentinel` if the denied command executed.
 All five sentinel files remained absent.
 

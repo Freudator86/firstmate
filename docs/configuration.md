@@ -16,7 +16,7 @@ The tracked code root contains the shared instruction, skill, documentation, wor
 
 `bin/fm-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
 The producing PR and X helpers own the fields they append, `bin/fm-classify-lib.sh` owns status-event vocabulary, and `bin/fm-crew-state.sh` owns current-state reconciliation.
-Wake, watcher, away-mode, and X-specific state mechanics remain with their named scripts and reference sections rather than being duplicated into one exhaustive state tree here.
+Wake, watcher, direct Telegram receiver, away-mode, and X-specific state mechanics remain with their named scripts and reference sections rather than being duplicated into one exhaustive state tree here.
 
 `bin/fm-session-start.sh`'s header is the single owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
 `docs/sessionstart-nudge.md` owns the native session-open adapter mechanics that nudge the digest command.
@@ -118,7 +118,7 @@ Those overrides currently set `sandbox_mode = "workspace-write"`, `approval_poli
 The tracked `.codex/hooks.json` has `SessionStart`, `PreToolUse`, and `Stop` project hooks.
 Its `SessionStart` hook is the Codex integration for `bin/fm-sessionstart-nudge.sh`; see [`docs/sessionstart-nudge.md`](sessionstart-nudge.md) for the full native session-start nudge contract.
 Its `Stop` hook is the Codex integration for `bin/fm-turnend-guard.sh`; see [`docs/turnend-guard.md`](turnend-guard.md) for the full primary turn-end supervision contract.
-Its `PreToolUse` hooks run the watcher-arm and cd-guard seatbelts plus a fail-open Graphify check.
+Its `PreToolUse` hooks run the supervision-arm and cd-guard seatbelts plus a fail-open Graphify check.
 The Graphify hook exits successfully if `graphify` is not on `PATH`; otherwise it runs `graphify hook-check` with a ten-second timeout.
 That hook is intentionally portable and bounded so Codex tool use is not blocked by a missing Graphify install or a slow hook.
 
@@ -185,6 +185,19 @@ Primary-session turn-end guard integrations for verified harnesses are tracked a
 The Codex repo-local profile and Graphify PreToolUse hook are documented above because they are Codex configuration, not harness launch mechanics.
 Primary-session watcher wake protocols are rendered at session start by [`bin/fm-supervision-instructions.sh`](../bin/fm-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
 Claude and Grok use background-notify cycles, Codex uses bounded foreground checkpoints, Pi uses its two tracked primary extensions, and OpenCode uses its TUI plugin.
+
+## Direct Telegram receiver (config/telegram.env / config/fm-tg-recv.sh)
+
+Direct Telegram receive is an optional per-home local integration.
+Enable it by creating gitignored `config/telegram.env` and an executable gitignored `config/fm-tg-recv.sh` under the effective config directory.
+The local receiver script owns Telegram credentials, polling, parsing, send behavior, and the exact `CAPTAIN-TELEGRAM` payload it prints.
+The tracked `bin/fm-tg-recv-arm.sh` wrapper owns only the session-start arm shape: it starts one receiver for the effective `FM_HOME` or attaches to an already running matching receiver.
+When a locked `bin/fm-session-start.sh` sees both files, its digest emits the separate tracked-background arm step for `bin/fm-tg-recv-arm.sh`; read-only sessions report that the lock holder owns arming.
+When `config/telegram.env` is absent the feature stays silent except for the session-start inactive line.
+When `config/telegram.env` exists but `config/fm-tg-recv.sh` is missing or not executable, session start reports that direct Telegram receive is not armed.
+The wrapper records receiver identity in `state/.tg-recv.lock` with the same portable lock discipline as watcher state and relays any captured receiver output once before cleaning a dead recorded receiver.
+Run `bin/fm-tg-recv-arm.sh` as its own harness-tracked background task when the digest says active; never bundle it with another command, pipe it, redirect it, use shell `&`, or replace the session-start watcher protocol with it.
+
 `config/crew-harness` is a local, gitignored file containing one adapter name for crewmate and scout launches.
 When it is absent or contains `default`, crewmates mirror the firstmate's own harness.
 `config/secondmate-harness` is a separate local, gitignored file containing the adapter the primary uses to launch secondmate agents, optionally followed by model and effort tokens on the same line.
@@ -428,6 +441,10 @@ FM_LOCK_STEAL_MAX_DEPTH=8   # hard cap on nested stale-lock steal recursion; acq
 FM_GUARD_GRACE=300      # seconds before guard warnings, arm health checks, and the primary turn-end guard treat a watcher beacon as stale
 FM_ARM_CONFIRM_TIMEOUT=10   # seconds fm-watch-arm waits to confirm a fresh watcher before reporting FAILED
 FM_ARM_ATTACH_POLL=0.5  # seconds between checks while fm-watch-arm is attached to an existing healthy watcher cycle
+FM_TG_RECV_ATTACH_POLL=0.5  # seconds between checks while fm-tg-recv-arm is attached to an existing receiver
+FM_TG_RECV_ATTACH_CONFIRM_TIMEOUT=2  # seconds fm-tg-recv-arm waits for a competing arm to publish receiver metadata
+FM_TG_RECV_TERM_WAIT_CYCLES=30  # termination polling cycles before fm-tg-recv-arm preserves a live receiver lock after wrapper shutdown
+FM_TG_RECV_TERM_WAIT_POLL=0.1  # seconds between termination checks during fm-tg-recv-arm cleanup
 FM_OPENCODE_ARM_READY_TIMEOUT_MS=12000   # milliseconds the OpenCode primary watcher plugin waits for an arm attempt to report started, healthy, wake, or failure
 FM_WATCHER_STALE_GRACE=300   # defaults to FM_GUARD_GRACE; seconds a live watcher lock may have a stale beacon before re-arm errors
 FM_SIGNAL_GRACE=30      # seconds to coalesce nearby status and turn-end signals into one wake

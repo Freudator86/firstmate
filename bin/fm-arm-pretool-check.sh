@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stable PreToolUse transport for the watcher-arm command policy.
+# Stable PreToolUse transport for the supervision-arm command policy.
 #
 # A firstmate primary must arm the watcher or run a Codex checkpoint as a
 # standalone verified harness call.
