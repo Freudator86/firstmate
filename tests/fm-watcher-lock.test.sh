@@ -217,6 +217,28 @@ test_lock_steal_recursion_has_a_hard_depth_bound() {
   pass "lock steal recursion stops at its configured hard depth bound"
 }
 
+test_lock_wait_has_a_total_time_bound() {
+  local dir state lockdir err rc=0 start elapsed
+  dir=$(make_case lock-wait-timeout)
+  state="$dir/state"
+  lockdir="$state/.contend.lock"
+  err="$dir/acquire.err"
+  mkdir "$lockdir"
+  printf '%s\n' "$$" > "$lockdir/pid"
+
+  start=$(date +%s)
+  FM_LOCK_WAIT_TIMEOUT=1 FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2"
+  ' _ "$LIB" "$lockdir" 2> "$err" || rc=$?
+  elapsed=$(( $(date +%s) - start ))
+  [ "$rc" -eq 2 ] || fail "bounded lock wait returned $rc instead of timeout error 2"
+  [ "$elapsed" -le 4 ] || fail "bounded lock wait took ${elapsed}s instead of returning promptly"
+  grep -F "timed out after 1s waiting for $lockdir" "$err" >/dev/null \
+    || fail "bounded lock wait did not report its timeout: $(cat "$err")"
+  pass "lock wait returns a clear error at its configured total-time bound"
+}
+
 test_lock_single_winner_under_concurrency() {
   local dir state lockdir marker i pids pid wins
   dir=$(make_case lock-concurrency)
@@ -782,6 +804,7 @@ test_live_stale_watch_lock_is_actionable
 test_guard_warnings
 test_lock_create_filesystem_failure_returns_without_steal_recursion
 test_lock_steal_recursion_has_a_hard_depth_bound
+test_lock_wait_has_a_total_time_bound
 test_lock_single_winner_under_concurrency
 test_lock_steals_dead_pid_lock
 test_lock_stale_steal_single_winner_under_concurrency

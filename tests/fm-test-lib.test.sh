@@ -21,6 +21,7 @@ fm_test_tmproot scratch fm-test-lib-child
 printf '%s\n' "$scratch" > "$2"
 case "$3" in
   exit) exit 0 ;;
+  failure) exit 17 ;;
   term-custom-exit)
     marker=$4
     trap 'printf "custom-exit-ran\n" > "$marker"; fm_test_cleanup' EXIT
@@ -50,6 +51,18 @@ test_normal_exit_cleans_registered_root() {
     fail "caller-shell temp root survived normal exit"
   }
   pass "caller-shell temp-root registration cleans on normal exit"
+}
+
+test_failed_exit_cleans_registered_root() {
+  local path_file="$TMP_ROOT/failure.path" rc=0 scratch
+  bash "$PROBE" "$ROOT/tests/lib.sh" "$path_file" failure || rc=$?
+  [ "$rc" -eq 17 ] || fail "failed cleanup probe returned $rc instead of 17"
+  scratch=$(cat "$path_file")
+  [ ! -e "$scratch" ] || {
+    rm -rf "$scratch"
+    fail "caller-shell temp root survived a failed test exit"
+  }
+  pass "caller-shell temp-root registration cleans when a test fails"
 }
 
 test_term_runs_custom_exit_and_cleans_registered_root() {
@@ -83,5 +96,6 @@ test_output_var_named_root_is_assigned() {
 }
 
 test_normal_exit_cleans_registered_root
+test_failed_exit_cleans_registered_root
 test_term_runs_custom_exit_and_cleans_registered_root
 test_output_var_named_root_is_assigned

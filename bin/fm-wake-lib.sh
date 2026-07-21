@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Shared durable wake queue and portable lock helpers.
 # Lock acquisition returns 0 when acquired, 1 for genuine contention, and 2 for
-# an operational filesystem failure; FM_LOCK_ERROR describes the latter.
+# an operational filesystem failure or a configured hard bound (steal-recursion
+# depth, total wait time) being exceeded; FM_LOCK_ERROR describes the cause.
 
 FM_WAKE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_WAKE_DEFAULT_ROOT="$(cd "$FM_WAKE_LIB_DIR/.." && pwd)"
@@ -12,6 +13,7 @@ FM_WAKE_QUEUE="${FM_WAKE_QUEUE:-$STATE/.wake-queue}"
 FM_WAKE_QUEUE_LOCK="${FM_WAKE_QUEUE_LOCK:-$STATE/.wake-queue.lock}"
 FM_LOCK_STALE_AFTER="${FM_LOCK_STALE_AFTER:-2}"
 FM_LOCK_STEAL_MAX_DEPTH="${FM_LOCK_STEAL_MAX_DEPTH:-8}"
+FM_LOCK_WAIT_TIMEOUT="${FM_LOCK_WAIT_TIMEOUT:-30}"
 mkdir -p "$STATE"
 
 fm_current_pid() {
@@ -380,7 +382,12 @@ fm_lock_try_acquire() {
 }
 
 fm_lock_acquire_wait() {
-  local lockdir=$1 rc
+  local lockdir=$1 rc timeout start
+  timeout=$FM_LOCK_WAIT_TIMEOUT
+  case "$timeout" in
+    ''|*[!0-9]*|0) timeout=30 ;;
+  esac
+  start=$SECONDS
   while :; do
     if fm_lock_try_acquire "$lockdir"; then
       return 0
@@ -388,6 +395,11 @@ fm_lock_acquire_wait() {
       rc=$?
     fi
     [ "$rc" -eq 1 ] || return "$rc"
+    if [ "$((SECONDS - start))" -ge "$timeout" ]; then
+      FM_LOCK_ERROR="timed out after ${timeout}s waiting for $lockdir"
+      printf 'fm_lock_acquire_wait: %s\n' "$FM_LOCK_ERROR" >&2
+      return 2
+    fi
     sleep 0.1
   done
 }
