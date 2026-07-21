@@ -921,9 +921,9 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
 fi
 
-# mark-parked: firstmate's entry point to mark_parked, so declaring a parked
-# terminal wait never requires hand-computing the window-key substitution or
-# invoking the watcher's own singleton lock/loop.
+# mark-parked: internal one-shot entry point used by fm-mark-parked.sh, so the
+# wrapper delegates validation and key derivation without acquiring the
+# watcher's singleton lock or entering its loop.
 if [ "${1-}" = "mark-parked" ]; then
   mark_parked "${2-}"
   exit $?

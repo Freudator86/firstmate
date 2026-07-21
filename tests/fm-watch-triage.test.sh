@@ -23,6 +23,7 @@ set -u
 . "$ROOT/bin/fm-classify-lib.sh"
 
 WATCH="$ROOT/bin/fm-watch.sh"
+MARK_PARKED="$ROOT/bin/fm-mark-parked.sh"
 DRAIN="$ROOT/bin/fm-wake-drain.sh"
 
 fm_test_tmproot TMP_ROOT fm-watch-triage-tests
@@ -516,41 +517,41 @@ test_parked_marker_clears_on_meta_change() {
   pass "a metadata change clears parked tracking before stale classification"
 }
 
-# --- mark-parked CLI: firstmate's entry point, run as a subprocess ------------
-# The watcher itself is normally a blocking singleton daemon; mark-parked must
+# --- mark-parked wrapper: firstmate's operator-facing entry point -------------
+# The watcher itself is normally a blocking singleton daemon; the wrapper must
 # take effect as a one-shot command without touching that lock/loop so firstmate
 # can declare a parked marker mid-supervision.
-test_mark_parked_cli() {
+test_mark_parked_wrapper() {
   local dir state window key
   dir=$(make_case mark-parked-cli); state="$dir/state"
   window="test:fm-mark-parked"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   printf 'window=%s\nkind=ship\n' "$window" > "$state/mp.meta"
 
-  FM_STATE_OVERRIDE="$state" "$WATCH" mark-parked "$window" \
-    || fail "mark-parked CLI refused a window matching a recorded task"
-  [ -e "$state/.parked-$key" ] || fail "mark-parked CLI did not create the expected marker"
-  [ ! -e "$state/.watch.lock" ] || fail "mark-parked CLI acquired the watcher singleton lock"
+  FM_STATE_OVERRIDE="$state" "$MARK_PARKED" "$window" \
+    || fail "mark-parked wrapper refused a window matching a recorded task"
+  [ -e "$state/.parked-$key" ] || fail "mark-parked wrapper did not create the expected marker"
+  [ ! -e "$state/.watch.lock" ] || fail "mark-parked wrapper acquired the watcher singleton lock"
 
-  if FM_STATE_OVERRIDE="$state" "$WATCH" mark-parked "test:fm-unknown" 2>/dev/null; then
-    fail "mark-parked CLI accepted a window naming no recorded task"
+  if FM_STATE_OVERRIDE="$state" "$MARK_PARKED" "test:fm-unknown" 2>/dev/null; then
+    fail "mark-parked wrapper accepted a window naming no recorded task"
   fi
-  [ ! -e "$state/.parked-test_fm-unknown" ] || fail "mark-parked CLI left a marker for an unrecognized window"
-  pass "mark-parked CLI: creates the marker for a recorded window, refuses an unrecognized one, never engages the watcher lock"
+  [ ! -e "$state/.parked-test_fm-unknown" ] || fail "mark-parked wrapper left a marker for an unrecognized window"
+  pass "mark-parked wrapper: creates the marker for a recorded window, refuses an unrecognized one, never engages the watcher lock"
 }
 
-test_mark_parked_cli_rejects_secondmate() {
+test_mark_parked_wrapper_rejects_secondmate() {
   local dir state window key
   dir=$(make_case mark-parked-cli-secondmate); state="$dir/state"
   window="test:fm-mark-parked-sm"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   printf 'window=%s\nkind=secondmate\n' "$window" > "$state/mp-sm.meta"
 
-  if FM_STATE_OVERRIDE="$state" "$WATCH" mark-parked "$window" 2>/dev/null; then
-    fail "mark-parked CLI accepted a kind=secondmate window"
+  if FM_STATE_OVERRIDE="$state" "$MARK_PARKED" "$window" 2>/dev/null; then
+    fail "mark-parked wrapper accepted a kind=secondmate window"
   fi
-  [ ! -e "$state/.parked-$key" ] || fail "mark-parked CLI left a marker for a secondmate window"
-  pass "mark-parked CLI: refuses a kind=secondmate window, leaving the pause-tracking path untouched"
+  [ ! -e "$state/.parked-$key" ] || fail "mark-parked wrapper left a marker for a secondmate window"
+  pass "mark-parked wrapper: refuses a kind=secondmate window, leaving the pause-tracking path untouched"
 }
 
 # --- stale pane, STALE terminal status overridden by an active run: absorbed ---
@@ -1295,8 +1296,8 @@ test_terminal_stale_surfaced
 test_terminal_stale_parked_absorbed_then_resurfaced
 test_parked_marker_clears_on_status_write
 test_parked_marker_clears_on_meta_change
-test_mark_parked_cli
-test_mark_parked_cli_rejects_secondmate
+test_mark_parked_wrapper
+test_mark_parked_wrapper_rejects_secondmate
 test_stale_terminal_status_overridden_by_active_run
 test_nonterminal_stale_provably_working_absorbed_then_escalated
 test_wedge_escalation_marks_demand_deep_inspection_after_threshold

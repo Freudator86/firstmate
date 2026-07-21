@@ -106,7 +106,7 @@ state/               volatile runtime signals; gitignored
   x-poll.error       generated X-mode relay diagnostic dedupe marker
   .wake-queue        durable queued wakes: epoch<TAB>seq<TAB>kind<TAB>key<TAB>payload
   .afk               durable away-mode flag; present = sub-supervisor may inject escalations (set by /afk, cleared on user return)
-  .parked-<window-key>  firstmate-owned declaration that a relayed terminal task waits only on external human action; created via `bin/fm-watch.sh mark-parked <window>` (bin/fm-watch.sh's `mark_parked`), never by hand
+  .parked-<window-key>  firstmate-owned declaration that a relayed terminal task waits only on external human action; created via `bin/fm-mark-parked.sh <window>` (bin/fm-watch.sh's `mark_parked`), never by hand
   .watch.lock .wake-queue.lock watcher singleton and queue serialization locks
   .hash-* .count-* .stale-* .stale-since-* .paused-* .parkedmeta-* .parkedresurfaced-* .wedge-escalations-* .seen-* .hb-surfaced-* .last-* .heartbeat-streak .bridge-*   watcher internals; never touch
   .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
@@ -335,7 +335,7 @@ At the start of every wake-handling turn, drain the durable wake queue before pe
 Session start is the only exception because its one-shot digest already drained while locked or deliberately left the queue untouched in lock-refused read-only mode.
 A status line is a wake event, not current state; use `bin/fm-crew-state.sh` when current state matters, especially before re-escalating an old decision, blocker, or pause.
 A declared `paused:` event means a bounded external wait expected to clear on its own, while `blocked:` means firstmate action is needed.
-After relaying a terminal task outcome and confirming that only external human action remains, run `bin/fm-watch.sh mark-parked <window>` (the exact window recorded in its meta) so repeated pane changes use the bounded external-wait cadence; it refuses an unrecognized window or a `kind=secondmate` window instead of silently creating a marker that matches nothing or that fights pause tracking.
+After relaying a terminal task outcome and confirming that only external human action remains, run `bin/fm-mark-parked.sh <window>` (the exact window recorded in its meta) so repeated pane changes use the bounded external-wait cadence; it refuses an unrecognized window or a `kind=secondmate` window instead of silently creating a marker that matches nothing or that fights pause tracking.
 
 Handle actionable wakes as follows:
 
