@@ -2074,7 +2074,7 @@ test_secondmate_state_helper_shares_lock_with_spawn_respawn() {
   local parent_home subhome secondmate_id meta lockdir fakebin log ready release holder spawn_pid i saw_window blocked_state spawn_live holder_status spawn_status
   parent_home="$TMP_ROOT/secondmate-state-lock-share"
   subhome="$TMP_ROOT/secondmate-state-lock-subhome"
-  secondmate_id=lock-sm
+  secondmate_id='lock-sm'
   fakebin=$(make_fake_tmux "$TMP_ROOT/secondmate-state-lock-fake")
   log="$TMP_ROOT/secondmate-state-lock-fake/tmux.log"
   ready="$TMP_ROOT/secondmate-state-lock.ready"
