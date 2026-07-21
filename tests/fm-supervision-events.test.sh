@@ -127,6 +127,31 @@ grep -q 'herdr: agent blocked' "$STATE_DIR/.wake-queue" \
 [ -s "$WAKE_LOG" ] || fail "away mode parked transition did not preserve one-shot wake behavior"
 pass "handle_push_transition: away mode keeps one-shot wake behavior despite a parked marker"
 
+# --- mark_parked: firstmate's entry point for declaring a parked marker ------
+
+reset_state
+fm_write_meta "$STATE_DIR/tk6.meta" "window=default:wG:pQ" "backend=herdr" "kind=ship"
+mark_parked "default:wG:pQ" || fail "mark_parked refused a window matching a recorded task"
+[ -e "$STATE_DIR/.parked-default_wG_pQ" ] || fail "mark_parked did not create the expected marker key"
+pass "mark_parked: a window matching a recorded task creates the correctly-substituted marker"
+
+reset_state
+fm_write_meta "$STATE_DIR/tk6.meta" "window=default:wG:pQ" "backend=herdr" "kind=ship"
+if mark_parked "default:wG:pX" 2>/dev/null; then
+  fail "mark_parked accepted a window naming no recorded task"
+fi
+for f in "$STATE_DIR"/.parked-*; do
+  [ -e "$f" ] || continue
+  fail "mark_parked left a marker behind for an unrecognized window: $f"
+done
+pass "mark_parked: a window naming no recorded task is refused and creates no marker"
+
+reset_state
+if mark_parked "" 2>/dev/null; then
+  fail "mark_parked accepted an empty window argument"
+fi
+pass "mark_parked: an empty window argument is refused"
+
 # --- event_wait_or_sleep: secondmate windows are excluded from the pane list --
 
 reset_state

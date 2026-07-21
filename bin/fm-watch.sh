@@ -376,6 +376,33 @@ window_state_key() {  # <window>
   printf '%s' "$key"
 }
 
+# mark_parked: the single creation path for a firstmate-declared parked marker.
+# Takes the window exactly as it appears in a task's meta (never a hand-computed
+# key), derives the marker key itself via window_state_key, and refuses a window
+# that names no currently recorded task - a typo'd window would otherwise create
+# a marker matching nothing, which fails open (reconcile_parked_markers just
+# clears it next poll) instead of erroring, so the mistake would only ever show
+# up as the wake clutter it was meant to remove not going away.
+mark_parked() {  # <window>
+  local win=${1-} key candidate found=1
+  if [ -z "$win" ]; then
+    echo "mark_parked: window argument required" >&2
+    return 1
+  fi
+  while IFS= read -r candidate; do
+    if [ "$candidate" = "$win" ]; then
+      found=0
+      break
+    fi
+  done < <(recorded_windows)
+  if [ "$found" -ne 0 ]; then
+    echo "mark_parked: '$win' does not match any recorded task window (check state/*.meta)" >&2
+    return 1
+  fi
+  key=$(window_state_key "$win")
+  : > "$STATE/.parked-$key"
+}
+
 clear_parked_key_tracking() {  # <window-key>
   local key=$1
   rm -f "$STATE/.parked-$key" "$STATE/.parkedmeta-$key" "$STATE/.parkedresurfaced-$key"
@@ -888,6 +915,14 @@ handle_push_transition() {  # <backend> <session> <record>
 # before acquiring the singleton lock or entering the blocking loop.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
+fi
+
+# mark-parked: firstmate's entry point to mark_parked, so declaring a parked
+# terminal wait never requires hand-computing the window-key substitution or
+# invoking the watcher's own singleton lock/loop.
+if [ "${1-}" = "mark-parked" ]; then
+  mark_parked "${2-}"
+  exit $?
 fi
 
 # Before acquiring the watcher lock or enumerating any runnable check, replace

@@ -516,6 +516,29 @@ test_parked_marker_clears_on_meta_change() {
   pass "a metadata change clears parked tracking before stale classification"
 }
 
+# --- mark-parked CLI: firstmate's entry point, run as a subprocess ------------
+# The watcher itself is normally a blocking singleton daemon; mark-parked must
+# take effect as a one-shot command without touching that lock/loop so firstmate
+# can declare a parked marker mid-supervision.
+test_mark_parked_cli() {
+  local dir state window key
+  dir=$(make_case mark-parked-cli); state="$dir/state"
+  window="test:fm-mark-parked"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/mp.meta"
+
+  FM_STATE_OVERRIDE="$state" "$WATCH" mark-parked "$window" \
+    || fail "mark-parked CLI refused a window matching a recorded task"
+  [ -e "$state/.parked-$key" ] || fail "mark-parked CLI did not create the expected marker"
+  [ ! -e "$state/.watch.lock" ] || fail "mark-parked CLI acquired the watcher singleton lock"
+
+  if FM_STATE_OVERRIDE="$state" "$WATCH" mark-parked "test:fm-unknown" 2>/dev/null; then
+    fail "mark-parked CLI accepted a window naming no recorded task"
+  fi
+  [ ! -e "$state/.parked-test_fm-unknown" ] || fail "mark-parked CLI left a marker for an unrecognized window"
+  pass "mark-parked CLI: creates the marker for a recorded window, refuses an unrecognized one, never engages the watcher lock"
+}
+
 # --- stale pane, STALE terminal status overridden by an active run: absorbed ---
 # Regression for the 2026-07 herdr false-surface incidents: a crew's own status
 # log gets no new entry once firstmate hands it to a no-mistakes validation
@@ -1258,6 +1281,7 @@ test_terminal_stale_surfaced
 test_terminal_stale_parked_absorbed_then_resurfaced
 test_parked_marker_clears_on_status_write
 test_parked_marker_clears_on_meta_change
+test_mark_parked_cli
 test_stale_terminal_status_overridden_by_active_run
 test_nonterminal_stale_provably_working_absorbed_then_escalated
 test_wedge_escalation_marks_demand_deep_inspection_after_threshold
