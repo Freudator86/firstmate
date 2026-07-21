@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+# Safe, home-scoped arm of the optional direct Telegram receiver.
+#
+# `config/fm-tg-recv.sh` is local/private operational code.
+# This tracked wrapper owns only the session-start arm shape: run it as its own
+# harness-tracked background task, never bundled onto another command and never
+# with shell `&`.
+# It starts one receiver for this FM_HOME or attaches to an already running one.
+# The receiver remains this wrapper's child when started here, so the harness
+# gets notified when a Telegram message makes the receiver print its one
+# CAPTAIN-TELEGRAM line and exit.
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
+
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+RECV="$CONFIG/fm-tg-recv.sh"
+ENV_FILE="$CONFIG/telegram.env"
+RECV_LOCK="$STATE/.tg-recv.lock"
+ATTACH_POLL=${FM_TG_RECV_ATTACH_POLL:-0.5}
+ATTACH_CONFIRM_TIMEOUT=${FM_TG_RECV_ATTACH_CONFIRM_TIMEOUT:-2}
+TERM_WAIT_CYCLES=${FM_TG_RECV_TERM_WAIT_CYCLES:-30}
+TERM_WAIT_POLL=${FM_TG_RECV_TERM_WAIT_POLL:-0.1}
+
+usage() {
+  printf 'usage: %s\n' "$(basename "$0")" >&2
+}
+
+case "${1:-}" in
+  '') ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage; exit 2 ;;
+esac
+
+if [ ! -f "$ENV_FILE" ]; then
+  printf 'telegram receiver: inactive (config/telegram.env absent)\n'
+  exit 0
+fi
+
+if [ ! -x "$RECV" ]; then
+  printf 'telegram receiver: FAILED - config/fm-tg-recv.sh missing or not executable\n'
+  exit 1
+fi
+
+TG_HEALTHY_PID=
+tg_receiver_lock_matches_pid() {
+  local pid=$1 lock_home lock_path lock_identity current_identity
+  lock_home=$(cat "$RECV_LOCK/fm-home" 2>/dev/null || true)
+  lock_path=$(cat "$RECV_LOCK/receiver-path" 2>/dev/null || true)
+  lock_identity=$(cat "$RECV_LOCK/pid-identity" 2>/dev/null || true)
+  [ "$lock_home" = "$FM_HOME" ] || return 1
+  [ "$lock_path" = "$RECV" ] || return 1
+  [ -n "$lock_identity" ] || return 1
+  current_identity=$(fm_pid_identity "$pid") || return 1
+  [ "$current_identity" = "$lock_identity" ]
+}
+
+healthy_receiver() {
+  local pid
+  TG_HEALTHY_PID=
+  pid=$(cat "$RECV_LOCK/pid" 2>/dev/null || true)
+  fm_pid_alive "$pid" || return 1
+  tg_receiver_lock_matches_pid "$pid" || return 1
+  TG_HEALTHY_PID=$pid
+  return 0
+}
+
+clear_dead_recorded_receiver_lock() {
+  local lock_home lock_path pid
+  lock_home=$(cat "$RECV_LOCK/fm-home" 2>/dev/null || true)
+  lock_path=$(cat "$RECV_LOCK/receiver-path" 2>/dev/null || true)
+  pid=$(cat "$RECV_LOCK/pid" 2>/dev/null || true)
+  [ "$lock_home" = "$FM_HOME" ] || return 0
+  [ "$lock_path" = "$RECV" ] || return 0
+  fm_pid_alive "$pid" && return 0
+  relay_recorded_receiver_output_once
+  fm_lock_remove_path "$RECV_LOCK" || true
+}
+
+relay_output_file_once() {
+  local output_path=$1 relay_path
+  [ -n "$output_path" ] || return 0
+  [ -e "$output_path" ] || return 0
+  relay_path="$output_path.relay.$$"
+  if mv "$output_path" "$relay_path" 2>/dev/null; then
+    [ -s "$relay_path" ] && cat "$relay_path"
+    rm -f "$relay_path" 2>/dev/null || true
+  fi
+}
+
+relay_recorded_receiver_output_once() {
+  local output_path
+  output_path=$(cat "$RECV_LOCK/output-path" 2>/dev/null || true)
+  relay_output_file_once "$output_path"
+}
+
+attach_and_wait() {
+  while :; do
+    if healthy_receiver; then
+      sleep "$ATTACH_POLL"
+      continue
+    fi
+    relay_recorded_receiver_output_once
+    clear_dead_recorded_receiver_lock
+    exit 0
+  done
+}
+
+attach_if_receiver_becomes_healthy() {
+  local deadline now
+  deadline=$(($(date +%s) + ATTACH_CONFIRM_TIMEOUT))
+  while [ -e "$RECV_LOCK" ] || [ -L "$RECV_LOCK" ]; do
+    if healthy_receiver; then
+      printf 'telegram receiver: attached pid=%s\n' "$TG_HEALTHY_PID"
+      attach_and_wait
+    fi
+    now=$(date +%s)
+    [ "$now" -lt "$deadline" ] || return 1
+    sleep "$ATTACH_POLL"
+  done
+  return 1
+}
+
+if healthy_receiver; then
+  printf 'telegram receiver: attached pid=%s\n' "$TG_HEALTHY_PID"
+  attach_and_wait
+fi
+
+clear_dead_recorded_receiver_lock
+
+ownerdir=
+if ! fm_lock_try_acquire "$RECV_LOCK"; then
+  attach_if_receiver_becomes_healthy
+  if ! fm_lock_try_acquire "$RECV_LOCK"; then
+    printf 'telegram receiver: FAILED - receiver lock is held but no live matching receiver was confirmed\n'
+    exit 1
+  fi
+fi
+ownerdir=$FM_LOCK_OWNER_DIR
+
+child=
+child_out=
+release_lock_if_owned() {
+  [ -n "$ownerdir" ] || return 0
+  if fm_lock_points_to_owner "$RECV_LOCK" "$ownerdir"; then
+    fm_lock_remove_path "$RECV_LOCK" 2>/dev/null || true
+  fi
+}
+
+record_child_lock_metadata_if_possible() {
+  local current_identity
+  [ -n "$ownerdir" ] || return 0
+  [ -n "$child" ] || return 0
+  fm_lock_points_to_owner "$RECV_LOCK" "$ownerdir" || return 0
+  current_identity=$(fm_pid_identity "$child" 2>/dev/null) || return 0
+  {
+    printf '%s\n' "$child" > "$ownerdir/pid"
+    printf '%s\n' "$FM_HOME" > "$ownerdir/fm-home"
+    printf '%s\n' "$current_identity" > "$ownerdir/pid-identity"
+    printf '%s\n' "$RECV" > "$ownerdir/receiver-path"
+    [ -n "$child_out" ] && printf '%s\n' "$child_out" > "$ownerdir/output-path"
+  } 2>/dev/null || true
+}
+
+child_still_running() {
+  local stat
+  fm_pid_alive "$child" || return 1
+  stat=$(ps -p "$child" -o stat= 2>/dev/null | sed 's/^[[:space:]]*//') || return 1
+  case "$stat" in
+    Z*) return 1 ;;
+  esac
+  return 0
+}
+
+terminate_child_bounded() {
+  local i=0
+  [ -n "$child" ] || return 0
+  if child_still_running; then
+    kill -TERM "$child" 2>/dev/null || true
+  fi
+  while child_still_running && [ "$i" -lt "$TERM_WAIT_CYCLES" ]; do
+    sleep "$TERM_WAIT_POLL"
+    i=$((i + 1))
+  done
+  if child_still_running; then
+    return 1
+  fi
+  wait "$child" 2>/dev/null || true
+  return 0
+}
+
+cleanup() {
+  record_child_lock_metadata_if_possible
+  if terminate_child_bounded; then
+    release_lock_if_owned
+    [ -n "$child_out" ] && relay_output_file_once "$child_out"
+    [ -n "$child_out" ] && rm -f "$child_out" 2>/dev/null || true
+    return
+  fi
+}
+trap 'cleanup; exit 129' HUP
+trap 'cleanup; exit 143' TERM INT
+
+child_out=$(mktemp "$STATE/.tg-recv-output.XXXXXX") || {
+  cleanup
+  printf 'telegram receiver: FAILED - could not create output capture\n'
+  exit 1
+}
+
+FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" FM_STATE_OVERRIDE="$STATE" "$RECV" >"$child_out" &
+child=$!
+identity=$(fm_pid_identity "$child" 2>/dev/null || true)
+if [ -z "$identity" ]; then
+  if [ -s "$child_out" ] || ! fm_pid_alive "$child"; then
+    wait "$child"
+    rc=$?
+    [ -s "$child_out" ] && cat "$child_out"
+    release_lock_if_owned
+    rm -f "$child_out" 2>/dev/null || true
+    trap - HUP TERM INT
+    exit "$rc"
+  fi
+  cleanup
+  printf 'telegram receiver: FAILED - could not identify receiver process\n'
+  exit 1
+fi
+
+{
+  printf '%s\n' "$child" > "$ownerdir/pid"
+  printf '%s\n' "$FM_HOME" > "$ownerdir/fm-home"
+  printf '%s\n' "$identity" > "$ownerdir/pid-identity"
+  printf '%s\n' "$RECV" > "$ownerdir/receiver-path"
+  printf '%s\n' "$child_out" > "$ownerdir/output-path"
+} 2>/dev/null || {
+  cleanup
+  printf 'telegram receiver: FAILED - could not record receiver lock metadata\n'
+  exit 1
+}
+
+printf 'telegram receiver: started pid=%s\n' "$child"
+wait "$child"
+rc=$?
+relay_output_file_once "$child_out"
+release_lock_if_owned
+rm -f "$child_out" 2>/dev/null || true
+trap - HUP TERM INT
+exit "$rc"

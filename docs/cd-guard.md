@@ -6,7 +6,7 @@ This document is the authoritative human-readable contract for the cd-guard PreT
 The tracked harness adapters forward command text without classifying it.
 
 It is the third member of a family of primary-session guards that share the same cross-harness hook machinery:
-the watcher-arm PreToolUse seatbelt (`bin/fm-arm-pretool-check.sh`, `docs/arm-pretool-check.md`) and the turn-end supervision guard (`bin/fm-turnend-guard.sh`, `docs/turnend-guard.md`).
+the supervision-arm PreToolUse seatbelt (`bin/fm-arm-pretool-check.sh`, `docs/arm-pretool-check.md`) and the turn-end supervision guard (`bin/fm-turnend-guard.sh`, `docs/turnend-guard.md`).
 
 ## Purpose and boundary
 
@@ -17,7 +17,7 @@ The seatbelt denies exactly that command shape - a cwd change that persists to t
 
 This guard is not a general sandbox.
 It classifies shell command positions only; it never evaluates, expands, sources, or runs any byte of the submitted command.
-Its threat model is agent mistakes, the same as the watcher-arm seatbelt: an accidental bare `cd projects/foo`, not a deliberately obfuscated bypass.
+Its threat model is agent mistakes, the same as the supervision-arm seatbelt: an accidental bare `cd projects/foo`, not a deliberately obfuscated bypass.
 
 ## Scope: plain firstmate checkouts only
 
@@ -57,7 +57,7 @@ Blocking a top-level `cd` is safe in the strong sense: the guard's steady state 
 Consistent with the agent-mistake threat model, the guard deliberately does not chase every obfuscated bypass:
 
 - A `cd` reconstructed by a command substitution (`$(echo c)d x`) or hidden inside a brace group (`{ cd x; }`) is not blocked. Brace-group recursion is avoided because this classifier cannot reliably tell a brace group `{ cd; }` from brace expansion `{cd,foo}`, and a false block there is worse than the missed exotic bypass.
-- Malformed or untokenizable syntax fails open (allow). Unlike the watcher-arm seatbelt, which fails closed on unclassifiable protected commands, the cd-guard prioritizes zero false blocks over catching a malformed bypass, because a blocked backlog write is a correctness hazard while a missed exotic `cd` is only the pre-existing status quo.
+- Malformed or untokenizable syntax fails open (allow). Unlike the supervision-arm seatbelt, which fails closed on unclassifiable protected commands, the cd-guard prioritizes zero false blocks over catching a malformed bypass, because a blocked backlog write is a correctness hazard while a missed exotic `cd` is only the pre-existing status quo.
 
 If a genuinely ambiguous command shape is found that risks a false block, the guard is not extended by guesswork; the ambiguity is escalated and the guard stays precise rather than over-eager.
 
@@ -118,7 +118,7 @@ The cd-guard never duplicates shell lexing; it adds only the cd-specific decisio
 | OpenCode | `.opencode/plugins/fm-primary-cd-check.js` `tool.execute.before` | Throws, which surfaces as the failed tool result. |
 | Pi | `.pi/extensions/fm-primary-turnend-guard.ts` `tool_call` handler | Returns `{block: true}`; piggybacks on the already-loaded primary extension so no extra `-e` flag is needed. |
 
-Each harness runs the cd-guard alongside the watcher-arm seatbelt; the two are independent checks, and either deny blocks the command.
+Each harness runs the cd-guard alongside the supervision-arm seatbelt; the two are independent checks, and either deny blocks the command.
 Every shell variable reference in the Grok hook command carries an inline default (`${GROK_WORKSPACE_ROOT:-}`) because Grok expands the raw hook command before `bash -lc` runs it, the same requirement documented in `docs/arm-pretool-check.md`.
 
 ## Automated validation
