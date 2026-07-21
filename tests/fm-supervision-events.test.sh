@@ -32,7 +32,9 @@ sleep() { printf 'SLEEP\n' >> "$SLEEP_LOG"; }
 reset_state() {
   rm -f "$STATE_DIR"/*.meta "$STATE_DIR"/*.status "$STATE_DIR"/.wake-queue \
     "$STATE_DIR"/.wake-queue.seq "$STATE_DIR"/.watch-triage.log \
-    "$STATE_DIR"/.herdr-escalated-* "$TMP"/panes "$TMP"/wtcalls "$TMP"/wtcalled 2>/dev/null || true
+    "$STATE_DIR"/.herdr-escalated-* "$STATE_DIR"/.parked-* \
+    "$STATE_DIR"/.parkedmeta-* "$STATE_DIR"/.parkedresurfaced-* \
+    "$TMP"/panes "$TMP"/wtcalls "$TMP"/wtcalled 2>/dev/null || true
   : > "$WAKE_LOG"
   : > "$SLEEP_LOG"
   _event_cap_key=""
@@ -78,6 +80,94 @@ fi
 [ ! -s "$WAKE_LOG" ] || fail "a declared-pause crew must not wake the supervisor from the event fast-path"
 grep -q 'absorbed push' "$STATE_DIR/.watch-triage.log" 2>/dev/null || fail "the paused absorb should be logged to the triage log"
 pass "handle_push_transition: a declared-pause crew is absorbed (no fast wake), left to the poll loop's long cadence"
+
+# --- handle_push_transition: parked terminal waits use the bounded cadence ---
+
+reset_state
+fm_write_meta "$STATE_DIR/tk2.meta" "window=default:wG:pQ" "backend=herdr" "kind=ship"
+printf 'done: PR ready and relayed\n' > "$STATE_DIR/tk2.status"
+: > "$STATE_DIR/.parked-default_wG_pQ"
+handle_push_transition herdr default "$(mkrec wG:pQ blocked)"
+if [ -e "$STATE_DIR/.wake-queue" ] && grep -q 'stale' "$STATE_DIR/.wake-queue"; then
+  fail "a fresh parked terminal wait must not be fast-escalated: $(cat "$STATE_DIR/.wake-queue")"
+fi
+[ ! -s "$WAKE_LOG" ] || fail "a fresh parked terminal wait woke the supervisor from the event fast-path"
+[ -e "$STATE_DIR/.herdr-escalated-default_wG_pQ" ] || fail "parked push absorb did not commit backend dedupe"
+grep -q 'parked terminal wait' "$STATE_DIR/.watch-triage.log" 2>/dev/null || fail "parked push absorb was not logged"
+pass "handle_push_transition: a fresh parked terminal wait is absorbed and backend-deduped"
+
+reset_state
+fm_write_meta "$STATE_DIR/tk2.meta" "window=default:wG:pQ" "backend=herdr" "kind=ship"
+printf 'done: PR ready and relayed\n' > "$STATE_DIR/tk2.status"
+: > "$STATE_DIR/.parked-default_wG_pQ"
+reconcile_parked_markers
+back=$(( $(date +%s) - 500 ))
+if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$STATE_DIR/.parked-default_wG_pQ"
+else touch -m -d "@$back" "$STATE_DIR/.parked-default_wG_pQ"; fi
+old_pause_resurface=$PAUSE_RESURFACE_SECS
+PAUSE_RESURFACE_SECS=240
+handle_push_transition herdr default "$(mkrec wG:pQ blocked)"
+PAUSE_RESURFACE_SECS=$old_pause_resurface
+grep -q 'awaiting external human action' "$STATE_DIR/.wake-queue" \
+  || fail "parked push past the bounded cadence did not enqueue a recheck"
+[ -s "$WAKE_LOG" ] || fail "parked push past the bounded cadence did not wake the supervisor"
+[ -e "$STATE_DIR/.herdr-escalated-default_wG_pQ" ] || fail "parked push recheck did not commit backend dedupe before waking"
+[ -e "$STATE_DIR/.parkedresurfaced-default_wG_pQ" ] || fail "parked push recheck did not advance its cadence throttle"
+pass "handle_push_transition: a parked terminal wait re-surfaces after the bounded cadence"
+
+reset_state
+fm_write_meta "$STATE_DIR/tk2.meta" "window=default:wG:pQ" "backend=herdr" "kind=ship"
+printf 'done: PR ready and relayed\n' > "$STATE_DIR/tk2.status"
+: > "$STATE_DIR/.parked-default_wG_pQ"
+: > "$STATE_DIR/.afk"
+handle_push_transition herdr default "$(mkrec wG:pQ blocked)"
+rm -f "$STATE_DIR/.afk"
+grep -q 'herdr: agent blocked' "$STATE_DIR/.wake-queue" \
+  || fail "away mode let a parked marker absorb the backend transition"
+[ -s "$WAKE_LOG" ] || fail "away mode parked transition did not preserve one-shot wake behavior"
+pass "handle_push_transition: away mode keeps one-shot wake behavior despite a parked marker"
+
+# --- mark_parked: firstmate's entry point for declaring a parked marker ------
+
+reset_state
+fm_write_meta "$STATE_DIR/tk6.meta" "window=default:wG:pQ" "backend=herdr" "kind=ship"
+mark_parked "default:wG:pQ" || fail "mark_parked refused a window matching a recorded task"
+[ -e "$STATE_DIR/.parked-default_wG_pQ" ] || fail "mark_parked did not create the expected marker key"
+pass "mark_parked: a window matching a recorded task creates the correctly-substituted marker"
+
+reset_state
+fm_write_meta "$STATE_DIR/tk6.meta" "window=default:wG:pQ" "backend=herdr" "kind=ship"
+if mark_parked "default:wG:pX" 2>/dev/null; then
+  fail "mark_parked accepted a window naming no recorded task"
+fi
+for f in "$STATE_DIR"/.parked-*; do
+  [ -e "$f" ] || continue
+  fail "mark_parked left a marker behind for an unrecognized window: $f"
+done
+pass "mark_parked: a window naming no recorded task is refused and creates no marker"
+
+reset_state
+if mark_parked "" 2>/dev/null; then
+  fail "mark_parked accepted an empty window argument"
+fi
+pass "mark_parked: an empty window argument is refused"
+
+reset_state
+fm_write_meta "$STATE_DIR/sm2.meta" "window=default:wA:pS" "backend=herdr" "kind=secondmate"
+if mark_parked "default:wA:pS" 2>/dev/null; then
+  fail "mark_parked accepted a kind=secondmate window"
+fi
+for f in "$STATE_DIR"/.parked-*; do
+  [ -e "$f" ] || continue
+  fail "mark_parked left a marker behind for a secondmate window: $f"
+done
+pass "mark_parked: a kind=secondmate window is refused (secondmates keep using pause tracking, not .parked)"
+
+reset_state
+fm_write_meta "$STATE_DIR/tk7.meta" "window=default:wG:pR" "backend=herdr" "kind=scout"
+mark_parked "default:wG:pR" || fail "mark_parked refused a kind=scout window"
+[ -e "$STATE_DIR/.parked-default_wG_pR" ] || fail "mark_parked did not create the expected marker for a kind=scout window"
+pass "mark_parked: a kind=scout window is accepted exactly like the default ship kind"
 
 # --- event_wait_or_sleep: secondmate windows are excluded from the pane list --
 

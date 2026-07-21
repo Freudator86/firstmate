@@ -10,10 +10,12 @@ When this session owns supervision and away mode is not active:
 6. Treat `watcher: started ...` and `watcher: attached ...` as proof that one live cycle exists.
    On attach, the background task stays live until that existing cycle ends; it does not exit immediately.
 7. Treat `watcher: FAILED - no live watcher with a fresh beacon` as an alarm and repair it before ending the turn.
-8. When the background task completes with `signal:`, `stale:`, `check:`, or `heartbeat`, drain queued wakes, handle them, then start exactly one fresh background task.
+8. When the background task completes with `signal:`, `stale:`, `check:`, or `heartbeat`, drain queued wakes, then immediately start exactly one fresh background task before composing any reply or beginning long work, and handle the drained wakes.
    Do not invent a wake from an attach-status line alone; drain and act only on real wake records or a real watcher reason line.
 9. If a forced restart is genuinely needed, run `bin/fm-watch-arm.sh --restart` through the same Claude background task mechanism.
 10. Do not send idle progress while the watcher is parked.
+11. After handling a wake, if nothing reaches `AGENTS.md` section 9's escalation bar, including a review-ready PR, findings, a needed decision, a real blocker or failure, or a needed credential, end the turn with tool calls only and send no chat text.
+    Any no-change wake turn that sends chat text is a protocol violation, not politeness.
 
 Claude Code's background task completion is the wake mechanism.
 The watcher itself remains `bin/fm-watch.sh`, and `bin/fm-watch-arm.sh` is only the verified background arm wrapper.

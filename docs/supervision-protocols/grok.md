@@ -22,17 +22,19 @@ When this session owns supervision and away mode is not active:
 Grok injects a synthetic user message with `synthetic_reason: task_completed` when the background arm completes.
 When you see a background-task-completed system reminder for the arm:
 1. Run `bin/fm-wake-drain.sh` first.
-2. Optionally fetch arm output with `get_command_or_subagent_output(<task_id>)` for the reason line.
-3. Handle `signal`, `stale`, `check`, or `heartbeat` using the harness-neutral contract in `AGENTS.md`.
-4. Re-arm the next cycle with the same background `bin/fm-watch-arm.sh` call if work remains in flight or X mode still needs polling.
+2. Re-arm the next cycle immediately with the same background `bin/fm-watch-arm.sh` call if work remains in flight or X mode still needs polling, before composing any reply or beginning long work.
+3. Optionally fetch arm output with `get_command_or_subagent_output(<task_id>)` for the reason line.
+4. Handle `signal`, `stale`, `check`, or `heartbeat` using the harness-neutral contract in `AGENTS.md`.
 5. Do not invent a wake from an attach-status line alone.
    Drain the queue and act only on real wake records or a real watcher reason line.
    Re-arm attaches to an existing cycle when one is already healthy, so the background task stays live until that cycle ends.
+6. If nothing reaches `AGENTS.md` section 9's escalation bar, including a review-ready PR, findings, a needed decision, a real blocker or failure, or a needed credential, end the turn with tool calls only and send no chat text.
+   Any no-change wake turn that sends chat text is a protocol violation, not politeness.
 
 Grok Stop hooks are passive.
 The primary project hook runs `bin/fm-turnend-guard-grok.sh`, which forces at most one same-session follow-up via `grok --resume` when a turn would end blind.
 That is a backstop, not the normal wake path.
-After any forced follow-up, arm the watcher with the background protocol above.
+After any forced follow-up, arm the watcher with the background protocol above and end silently unless a queued wake is captain-relevant under `AGENTS.md` section 9.
 
 Interactive TUI primary sessions are the supported supervision host.
 Headless `grok -p` may wait for background process exit but does not reliably surface full auto-wake model output; do not run the primary firstmate as a one-shot headless process.

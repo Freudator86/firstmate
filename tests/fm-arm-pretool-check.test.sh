@@ -45,6 +45,7 @@ matrix_case A16 allow "export FM_HOME=$ROOT && bin/fm-watch-checkpoint.sh --seco
 matrix_case A17 allow $'source "config/x-mode.env"\nbin/fm-watch-checkpoint.sh --seconds 180'
 matrix_case A18 allow 'bin/fm-tg-recv-arm.sh'
 matrix_case A19 allow 'exec bin/fm-tg-recv-arm.sh'
+matrix_case A20 allow 'bin/fm-mark-parked.sh default:test'
 
 matrix_case R01 allow "pgrep -fl '/bin/fm-watch.sh' || true"
 matrix_case R02 allow "ps aux | rg '/bin/fm-watch.sh'"
@@ -242,6 +243,8 @@ test_direct_policy_contract() {
   assert_policy direct-tg-arm-pipeline $'deny\twatcher-pipeline' 'bin/fm-tg-recv-arm.sh | cat'
   assert_policy direct-tg-arm-bundled $'deny\twatcher-bundled' 'echo before; bin/fm-tg-recv-arm.sh'
   assert_policy direct-watch-not-blessed $'deny\twatcher-direct' 'bin/fm-watch.sh'
+  assert_policy direct-watch-mark-parked-still-denied $'deny\twatcher-direct' 'bin/fm-watch.sh mark-parked default:test'
+  assert_policy direct-mark-parked-wrapper allow 'bin/fm-mark-parked.sh default:test'
   assert_policy direct-watch-expanded $'deny\twatcher-direct' '$FM_HOME/bin/fm-watch.sh'
   assert_policy direct-watch-safe-shape $'deny\twatcher-direct' 'cd /tmp; bin/fm-watch.sh'
   heredoc_data=$'cat <<\'EOF\'\nbin/fm-watch-arm.sh &\nEOF'

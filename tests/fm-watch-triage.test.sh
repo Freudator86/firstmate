@@ -23,6 +23,7 @@ set -u
 . "$ROOT/bin/fm-classify-lib.sh"
 
 WATCH="$ROOT/bin/fm-watch.sh"
+MARK_PARKED="$ROOT/bin/fm-mark-parked.sh"
 DRAIN="$ROOT/bin/fm-wake-drain.sh"
 
 fm_test_tmproot TMP_ROOT fm-watch-triage-tests
@@ -391,6 +392,166 @@ test_terminal_stale_surfaced() {
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the terminal stale failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "terminal stale was not queued"
   pass "a stale pane sitting on a terminal status is surfaced (queue + exit)"
+}
+
+# --- relayed terminal task parked on external human action ------------------
+# Once firstmate has relayed a terminal result, an explicit .parked-<window-key>
+# marker absorbs pane redraws on the same bounded cadence as a declared pause.
+# The merge check remains independent, status writes remain immediate signals,
+# and metadata changes invalidate the marker before stale classification.
+test_terminal_stale_parked_absorbed_then_resurfaced() {
+  local dir state fakebin out drain_out capture_file window key pane_hash sig pid back
+  dir=$(make_case terminal-stale-parked); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-parked"
+  printf 'window=%s\nkind=ship\npr=https://example.test/pr/4\n' "$window" > "$state/parked.meta"
+  printf 'done: PR https://example.test/pr/4 checks green\n' > "$state/parked.status"
+  sig=$(seen_sig "$state/parked.status"); printf '%s' "$sig" > "$state/.seen-parked_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf '%s' "$(hash_text "finished, pane token 1")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  : > "$state/.parked-$key"
+  printf 'finished, pane token 2' > "$capture_file"
+  pane_hash=$(hash_text "finished, pane token 2")
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 30; then
+    reap "$pid"; fail "watcher exited for fresh parked pane churn: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "fresh parked stale printed a wake reason"; }
+  [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "fresh parked stale enqueued a wake"; }
+  [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] \
+    || { reap "$pid"; fail "parked pane churn did not advance the stale suppressor"; }
+  [ -e "$state/.parkedmeta-$key" ] || { reap "$pid"; fail "parked marker was not bound to task metadata"; }
+  [ ! -e "$state/.stale-since-$key" ] || { reap "$pid"; fail "parked stale started a wedge timer"; }
+  reap "$pid"
+
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$state/.parked-$key"
+  else touch -m -d "@$back" "$state/.parked-$key"; fi
+  printf 'finished, pane token 3' > "$capture_file"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "watcher did not re-surface a parked task past the bounded cadence"
+  grep -F "stale: $window" "$out" >/dev/null || fail "parked recheck omitted its stale identity"
+  grep -F "awaiting external human action" "$out" >/dev/null || fail "parked recheck omitted its external-human reason"
+  grep -F "possible wedge" "$out" >/dev/null && fail "parked recheck was mislabeled a wedge"
+  [ -e "$state/.parkedresurfaced-$key" ] || fail "parked re-surface throttle was not recorded"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after parked re-surface failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "parked re-surface was not queued"
+  pass "a relayed terminal task absorbs parked pane churn and re-surfaces on the bounded cadence"
+}
+
+test_parked_marker_clears_on_status_write() {
+  local dir state fakebin out capture_file window key pane_hash sig pid
+  dir=$(make_case parked-status-clears); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-parked-status"
+  printf 'finished, awaiting review' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/parked-status.meta"
+  printf 'done: ready for review\n' > "$state/parked-status.status"
+  sig=$(seen_sig "$state/parked-status.status"); printf '%s' "$sig" > "$state/.seen-parked-status_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "finished, awaiting review")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  : > "$state/.parked-$key"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_live "$pid" 30 || fail "watcher exited while establishing parked status fixture"
+  reap "$pid"
+
+  printf 'blocked: review environment lost its credential\n' >> "$state/parked-status.status"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "new status write did not wake a parked task immediately"
+  grep -F "signal: $state/parked-status.status" "$out" >/dev/null || fail "parked task's new status was not surfaced as a signal"
+  [ ! -e "$state/.parked-$key" ] || fail "new status write retained the parked marker"
+  [ ! -e "$state/.stale-$key" ] || fail "new status write retained parked stale suppression"
+  pass "a real status write wakes immediately and clears parked tracking"
+}
+
+test_parked_marker_clears_on_meta_change() {
+  local dir state fakebin out capture_file window key pane_hash sig pid
+  dir=$(make_case parked-meta-clears); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; window="test:fm-parked-meta"
+  printf 'finished, awaiting review' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/parked-meta.meta"
+  printf 'done: ready for review\n' > "$state/parked-meta.status"
+  sig=$(seen_sig "$state/parked-meta.status"); printf '%s' "$sig" > "$state/.seen-parked-meta_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "finished, awaiting review")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  : > "$state/.parked-$key"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_live "$pid" 30 || fail "watcher exited while establishing parked metadata fixture"
+  [ -e "$state/.parkedmeta-$key" ] || { reap "$pid"; fail "parked metadata fixture did not register"; }
+  reap "$pid"
+
+  printf 'pr=https://example.test/pr/9\n' >> "$state/parked-meta.meta"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 40 || fail "metadata change did not release parked stale suppression"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "metadata change did not reclassify and surface terminal stale"
+  [ ! -e "$state/.parked-$key" ] || fail "metadata change retained the parked marker"
+  [ ! -e "$state/.parkedmeta-$key" ] || fail "metadata change retained parked metadata tracking"
+  pass "a metadata change clears parked tracking before stale classification"
+}
+
+# --- mark-parked wrapper: firstmate's operator-facing entry point -------------
+# The watcher itself is normally a blocking singleton daemon; the wrapper must
+# take effect as a one-shot command without touching that lock/loop so firstmate
+# can declare a parked marker mid-supervision.
+test_mark_parked_wrapper() {
+  local dir state window key
+  dir=$(make_case mark-parked-cli); state="$dir/state"
+  window="test:fm-mark-parked"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/mp.meta"
+
+  FM_STATE_OVERRIDE="$state" "$MARK_PARKED" "$window" \
+    || fail "mark-parked wrapper refused a window matching a recorded task"
+  [ -e "$state/.parked-$key" ] || fail "mark-parked wrapper did not create the expected marker"
+  [ ! -e "$state/.watch.lock" ] || fail "mark-parked wrapper acquired the watcher singleton lock"
+
+  if FM_STATE_OVERRIDE="$state" "$MARK_PARKED" "test:fm-unknown" 2>/dev/null; then
+    fail "mark-parked wrapper accepted a window naming no recorded task"
+  fi
+  [ ! -e "$state/.parked-test_fm-unknown" ] || fail "mark-parked wrapper left a marker for an unrecognized window"
+  pass "mark-parked wrapper: creates the marker for a recorded window, refuses an unrecognized one, never engages the watcher lock"
+}
+
+test_mark_parked_wrapper_rejects_secondmate() {
+  local dir state window key
+  dir=$(make_case mark-parked-cli-secondmate); state="$dir/state"
+  window="test:fm-mark-parked-sm"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf 'window=%s\nkind=secondmate\n' "$window" > "$state/mp-sm.meta"
+
+  if FM_STATE_OVERRIDE="$state" "$MARK_PARKED" "$window" 2>/dev/null; then
+    fail "mark-parked wrapper accepted a kind=secondmate window"
+  fi
+  [ ! -e "$state/.parked-$key" ] || fail "mark-parked wrapper left a marker for a secondmate window"
+  pass "mark-parked wrapper: refuses a kind=secondmate window, leaving the pause-tracking path untouched"
 }
 
 # --- stale pane, STALE terminal status overridden by an active run: absorbed ---
@@ -1132,6 +1293,11 @@ test_turn_ended_not_working_surfaced
 test_working_note_not_working_surfaced
 test_actionable_signal_surfaced
 test_terminal_stale_surfaced
+test_terminal_stale_parked_absorbed_then_resurfaced
+test_parked_marker_clears_on_status_write
+test_parked_marker_clears_on_meta_change
+test_mark_parked_wrapper
+test_mark_parked_wrapper_rejects_secondmate
 test_stale_terminal_status_overridden_by_active_run
 test_nonterminal_stale_provably_working_absorbed_then_escalated
 test_wedge_escalation_marks_demand_deep_inspection_after_threshold

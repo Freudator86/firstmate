@@ -21,6 +21,7 @@ fm_test_tmproot TMP_ROOT fm-turnend-guard
 fm_git_identity fmtest fmtest@example.invalid
 
 REQUIRED_REASON='resume supervision with bin/fm-watch-arm.sh as its own Claude Code background task'
+SILENT_REASON='This forced continuation is internal maintenance'
 
 # --- PREDICATE: bin/fm-supervision-lib.sh -----------------------------------
 
@@ -258,6 +259,7 @@ test_hook_blocks_when_fresh_beacon_has_no_live_lock() {
   out=$(run_hook "$dir" false); status=$?
   expect_code 2 "$status" "hook must block when a fresh beacon has no live watcher lock"
   assert_contains "$out" "$REQUIRED_REASON" "block reason must contain the exact required instruction"
+  assert_contains "$out" "$SILENT_REASON" "block banner must require silent maintenance handling"
   pass "fm-turnend-guard: blocks when a fresh beacon has no live watcher lock"
 }
 

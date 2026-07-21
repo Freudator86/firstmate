@@ -97,6 +97,7 @@ rule='━━━━━━━━━━━━━━━━━━━━━━━━�
   printf '●  TURN WOULD END BLIND - SUPERVISION IS OFF\n'
   printf '●  %s task(s) in flight, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_IN_FLIGHT" "$FM_SUP_BEACON_DESC"
   printf '●  %s\n' "$REASON"
+  printf '●  This forced continuation is internal maintenance; after draining and re-arming, end silently unless a queued wake is captain-relevant under AGENTS.md section 9.\n'
   printf '●%s\n' "$rule"
 } >&2
 exit 2

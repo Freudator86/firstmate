@@ -134,7 +134,7 @@ repair_line() {
 
   case "$HARNESS" in
     claude)
-      printf '%s%s\n' "$prefix" 'resume supervision with bin/fm-watch-arm.sh as its own Claude Code background task, never shell &.'
+      printf '%s%s\n' "$prefix" 'resume supervision with bin/fm-watch-arm.sh as its own Claude Code background task, never shell &, then end this forced continuation silently unless a queued wake reaches AGENTS.md section 9.'
       ;;
     codex)
       printf '%s%s%s%s\n' "$prefix" 'resume supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds ' "$checkpoint_seconds" '.'
@@ -146,7 +146,7 @@ repair_line() {
       printf '%s%s\n' "$prefix" 'resume supervision by letting the OpenCode TUI plugin arm after idle; use bin/fm-watch-arm.sh only as a manual recovery probe if the plugin reports failure.'
       ;;
     grok)
-      printf '%s%s\n' "$prefix" 'resume supervision with bin/fm-watch-arm.sh as its own Grok tracked background task, never shell &.'
+      printf '%s%s\n' "$prefix" 'resume supervision with bin/fm-watch-arm.sh as its own Grok tracked background task, never shell &, then end this forced continuation silently unless a queued wake reaches AGENTS.md section 9.'
       ;;
     *)
       printf '%s%s\n' "$prefix" 'resume supervision according to the session-start block for this harness; do not use shell &.'

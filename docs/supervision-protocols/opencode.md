@@ -9,6 +9,9 @@ When this session owns supervision and away mode is not active:
 6. Never use shell `&` for watcher supervision.
    The arm mechanism above is plugin-owned, not a model tool call, but a manual recovery probe that backgrounds, pipes, or bundles the arm is denied automatically by the PreToolUse seatbelt (`.opencode/plugins/fm-primary-pretool-check.js`, `bin/fm-arm-pretool-check.sh`).
 7. Do not rely on this plugin in headless `opencode run`; firstmate primary supervision targets persistent OpenCode TUI sessions.
+8. On a plugin wake, drain and handle queued wakes without composing an idle reply; the plugin re-arms as soon as the session goes idle, so do not delay turn completion with unrelated long work.
+9. If nothing reaches `AGENTS.md` section 9's escalation bar, including a review-ready PR, findings, a needed decision, a real blocker or failure, or a needed credential, end the turn with tool calls only and send no chat text.
+   Any no-change wake turn that sends chat text is a protocol violation, not politeness.
 
 OpenCode's persistent TUI plugin runtime is the wake mechanism.
 The plugin applies in the main primary checkout and a secondmate's own home, and stays silent only in child crewmate and scout worktrees.
