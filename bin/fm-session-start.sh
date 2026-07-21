@@ -40,9 +40,10 @@
 #                       every state/*.meta, a bounded state/*.status tail,
 #                       state/.afk, and a cheap per-task endpoint-liveness read:
 #                       read-only, always runs.
-#   6. closing reminder - prints the context-specific watcher next step; this
-#                       script points back to the emitted harness supervision
-#                       block and deliberately never arms the watcher itself.
+#   6. closing reminder - prints the context-specific watcher and optional
+#                       Telegram receiver next steps; this script points back
+#                       to the emitted harness supervision block and deliberately
+#                       never runs long-lived polls itself.
 #
 # On a Pi primary, the supervision-block step also checks whether Pi's two
 # tracked primary extensions are loaded and prints a PI_WATCH_EXTENSION
@@ -299,7 +300,22 @@ else
   fi
 fi
 
-# --- 4. supervision operating instructions ----------------------------------
+# --- 4. direct Telegram receiver ---------------------------------------------
+TELEGRAM_PRESENT=0
+[ -f "$CONFIG/telegram.env" ] && TELEGRAM_PRESENT=1
+
+subsection "TELEGRAM RECEIVER"
+if [ "$TELEGRAM_PRESENT" -eq 0 ]; then
+  printf '%s\n' 'inactive (config/telegram.env absent)'
+elif [ "$READ_ONLY" -eq 1 ]; then
+  printf '%s\n' 'skipped (read-only session) - the session holding the lock owns Telegram receiver arming.'
+elif [ ! -x "$CONFIG/fm-tg-recv.sh" ]; then
+  printf '%s\n' 'TELEGRAM_RECEIVER: config/telegram.env exists but config/fm-tg-recv.sh is missing or not executable; direct Telegram receive is not armed'
+else
+  printf '%s\n' "TELEGRAM_RECEIVER: active - run bin/fm-tg-recv-arm.sh as its own tracked background task, never shell &; it starts or attaches to this home's receiver"
+fi
+
+# --- 5. supervision operating instructions ----------------------------------
 AFK_PRESENT=0
 [ -e "$STATE/.afk" ] && AFK_PRESENT=1
 X_MODE_PRESENT=0
@@ -324,7 +340,7 @@ fi
   --afk "$AFK_PRESENT" \
   --x-mode "$X_MODE_PRESENT"
 
-# --- 4. context digest -----------------------------------------------------
+# --- 6. context digest -----------------------------------------------------
 section "CONTEXT"
 print_file_or_absent "$DATA/projects.md" "data/projects.md"
 print_file_or_absent "$DATA/secondmates.md" "data/secondmates.md"
@@ -332,7 +348,7 @@ print_file_or_absent "$DATA/captain.md" "data/captain.md"
 print_file_or_absent "$DATA/captain-shared.md" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)"
 print_file_or_absent "$DATA/learnings.md" "data/learnings.md"
 
-# --- 5. fleet-state digest ---------------------------------------------
+# --- 7. fleet-state digest ---------------------------------------------
 section "FLEET STATE"
 print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
 
@@ -386,7 +402,7 @@ else
   printf 'absent\n'
 fi
 
-# --- 6. closing reminder -----------------------------------------------
+# --- 8. closing reminder -----------------------------------------------
 section "NEXT STEP"
 if [ "$READ_ONLY" -eq 1 ]; then
   cat <<'EOF'
@@ -406,13 +422,15 @@ elif [ -f "$CONFIG/x-mode.env" ]; then
   cat <<EOF
 Follow the supervision operating instructions block above for harness '$PRIMARY_HARNESS'.
 X mode is active, so the emitted block's cadence instruction applies.
-This script never starts supervision itself.
+If the Telegram receiver section is active, keep that separate background task armed too.
+This script never starts long-lived polls itself.
 
 EOF
 else
 cat <<EOF
 Follow the supervision operating instructions block above for harness '$PRIMARY_HARNESS'.
-This script never starts supervision itself.
+If the Telegram receiver section is active, keep that separate background task armed too.
+This script never starts long-lived polls itself.
 
 EOF
 fi

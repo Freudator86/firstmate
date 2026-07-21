@@ -9,8 +9,8 @@
 #     skipped (including bootstrap's five mutating sweeps, verified by their
 #     ABSENCE), the digest still completes
 #   - output section ordering: diagnostics/banners lead, bulk file dumps follow
-#   - context-aware next-step guidance for read-only, AFK, X mode, and normal
-#     watcher ownership
+#   - context-aware next-step guidance for read-only, AFK, X mode, direct
+#     Telegram receiver arming, and normal watcher ownership
 #   - status-tail bounding, default and FM_SESSION_START_STATUS_TAIL override
 #   - orphan status logs whose task meta has already disappeared
 #   - per-task endpoint-liveness lines for a live and a dead recorded target,
@@ -743,8 +743,10 @@ EOF
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "(none)" "empty fleet did not report (none) for in-flight tasks"
   assert_contains "$out" "absent" "empty fleet's AFK section did not report absent"
+  assert_contains "$out" "TELEGRAM RECEIVER" "Telegram receiver section missing"
+  assert_contains "$out" "inactive (config/telegram.env absent)" "Telegram receiver section did not report inactive without config"
 
-  pass "an empty fleet reports (none) for in-flight tasks and an absent AFK flag"
+  pass "an empty fleet reports (none), inactive Telegram receive, and an absent AFK flag"
 }
 
 test_next_step_sources_x_mode_cadence() {
@@ -766,6 +768,32 @@ EOF
   assert_contains "$out" "Follow the supervision operating instructions block above" "next step did not point back to the emitted supervision block"
 
   pass "session start emits X-mode cadence guidance in the harness supervision block"
+}
+
+test_telegram_receiver_guidance() {
+  local rec root home fakebin out
+  rec=$(new_world next-step-telegram)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf 'BOT_TOKEN=fake
+CHAT_ID=fake
+' > "$home/config/telegram.env"
+  cat > "$home/config/fm-tg-recv.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$home/config/fm-tg-recv.sh"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "TELEGRAM RECEIVER" "Telegram receiver section missing"
+  assert_contains "$out" "TELEGRAM_RECEIVER: active - run bin/fm-tg-recv-arm.sh as its own tracked background task, never shell &"     "session-start did not emit the tracked Telegram background arm step"
+  assert_contains "$out" "If the Telegram receiver section is active, keep that separate background task armed too."     "next step did not preserve Telegram receiver follow-up"
+
+  pass "locked session-start emits the direct Telegram receiver arm step when configured"
 }
 
 test_next_step_afk_delegates_to_daemon() {
@@ -934,6 +962,7 @@ test_backlog_compact_manual_backend_skips_indented_bodies
 test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
 test_fleet_digest_empty_fleet
 test_next_step_sources_x_mode_cadence
+test_telegram_receiver_guidance
 test_next_step_afk_delegates_to_daemon
 test_supervision_block_exactly_one_and_pi_diagnostic
 test_pi_diagnostic_rejects_stale_loaded_marker
