@@ -152,6 +152,23 @@ if mark_parked "" 2>/dev/null; then
 fi
 pass "mark_parked: an empty window argument is refused"
 
+reset_state
+fm_write_meta "$STATE_DIR/sm2.meta" "window=default:wA:pS" "backend=herdr" "kind=secondmate"
+if mark_parked "default:wA:pS" 2>/dev/null; then
+  fail "mark_parked accepted a kind=secondmate window"
+fi
+for f in "$STATE_DIR"/.parked-*; do
+  [ -e "$f" ] || continue
+  fail "mark_parked left a marker behind for a secondmate window: $f"
+done
+pass "mark_parked: a kind=secondmate window is refused (secondmates keep using pause tracking, not .parked)"
+
+reset_state
+fm_write_meta "$STATE_DIR/tk7.meta" "window=default:wG:pR" "backend=herdr" "kind=scout"
+mark_parked "default:wG:pR" || fail "mark_parked refused a kind=scout window"
+[ -e "$STATE_DIR/.parked-default_wG_pR" ] || fail "mark_parked did not create the expected marker for a kind=scout window"
+pass "mark_parked: a kind=scout window is accepted exactly like the default ship kind"
+
 # --- event_wait_or_sleep: secondmate windows are excluded from the pane list --
 
 reset_state

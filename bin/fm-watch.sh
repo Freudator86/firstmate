@@ -399,6 +399,10 @@ mark_parked() {  # <window>
     echo "mark_parked: '$win' does not match any recorded task window (check state/*.meta)" >&2
     return 1
   fi
+  if [ "$(window_kind "$win")" = secondmate ]; then
+    echo "mark_parked: '$win' is a secondmate window; secondmates use pause tracking, not .parked markers" >&2
+    return 1
+  fi
   key=$(window_state_key "$win")
   : > "$STATE/.parked-$key"
 }
