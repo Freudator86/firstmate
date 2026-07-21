@@ -96,7 +96,7 @@ The next no-tool prompt produced exactly one `TURN WOULD END BLIND` follow-up, a
 The three earlier tool turns produced no guard follow-up because no work was in flight.
 Command used to fire the watcher: `printf 'done: pi e2e watcher fire\n' > "$FM_HOME/state/pi-e2e.status"`.
 Observed output after the wake: Pi ran `bin/fm-wake-drain.sh`, read the terminal status, called `fm_watch_arm_pi`, and rendered `watcher: started Pi extension arm child 2`.
-This 2026-07-09 observation predates extension-owned successor continuity; [`watcher-continuity.md`](watcher-continuity.md) owns the current ordinary-wake contract.
+This 2026-07-09 observation predates extension-owned successor continuity; see the Mechanism A description below for the current ordinary-wake contract.
 The complete pane contained one guard message and zero foreground `bin/fm-watch-arm.sh` bash calls.
 `/quit` printed `PI_EXIT=0`, and the second arm process plus its watcher child were both gone afterward.
 
