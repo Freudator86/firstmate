@@ -75,14 +75,10 @@ test_term_runs_custom_exit_and_cleans_registered_root() {
 }
 
 test_output_var_named_root_is_assigned() {
-  (
-    set -u
-    # shellcheck source=tests/lib.sh
-    . "$ROOT/tests/lib.sh"
-    fm_test_tmproot root fm-test-lib-collide
-    [ -n "${root:-}" ] || fail "output variable named 'root' was not assigned"
-    [ -d "$root" ] || fail "output variable named 'root' does not point at a temp dir"
-  ) || fail "fm_test_tmproot did not assign a caller variable named 'root'"
+  local root
+  fm_test_tmproot root fm-test-lib-collide
+  [ -n "${root:-}" ] || fail "output variable named 'root' was not assigned"
+  [ -d "$root" ] || fail "output variable named 'root' does not point at a temp dir"
   pass "fm_test_tmproot assigns a caller variable named 'root' without collision"
 }
 
