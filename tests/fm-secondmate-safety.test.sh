@@ -2071,32 +2071,69 @@ test_secondmate_state_helper_is_scoped_and_idempotent() {
 }
 
 test_secondmate_state_helper_shares_lock_with_spawn_respawn() {
-  local home id meta lockdir holder start elapsed
+  local home subhome id meta lockdir fakebin log ready release holder spawn_pid i saw_window blocked_state spawn_live holder_status spawn_status
   home="$TMP_ROOT/secondmate-state-lock-share"
-  mkdir -p "$home/state"
+  subhome="$TMP_ROOT/secondmate-state-lock-subhome"
   id=lock-sm
+  fakebin=$(make_fake_tmux "$TMP_ROOT/secondmate-state-lock-fake")
+  log="$TMP_ROOT/secondmate-state-lock-fake/tmux.log"
+  ready="$TMP_ROOT/secondmate-state-lock.ready"
+  release="$TMP_ROOT/secondmate-state-lock.release"
+  mkdir -p "$home/projects" "$home/data" "$home/state"
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='lock test domain' FM_SECONDMATE_SCOPE='lock test work' \
+    "$ROOT/bin/fm-home-seed.sh" "$id" "$subhome" --no-projects >/dev/null \
+    || fail "failed to seed secondmate for real respawn lock test"
+
   meta="$home/state/$id.meta"
-  fm_write_secondmate_meta "$meta" "$home" "firstmate:fm-domain"
-  # Identical to the SPAWN_TASK_LOCK path fm-spawn.sh computes for a respawn of
-  # this id ("$STATE/.spawn-$ID.lock"). Holding it here simulates a respawn
-  # mid-rewrite of this same meta file and proves fm-secondmate-state.sh now
-  # waits on that lock instead of racing its own read-decide-write against it.
+  fm_write_secondmate_meta "$meta" "$subhome" "firstmate:fm-$id"
+  printf 'state=resting\n' >> "$meta"
   lockdir="$home/state/.spawn-$id.lock"
   (
     . "$ROOT/bin/fm-wake-lib.sh"
     fm_lock_try_acquire "$lockdir" || exit 7
-    sleep 1
+    : > "$ready"
+    while [ ! -e "$release" ]; do sleep 0.02; done
     fm_lock_release "$lockdir"
   ) &
   holder=$!
-  sleep 0.2
-  start=$SECONDS
-  "$ROOT/bin/fm-secondmate-state.sh" resting "$meta" || fail "state helper failed while the respawn lock was held"
-  elapsed=$((SECONDS - start))
-  wait "$holder" 2>/dev/null || true
-  [ "$elapsed" -ge 1 ] || fail "state helper did not wait for the shared respawn lock (elapsed ${elapsed}s)"
-  assert_grep 'state=resting' "$meta" "state helper did not apply the queued transition once the shared lock cleared"
-  pass "fm-secondmate-state waits on fm-spawn.sh's respawn lock instead of racing the meta rewrite"
+  for i in $(seq 1 50); do
+    [ ! -e "$ready" ] || break
+    kill -0 "$holder" 2>/dev/null || break
+    sleep 0.02
+  done
+  [ -e "$ready" ] || {
+    wait "$holder" 2>/dev/null || true
+    fail "lock holder did not acquire the shared respawn lock"
+  }
+
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" \
+    FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/secondmate-state-lock-fake/pane.txt" \
+    "$ROOT/bin/fm-spawn.sh" "$id" "$subhome" codex --secondmate >/dev/null 2>&1 &
+  spawn_pid=$!
+  saw_window=0
+  for i in $(seq 1 100); do
+    if grep -F 'new-window' "$log" >/dev/null 2>&1; then
+      saw_window=1
+      break
+    fi
+    kill -0 "$spawn_pid" 2>/dev/null || break
+    sleep 0.02
+  done
+  sleep 0.5
+  blocked_state=$(grep '^state=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+  spawn_live=0
+  kill -0 "$spawn_pid" 2>/dev/null && spawn_live=1
+  : > "$release"
+  if wait "$holder"; then holder_status=0; else holder_status=$?; fi
+  if wait "$spawn_pid"; then spawn_status=0; else spawn_status=$?; fi
+
+  [ "$saw_window" -eq 1 ] || fail "real secondmate respawn never reached its metadata publication path"
+  [ "$blocked_state" = resting ] || fail "fm-spawn rewrote resting metadata before the shared lock cleared (state=$blocked_state)"
+  [ "$spawn_live" -eq 1 ] || fail "fm-spawn did not wait while the shared metadata lock was held"
+  [ "$holder_status" -eq 0 ] || fail "shared lock holder failed with status $holder_status"
+  [ "$spawn_status" -eq 0 ] || fail "secondmate respawn failed after the shared lock cleared (status $spawn_status)"
+  assert_grep 'state=active' "$meta" "real secondmate respawn did not conservatively publish active after acquiring the lock"
+  pass "fm-spawn and fm-secondmate-state serialize real metadata rewrites on one lock"
 }
 
 test_backlog_handoff_aborts_safely() {
