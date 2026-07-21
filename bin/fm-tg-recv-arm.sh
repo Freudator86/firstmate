@@ -20,6 +20,7 @@ RECV="$CONFIG/fm-tg-recv.sh"
 ENV_FILE="$CONFIG/telegram.env"
 RECV_LOCK="$STATE/.tg-recv.lock"
 ATTACH_POLL=${FM_TG_RECV_ATTACH_POLL:-0.5}
+ATTACH_CONFIRM_TIMEOUT=${FM_TG_RECV_ATTACH_CONFIRM_TIMEOUT:-2}
 
 usage() {
   printf 'usage: %s\n' "$(basename "$0")" >&2
@@ -85,6 +86,21 @@ attach_and_wait() {
   done
 }
 
+attach_if_receiver_becomes_healthy() {
+  local deadline now
+  deadline=$(($(date +%s) + ATTACH_CONFIRM_TIMEOUT))
+  while [ -e "$RECV_LOCK" ] || [ -L "$RECV_LOCK" ]; do
+    if healthy_receiver; then
+      printf 'telegram receiver: attached pid=%s\n' "$TG_HEALTHY_PID"
+      attach_and_wait
+    fi
+    now=$(date +%s)
+    [ "$now" -lt "$deadline" ] || return 1
+    sleep "$ATTACH_POLL"
+  done
+  return 1
+}
+
 if healthy_receiver; then
   printf 'telegram receiver: attached pid=%s\n' "$TG_HEALTHY_PID"
   attach_and_wait
@@ -94,12 +110,11 @@ clear_dead_recorded_receiver_lock
 
 ownerdir=
 if ! fm_lock_try_create "$RECV_LOCK"; then
-  if healthy_receiver; then
-    printf 'telegram receiver: attached pid=%s\n' "$TG_HEALTHY_PID"
-    attach_and_wait
+  attach_if_receiver_becomes_healthy
+  if ! fm_lock_try_create "$RECV_LOCK"; then
+    printf 'telegram receiver: FAILED - receiver lock is held but no live matching receiver was confirmed\n'
+    exit 1
   fi
-  printf 'telegram receiver: FAILED - receiver lock is held but no live matching receiver was confirmed\n'
-  exit 1
 fi
 ownerdir=$FM_LOCK_OWNER_DIR
 

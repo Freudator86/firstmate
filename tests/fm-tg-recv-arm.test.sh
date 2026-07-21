@@ -38,6 +38,8 @@ case "$out" in
   *'telegram receiver: started pid='*'CAPTAIN-TELEGRAM: test'*) : ;;
   *) fail "expected started output and receiver payload, got: $out" ;;
 esac
+owner_leaks=$(find "$home/state" -maxdepth 1 -type d -name '.tg-recv.lock.owner.*' -print)
+[ -z "$owner_leaks" ] || fail "receiver arm left lock owner directories behind: $owner_leaks"
 
 cat > "$home/config/fm-tg-recv.sh" <<'SH'
 #!/usr/bin/env bash
@@ -98,3 +100,33 @@ grep -q 'telegram receiver: attached pid=' "$home/state/arm2.out" || fail "secon
 touch "$home/state/stop-receiver"
 wait "$arm1"
 wait "$arm2"
+
+rm -f "$home/state/.tg-recv.lock"
+rm -rf "$home/state"/.tg-recv.lock.owner.*
+sleep 5 &
+race_pid=$!
+race_identity=$(FM_HOME="$home" bash -c '. "$1"; fm_pid_identity "$2"' sh "$ROOT/bin/fm-wake-lib.sh" "$race_pid")
+race_owner="$home/state/.tg-recv.lock.owner.race"
+mkdir "$race_owner"
+printf '%s\n' "$race_pid" > "$race_owner/pid"
+ln -s "$race_owner" "$home/state/.tg-recv.lock"
+(
+  sleep 0.3
+  printf '%s\n' "$home" > "$race_owner/fm-home"
+  printf '%s\n' "$race_identity" > "$race_owner/pid-identity"
+  printf '%s\n' "$home/config/fm-tg-recv.sh" > "$race_owner/receiver-path"
+) &
+publisher=$!
+FM_TG_RECV_ATTACH_CONFIRM_TIMEOUT=3 FM_TG_RECV_ATTACH_POLL=0.1 FM_HOME="$home" "$ARM" > "$home/state/race.out" 2>&1 &
+race_arm=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if grep -q 'telegram receiver: attached pid=' "$home/state/race.out" 2>/dev/null; then
+    break
+  fi
+  sleep 0.2
+done
+grep -q 'telegram receiver: attached pid=' "$home/state/race.out" || fail "second arm did not wait for receiver lock metadata: $(cat "$home/state/race.out")"
+kill "$race_pid" 2>/dev/null || true
+wait "$race_pid" 2>/dev/null || true
+wait "$publisher"
+wait "$race_arm"
