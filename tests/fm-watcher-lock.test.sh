@@ -675,6 +675,113 @@ test_arm_hup_cleans_child_and_temp_output() {
   pass "arm cleans child watcher and temp output on HUP"
 }
 
+test_arm_sigkill_from_validation_worktree_reaps_child() {
+  local dir home state fakebin validation armout armpid lock_pid lock_path i
+  dir=$(make_case arm-sigkill-validation-worktree)
+  home="$dir/home"
+  state="$home/state"
+  fakebin="$dir/fakebin"
+  validation="$dir/.no-mistakes/issue-321/worktrees/validation"
+  armout="$dir/arm.out"
+  mkdir -p "$state" "$validation"
+  cp -R "$ROOT/bin" "$validation/"
+  mark_pr_check_migration_complete "$state"
+
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_POLL=0.1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$validation/bin/fm-watch-arm.sh" > "$armout" &
+  armpid=$!
+  i=0
+  while [ "$i" -lt 80 ]; do
+    grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  grep -qF 'watcher: started pid=' "$armout" || fail "validation-worktree arm did not start a watcher"
+  lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
+  lock_path=$(cat "$state/.watch.lock/watcher-path" 2>/dev/null || true)
+  [ "$lock_path" = "$validation/bin/fm-watch.sh" ] \
+    || fail "repro watcher did not start from the validation worktree (got '$lock_path')"
+
+  kill -KILL "$armpid" 2>/dev/null || fail "could not SIGKILL validation-worktree arm"
+  wait "$armpid" 2>/dev/null || true
+  i=0
+  while [ "$i" -lt 80 ] && is_live_non_zombie "$lock_pid"; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  ! is_live_non_zombie "$lock_pid" \
+    || fail "SIGKILL left validation-worktree watcher child running (pid $lock_pid)"
+  [ ! -e "$state/.watch.lock" ] || fail "self-reaped watcher left its singleton lock behind"
+  pass "validation-worktree watcher self-reaps when its arm wrapper is SIGKILLed"
+}
+
+test_watcher_survives_failed_ps_parent_read() {
+  local dir home state fakebin armout armpid lock_pid i fail_hits
+  dir=$(make_case watcher-ps-fail-guard)
+  home="$dir/home"
+  state="$home/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+  fail_hits="$dir/ps-fail-hits"
+  mkdir -p "$state"
+  : > "$fail_hits"
+  mark_pr_check_migration_complete "$state"
+  # Fail only fm-watch.sh's own arm-owner ppid lookup each poll; other ps
+  # callers (fm-lock.sh's steal-ancestry walk, pid identity, active-check
+  # pgid) are identified by caller, via the portable `ps -o args=` idiom
+  # fm-lock.sh's own ancestry walk uses, and still hit the real ps. Each
+  # injected failure is recorded so the test can prove it actually fired.
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *' -o ppid='*)
+    caller=$(command -p ps -o args= -p "$PPID" 2>/dev/null || true)
+    case " $caller " in
+      *'/fm-watch.sh '*|*' fm-watch.sh '*)
+        printf '.' >> "$FM_TEST_PS_FAIL_HITS"
+        exit 1
+        ;;
+    esac
+    ;;
+esac
+command -p ps "$@"
+SH
+  chmod +x "$fakebin/ps"
+
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_TEST_PS_FAIL_HITS="$fail_hits" \
+    FM_POLL=0.1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$WATCH_ARM" > "$armout" &
+  armpid=$!
+  i=0
+  while [ "$i" -lt 80 ]; do
+    grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  grep -qF 'watcher: started pid=' "$armout" || fail "arm did not start a watcher under a failing ps"
+  lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
+  [ -n "$lock_pid" ] || fail "no watcher pid recorded in the lock"
+
+  i=0
+  while [ "$i" -lt 80 ] && [ ! -s "$fail_hits" ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -s "$fail_hits" ] || fail "fault injection never fired; test proves nothing"
+
+  sleep 1
+  is_live_non_zombie "$lock_pid" \
+    || fail "watcher self-terminated on an inconclusive (failed) ps parent read"
+  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$lock_pid" ] \
+    || fail "singleton lock changed hands despite the same watcher staying alive"
+
+  kill "$armpid" "$lock_pid" 2>/dev/null || true
+  wait "$armpid" 2>/dev/null || true
+  pass "watcher stays owned across a failed/empty ps parent-pid read"
+}
+
 test_arm_propagates_immediate_wake_before_confirmation() {
   local dir state fakebin armout drain_out check_file rc
   dir=$(make_case arm-immediate-wake)
@@ -818,6 +925,8 @@ test_watch_restart_reports_healthy_peer_without_attaching
 test_watcher_self_evicts_on_lock_takeover
 test_arm_attaches_and_waits_for_live_fresh_watcher
 test_arm_starts_and_self_heals
+test_arm_sigkill_from_validation_worktree_reaps_child
+test_watcher_survives_failed_ps_parent_read
 test_arm_hup_cleans_child_and_temp_output
 test_arm_propagates_immediate_wake_before_confirmation
 test_arm_waits_for_peer_beacon_after_child_stands_down
