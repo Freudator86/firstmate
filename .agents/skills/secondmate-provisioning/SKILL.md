@@ -159,7 +159,7 @@ It remains registered and may remain alive while resting.
 `fm-spawn.sh --secondmate` starts or restarts the parent record conservatively at `state=active` so recovery work can never disappear from supervision.
 A marked routed-text send through `fm-send.sh` switches the record to `state=active` before delivering the message.
 After reconciliation or routed work is fully clear, the scaffolded charter tells the secondmate to run `bin/fm-secondmate-state.sh resting <absolute-parent-meta-file>` before it waits silently.
-The helper accepts only ordinary, non-symlinked `kind=secondmate` metadata and atomically replaces the state field.
+The helper accepts only ordinary, non-symlinked `kind=secondmate` metadata and atomically replaces the state field, serialized on the same per-secondmate meta lock `fm-spawn.sh` holds during a respawn rewrite of that record, closing read-decide-write races between every writer.
 
 The shared supervision predicate excludes only the exact `kind=secondmate` plus `state=resting` combination.
 An ordinary task can never bypass supervision by carrying that field, and an older secondmate record with no state remains active for backward-compatible safety.
