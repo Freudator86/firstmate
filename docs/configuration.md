@@ -445,6 +445,7 @@ FM_TG_RECV_ATTACH_POLL=0.5  # seconds between checks while fm-tg-recv-arm is att
 FM_TG_RECV_ATTACH_CONFIRM_TIMEOUT=2  # seconds fm-tg-recv-arm waits for a competing arm to publish receiver metadata
 FM_TG_RECV_TERM_WAIT_CYCLES=30  # termination polling cycles before fm-tg-recv-arm preserves a live receiver lock after wrapper shutdown
 FM_TG_RECV_TERM_WAIT_POLL=0.1  # seconds between termination checks during fm-tg-recv-arm cleanup
+FM_WATCH_ARM_OWNER_PID=   # internal: fm-watch-arm sets this to its own pid on the watcher it forks, so the watcher can self-terminate if that arm wrapper dies before running its own cleanup; unset for a directly-invoked watcher
 FM_OPENCODE_ARM_READY_TIMEOUT_MS=12000   # milliseconds the OpenCode primary watcher plugin waits for an arm attempt to report started, healthy, wake, or failure
 FM_WATCHER_STALE_GRACE=300   # defaults to FM_GUARD_GRACE; seconds a live watcher lock may have a stale beacon before re-arm errors
 FM_SIGNAL_GRACE=30      # seconds to coalesce nearby status and turn-end signals into one wake
