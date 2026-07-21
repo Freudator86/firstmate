@@ -1130,9 +1130,7 @@ EOF
   while IFS= read -r w; do
     kind=$(window_kind "$w")
     task=$(window_to_task "$w" "$STATE")
-    key=${w//:/_}
-    key=${key//\//_}
-    key=${key//./_}
+    key=$(window_state_key "$w")
     pkf="$STATE/.parked-$key"
     last=$(last_status_line "$STATE/$task.status")
     if ! status_is_paused "$last" && [ -e "$STATE/.paused-$key" ]; then
@@ -1143,7 +1141,6 @@ EOF
     fi
     tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || continue
     h=$(printf '%s' "$tail40" | hash_pane)
-    key=$(printf '%s' "$w" | tr ':/.' '___')
     hf="$STATE/.hash-$key"
     cf="$STATE/.count-$key"
     sf="$STATE/.stale-$key"
