@@ -101,6 +101,47 @@ touch "$home/state/stop-receiver"
 wait "$arm1"
 wait "$arm2"
 
+cat > "$home/config/fm-tg-recv.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+trap ':' TERM
+printf '%s\n' "$$" > "$FM_HOME/state/receiver.pid"
+printf 'start\n' >> "$FM_HOME/state/receiver.starts"
+while [ ! -f "$FM_HOME/state/stop-receiver" ]; do
+  sleep 0.1
+done
+SH
+chmod +x "$home/config/fm-tg-recv.sh"
+rm -f "$home/state/receiver.pid" "$home/state/receiver.starts" "$home/state/stop-receiver"
+
+FM_HOME="$home" "$ARM" > "$home/state/term-arm1.out" 2>&1 &
+term_arm1=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -s "$home/state/receiver.pid" ] && break
+  sleep 0.1
+done
+[ -s "$home/state/receiver.pid" ] || fail "signal cleanup receiver did not start"
+receiver_pid=$(cat "$home/state/receiver.pid")
+
+kill -TERM "$term_arm1"
+wait "$term_arm1" 2>/dev/null
+fm_pid_alive=$(FM_HOME="$home" bash -c '. "$1"; fm_pid_alive "$2"; printf "%s\n" "$?"' sh "$ROOT/bin/fm-wake-lib.sh" "$receiver_pid")
+[ "$fm_pid_alive" = 0 ] || fail "signal cleanup killed slow receiver before bounded wait check"
+[ -L "$home/state/.tg-recv.lock" ] || fail "signal cleanup dropped live receiver lock"
+
+FM_HOME="$home" "$ARM" > "$home/state/term-arm2.out" 2>&1 &
+term_arm2=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if grep -q 'telegram receiver: attached pid=' "$home/state/term-arm2.out" 2>/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
+grep -q 'telegram receiver: attached pid=' "$home/state/term-arm2.out" || fail "second arm did not attach after signal cleanup: $(cat "$home/state/term-arm2.out")"
+[ "$(wc -l < "$home/state/receiver.starts")" -eq 1 ] || fail "signal cleanup allowed duplicate receiver start"
+touch "$home/state/stop-receiver"
+wait "$term_arm2"
+
 rm -f "$home/state/.tg-recv.lock"
 rm -rf "$home/state"/.tg-recv.lock.owner.*
 sleep 5 &

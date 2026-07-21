@@ -21,6 +21,8 @@ ENV_FILE="$CONFIG/telegram.env"
 RECV_LOCK="$STATE/.tg-recv.lock"
 ATTACH_POLL=${FM_TG_RECV_ATTACH_POLL:-0.5}
 ATTACH_CONFIRM_TIMEOUT=${FM_TG_RECV_ATTACH_CONFIRM_TIMEOUT:-2}
+TERM_WAIT_CYCLES=${FM_TG_RECV_TERM_WAIT_CYCLES:-30}
+TERM_WAIT_POLL=${FM_TG_RECV_TERM_WAIT_POLL:-0.1}
 
 usage() {
   printf 'usage: %s\n' "$(basename "$0")" >&2
@@ -120,11 +122,59 @@ ownerdir=$FM_LOCK_OWNER_DIR
 
 child=
 child_out=
-cleanup() {
-  if [ -n "$child" ] && fm_pid_alive "$child"; then
+release_lock_if_owned() {
+  [ -n "$ownerdir" ] || return 0
+  if fm_lock_points_to_owner "$RECV_LOCK" "$ownerdir"; then
+    fm_lock_remove_path "$RECV_LOCK" 2>/dev/null || true
+  fi
+}
+
+record_child_lock_metadata_if_possible() {
+  local current_identity
+  [ -n "$ownerdir" ] || return 0
+  [ -n "$child" ] || return 0
+  fm_lock_points_to_owner "$RECV_LOCK" "$ownerdir" || return 0
+  current_identity=$(fm_pid_identity "$child" 2>/dev/null) || return 0
+  {
+    printf '%s\n' "$child" > "$ownerdir/pid"
+    printf '%s\n' "$FM_HOME" > "$ownerdir/fm-home"
+    printf '%s\n' "$current_identity" > "$ownerdir/pid-identity"
+    printf '%s\n' "$RECV" > "$ownerdir/receiver-path"
+  } 2>/dev/null || true
+}
+
+child_still_running() {
+  local stat
+  fm_pid_alive "$child" || return 1
+  stat=$(ps -p "$child" -o stat= 2>/dev/null | sed 's/^[[:space:]]*//') || return 1
+  case "$stat" in
+    Z*) return 1 ;;
+  esac
+  return 0
+}
+
+terminate_child_bounded() {
+  local i=0
+  [ -n "$child" ] || return 0
+  if child_still_running; then
     kill -TERM "$child" 2>/dev/null || true
   fi
-  fm_lock_remove_path "$RECV_LOCK" 2>/dev/null || true
+  while child_still_running && [ "$i" -lt "$TERM_WAIT_CYCLES" ]; do
+    sleep "$TERM_WAIT_POLL"
+    i=$((i + 1))
+  done
+  if child_still_running; then
+    return 1
+  fi
+  wait "$child" 2>/dev/null || true
+  return 0
+}
+
+cleanup() {
+  record_child_lock_metadata_if_possible
+  if terminate_child_bounded; then
+    release_lock_if_owned
+  fi
   [ -n "$child_out" ] && rm -f "$child_out" 2>/dev/null || true
 }
 trap 'cleanup; exit 129' HUP
@@ -144,7 +194,7 @@ if [ -z "$identity" ]; then
     wait "$child"
     rc=$?
     [ -s "$child_out" ] && cat "$child_out"
-    fm_lock_remove_path "$RECV_LOCK" 2>/dev/null || true
+    release_lock_if_owned
     rm -f "$child_out" 2>/dev/null || true
     trap - HUP TERM INT
     exit "$rc"
@@ -169,7 +219,7 @@ printf 'telegram receiver: started pid=%s\n' "$child"
 wait "$child"
 rc=$?
 [ -s "$child_out" ] && cat "$child_out"
-fm_lock_remove_path "$RECV_LOCK" 2>/dev/null || true
+release_lock_if_owned
 rm -f "$child_out" 2>/dev/null || true
 trap - HUP TERM INT
 exit "$rc"
