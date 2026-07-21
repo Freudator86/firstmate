@@ -13,7 +13,7 @@ WATCH_ARM="$ROOT/bin/fm-watch-arm.sh"
 DRAIN="$ROOT/bin/fm-wake-drain.sh"
 LIB="$ROOT/bin/fm-wake-lib.sh"
 
-TMP_ROOT=$(fm_test_tmproot fm-watcher-lock-tests)
+fm_test_tmproot TMP_ROOT fm-watcher-lock-tests
 
 mark_pr_check_migration_complete() {
   local state=$1
@@ -166,6 +166,55 @@ test_guard_warnings() {
   FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=300 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
   [ ! -s "$err" ] || fail "guard warned with a fresh watcher and no queued wakes: $(cat "$err")"
   pass "guard banner leads when down with pending wakes (re-arm-after-drain) and stays silent when fresh"
+}
+
+test_lock_create_filesystem_failure_returns_without_steal_recursion() {
+  local dir state fakebin lockdir out err pid rc steal_paths
+  dir=$(make_case lock-create-filesystem-failure)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  lockdir="$state/.contend.lock"
+  out="$dir/acquire.out"
+  err="$dir/acquire.err"
+  cat > "$fakebin/ln" <<'SH'
+#!/usr/bin/env bash
+exit 74
+SH
+  chmod +x "$fakebin/ln"
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_try_acquire "$2"
+  ' _ "$LIB" "$lockdir" > "$out" 2> "$err" &
+  pid=$!
+  rc=0
+  wait_for_exit "$pid" 20 || rc=$?
+  [ "$rc" -eq 2 ] || fail "failed lock publication returned $rc instead of filesystem error 2"
+  grep -F "could not publish lock $lockdir" "$err" >/dev/null \
+    || fail "failed lock publication did not report its filesystem error: $(cat "$err")"
+  steal_paths=$(find "$state" -name '*.steal*' -print)
+  [ -z "$steal_paths" ] || fail "failed lock publication created steal-chain paths: $steal_paths"
+  pass "lock publication failure returns promptly without entering steal recursion"
+}
+
+test_lock_steal_recursion_has_a_hard_depth_bound() {
+  local dir state lockdir out err rc
+  dir=$(make_case lock-steal-depth-bound)
+  state="$dir/state"
+  lockdir="$state/.contend.lock"
+  out="$dir/acquire.out"
+  err="$dir/acquire.err"
+  rc=0
+  FM_LOCK_STEAL_MAX_DEPTH=3 FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_lock_try_create() { return 1; }
+    fm_lock_mid_acquire_is_fresh() { return 1; }
+    fm_lock_try_acquire "$2"
+  ' _ "$LIB" "$lockdir" > "$out" 2> "$err" || rc=$?
+  [ "$rc" -eq 2 ] || fail "steal recursion depth bound returned $rc instead of 2"
+  grep -F 'steal depth exceeded 3' "$err" >/dev/null \
+    || fail "steal recursion did not report its configured depth bound: $(cat "$err")"
+  pass "lock steal recursion stops at its configured hard depth bound"
 }
 
 test_lock_single_winner_under_concurrency() {
@@ -731,6 +780,8 @@ test_pid_identity_is_locale_invariant
 test_stale_watch_lock_reclaimed
 test_live_stale_watch_lock_is_actionable
 test_guard_warnings
+test_lock_create_filesystem_failure_returns_without_steal_recursion
+test_lock_steal_recursion_has_a_hard_depth_bound
 test_lock_single_winner_under_concurrency
 test_lock_steals_dead_pid_lock
 test_lock_stale_steal_single_winner_under_concurrency

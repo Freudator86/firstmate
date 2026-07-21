@@ -9,7 +9,8 @@ set -u
 # shellcheck source=tests/lib.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-TMP_ROOT=$(fm_test_tmproot fm-self-drift)
+fm_test_tmproot TMP_ROOT fm-self-drift
+
 fm_git_identity
 
 make_case() {

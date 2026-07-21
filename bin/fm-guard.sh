@@ -63,7 +63,7 @@ fm_guard_claim_stale_banner() {
   local state=$1 key=$2
   local marker="$state/.guard-watcher-stale-banner"
   local lock="$state/.guard-watcher-stale-banner.lock"
-  local seen i
+  local seen i rc
 
   seen=$(cat "$marker" 2>/dev/null || true)
   # Strip a single trailing newline so key comparison is line-content based.
@@ -85,7 +85,12 @@ fm_guard_claim_stale_banner() {
       printf '%s\n' "$key" > "$marker" || true
       fm_lock_release "$lock" 2>/dev/null || true
       return 0
+    else
+      rc=$?
     fi
+    # A filesystem failure is already reported by the lock helper. Keep the
+    # operator-facing alarm loud without retrying the broken operation 50 times.
+    [ "$rc" -eq 2 ] && return 0
     seen=$(cat "$marker" 2>/dev/null || true)
     seen=${seen%$'\n'}
     if [ "$seen" = "$key" ]; then

@@ -5,7 +5,7 @@ set -u
 # shellcheck source=tests/lib.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-TMP_ROOT=$(fm_test_tmproot fm-firstmate-update-check-tests)
+fm_test_tmproot TMP_ROOT fm-firstmate-update-check-tests
 
 commit_file() {
   local repo=$1 path=$2 content=$3

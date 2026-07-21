@@ -57,10 +57,18 @@ pass() {
 
 # --- self-cleaning temp root ------------------------------------------------
 #
-# fm_test_tmproot <prefix> echoes a fresh temp dir and registers it for removal
-# on EXIT. The first call installs the cleanup trap. A test file that needs
-# extra teardown (e.g. killing a daemon) should define its own EXIT trap and
-# call fm_test_cleanup from inside it so registered dirs are still removed.
+# fm_test_tmproot <output-var> [prefix] assigns a fresh temp dir to output-var
+# and registers it for removal on EXIT. Assignment must happen in the calling
+# shell: command substitution runs the function in a subshell and loses both
+# the cleanup registration and its traps. The first call installs the cleanup
+# traps. A test file that needs extra teardown (e.g. killing a daemon) should
+# define its own EXIT trap and call fm_test_cleanup from inside it so registered
+# dirs are still removed.
+#
+# HUP, INT, and TERM are converted to explicit exits so the current EXIT trap
+# runs on those interrupt paths. SIGKILL cannot be trapped by Bash, so a wrapper
+# that escalates to SIGKILL can only be cleaned up if its earlier signal reaches
+# this shell and is not deliberately ignored.
 
 FM_TEST_CLEANUP_DIRS=()
 
@@ -71,14 +79,35 @@ fm_test_cleanup() {
   done
 }
 
-fm_test_tmproot() {
-  local prefix=${1:-fm-test} root
-  root=$(mktemp -d "${TMPDIR:-/tmp}/${prefix}.XXXXXX")
+# shellcheck disable=SC2317,SC2329 # Invoked by the signal traps below.
+fm_test_signal_exit() {
+  local status=$1
+  trap - HUP INT TERM
+  exit "$status"
+}
+
+fm_test_install_cleanup_traps() {
   if [ "${#FM_TEST_CLEANUP_DIRS[@]}" -eq 0 ]; then
     trap fm_test_cleanup EXIT
+    trap 'fm_test_signal_exit 129' HUP
+    trap 'fm_test_signal_exit 130' INT
+    trap 'fm_test_signal_exit 143' TERM
   fi
+}
+
+fm_test_tmproot() {
+  local output_var=${1:-} prefix=${2:-fm-test} root
+  case "$output_var" in
+    ''|[0-9]*|*[!a-zA-Z0-9_]*)
+      printf 'fm_test_tmproot: first argument must be an output variable name\n' >&2
+      return 2
+      ;;
+  esac
+  root=$(mktemp -d "${TMPDIR:-/tmp}/${prefix}.XXXXXX") \
+    || fail "could not create test temp root under ${TMPDIR:-/tmp}"
+  fm_test_install_cleanup_traps
   FM_TEST_CLEANUP_DIRS+=("$root")
-  printf '%s\n' "$root"
+  printf -v "$output_var" '%s' "$root"
 }
 
 # --- fakebin / PATH shims ---------------------------------------------------

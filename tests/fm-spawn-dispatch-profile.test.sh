@@ -11,7 +11,8 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 SPAWN="$ROOT/bin/fm-spawn.sh"
-TMP_ROOT=$(fm_test_tmproot fm-spawn-dispatch-profile)
+fm_test_tmproot TMP_ROOT fm-spawn-dispatch-profile
+
 CODEX_PROFILE_FLAGS='-c '\''sandbox_mode="workspace-write"'\'' -c '\''approval_policy="on-request"'\'' -c '\''approvals_reviewer="auto_review"'\'''
 
 make_spawn_fakebin() {
