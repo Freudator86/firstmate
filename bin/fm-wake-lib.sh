@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Shared durable wake queue and portable lock helpers.
 # Lock acquisition returns 0 when acquired, 1 for genuine contention, and 2 for
-# an operational filesystem failure; FM_LOCK_ERROR describes the latter.
+# an operational filesystem failure or a configured hard bound (steal-recursion
+# depth, total wait time) being exceeded; FM_LOCK_ERROR describes the cause.
 
 FM_WAKE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_WAKE_DEFAULT_ROOT="$(cd "$FM_WAKE_LIB_DIR/.." && pwd)"
