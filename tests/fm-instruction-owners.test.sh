@@ -9,6 +9,7 @@ set -u
 
 DIAG="$ROOT/.agents/skills/diagnostic-reasoning/SKILL.md"
 PROJECT="$ROOT/.agents/skills/project-management/SKILL.md"
+SECRETS="$ROOT/.agents/skills/secrets-handling/SKILL.md"
 HARNESS="$ROOT/.agents/skills/harness-adapters/SKILL.md"
 CODING="$ROOT/.agents/skills/firstmate-coding-guidelines/SKILL.md"
 RECOVERY="$ROOT/.agents/skills/stuck-crewmate-recovery/SKILL.md"
@@ -19,7 +20,7 @@ BRIEF="$ROOT/bin/fm-brief.sh"
 
 test_new_skill_metadata_and_triggers() {
   local skill name count
-  for pair in "diagnostic-reasoning:$DIAG" "project-management:$PROJECT"; do
+  for pair in "diagnostic-reasoning:$DIAG" "project-management:$PROJECT" "secrets-handling:$SECRETS"; do
     name=${pair%%:*}
     skill=${pair#*:}
     assert_present "$skill" "$name skill is missing"
@@ -37,6 +38,10 @@ test_new_skill_metadata_and_triggers() {
     "project-management skill metadata lost its precise load trigger"
   assert_grep '`project-management` - load before adding, creating, removing, or initializing a project.' "$ROOT/AGENTS.md" \
     "AGENTS.md lost the project-management trigger"
+  assert_grep 'Use before reading, sourcing, injecting, inspecting, or transporting secrets or credentials, and whenever one is exposed in agent or tool output.' "$SECRETS" \
+    "secrets-handling skill metadata lost its precise load trigger"
+  assert_grep '`secrets-handling` - load before reading, sourcing, injecting, inspecting, or transporting secrets or credentials, and whenever one is exposed in agent or tool output.' "$ROOT/AGENTS.md" \
+    "AGENTS.md lost the secrets-handling trigger"
   pass "new internal skills have one precise AGENTS.md trigger each"
 }
 
@@ -75,6 +80,23 @@ test_project_management_owner_covers_guarded_operations() {
     assert_grep "$phrase" "$PROJECT" "project-management owner is missing '$phrase'"
   done
   pass "project-management owns registry, delivery posture, consent, initialization, and removal safety"
+}
+
+test_secrets_owner_covers_exposure_response() {
+  for phrase in \
+    'Do not run `cat`, `head`, `tail`, `sed`, `awk`, or `rg` against a secrets file to discover a value.' \
+    'Do not run `echo "$TOKEN"`, `printf '"'"'%s\n'"'"' "$TOKEN"`, `env`, or `printenv` to check a credential.' \
+    'Do not run `docker inspect <container> --format '"'"'{{json .Config.Env}}'"'"'` or `docker exec <container> env` when credentials may be present.' \
+    'Do not run `ps eww` because it appends the process environment to the listing.'; do
+    assert_grep "$phrase" "$SECRETS" "secrets-handling owner is missing dangerous-command doctrine: '$phrase'"
+  done
+  assert_grep 'Stow-and-clear is sufficient only when the value appeared in an authorized agent or tool transcript, remained session-local and ephemeral, and there is no evidence that it reached a durable artifact, shared log, message, repository, remote service, public output, or untrusted reader.' "$SECRETS" \
+    "secrets-handling owner lost the contained-exposure stow-and-clear scope"
+  assert_grep 'Do not rotate automatically for a contained, session-local, ephemeral exposure.' "$SECRETS" \
+    "secrets-handling owner lost the no-automatic-rotation posture"
+  assert_grep 'Escalate immediately when the exposure reached or may have reached durable storage, a shared or remote channel, source control, an untrusted audience, or an unknown boundary, or when suspicious use means containment is uncertain.' "$SECRETS" \
+    "secrets-handling owner lost the durable/shared/remote/untrusted/uncertain escalation trigger"
+  pass "secrets-handling owns the dangerous-command doctrine, contained stow-and-clear scope, and escalation triggers"
 }
 
 test_generic_effort_fallback_respects_precedence() {
@@ -224,6 +246,7 @@ test_compressed_agents_retains_authority_and_supervision_safety() {
 test_new_skill_metadata_and_triggers
 test_diagnostic_owner_covers_causal_procedure
 test_project_management_owner_covers_guarded_operations
+test_secrets_owner_covers_exposure_response
 test_generic_effort_fallback_respects_precedence
 test_shared_authoring_requirements_are_owned
 test_secondmate_registry_contract_stays_concise
