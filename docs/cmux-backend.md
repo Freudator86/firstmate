@@ -88,6 +88,7 @@ It has no bearing on the one-time socket-access setup ("Setup" above): a viable 
 That refusal message names the viable modes and the `config/backend`/`--backend tmux` opt-out, so a captain who never explicitly chose cmux - and only landed on it because firstmate happened to be launched from inside a cmux terminal - gets a self-contained answer either way: finish the socket setup to actually use cmux, or opt out back to tmux.
 
 The original build's env-injection finding rested on the source read above alone; it has since been corroborated live (2026-07-04, cmux 0.64.17 build 97): the inherited environment of a tmux server started from a cmux tab on the reference machine carries `CMUX_WORKSPACE_ID`, `CMUX_TAB_ID`, `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `__CFBundleIdentifier=com.cmuxterm.app` into every pane, and firstmate separately confirmed the full injected set on a live tab shell via `ps eww`.
+That historical `ps eww` capture must not be repeated; `AGENTS.md` section 1 "Secrets" owns the core prohibition and `secrets-handling` owns filtered verification alternatives.
 
 ### The bundled claude wrapper strips `CMUX_*` (unanticipated, load-bearing finding)
 
