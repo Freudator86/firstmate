@@ -695,24 +695,31 @@ test_arm_sigkill_from_validation_worktree_reaps_child() {
 }
 
 test_watcher_survives_failed_ps_parent_read() {
-  local dir home state fakebin armout armpid lock_pid i
+  local dir home state fakebin armout armpid lock_pid i fail_hits
   dir=$(make_case watcher-ps-fail-guard)
   home="$dir/home"
   state="$home/state"
   fakebin="$dir/fakebin"
   armout="$dir/arm.out"
+  fail_hits="$dir/ps-fail-hits"
   mkdir -p "$state"
+  : > "$fail_hits"
   mark_pr_check_migration_complete "$state"
   # Fail only fm-watch.sh's own arm-owner ppid lookup each poll; other ps
   # callers (fm-lock.sh's steal-ancestry walk, pid identity, active-check
-  # pgid) are identified by caller and still hit the real ps.
+  # pgid) are identified by caller, via the portable `ps -o args=` idiom
+  # fm-lock.sh's own ancestry walk uses, and still hit the real ps. Each
+  # injected failure is recorded so the test can prove it actually fired.
   cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case " $* " in
   *' -o ppid='*)
-    caller=$(tr '\0' ' ' < "/proc/$PPID/cmdline" 2>/dev/null || true)
+    caller=$(command -p ps -o args= -p "$PPID" 2>/dev/null || true)
     case " $caller " in
-      *'/fm-watch.sh '*|*' fm-watch.sh '*) exit 1 ;;
+      *'/fm-watch.sh '*|*' fm-watch.sh '*)
+        printf '.' >> "$FM_TEST_PS_FAIL_HITS"
+        exit 1
+        ;;
     esac
     ;;
 esac
@@ -720,7 +727,8 @@ command -p ps "$@"
 SH
   chmod +x "$fakebin/ps"
 
-  PATH="$fakebin:$PATH" FM_HOME="$home" FM_POLL=0.1 FM_SIGNAL_GRACE=1 \
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_TEST_PS_FAIL_HITS="$fail_hits" \
+    FM_POLL=0.1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     "$WATCH_ARM" > "$armout" &
   armpid=$!
@@ -733,6 +741,13 @@ SH
   grep -qF 'watcher: started pid=' "$armout" || fail "arm did not start a watcher under a failing ps"
   lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
   [ -n "$lock_pid" ] || fail "no watcher pid recorded in the lock"
+
+  i=0
+  while [ "$i" -lt 80 ] && [ ! -s "$fail_hits" ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -s "$fail_hits" ] || fail "fault injection never fired; test proves nothing"
 
   sleep 1
   is_live_non_zombie "$lock_pid" \
