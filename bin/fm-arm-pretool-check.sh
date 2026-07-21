@@ -104,23 +104,23 @@ fi
 [ -n "$CMD" ] || exit 0
 
 # Strict-superset prefilter (transport only; owns zero classification semantics).
-# Every protected watcher execution and every broad watcher kill resolves to the
-# fm-watch byte sequence AFTER the classifier's byte normalization, so a command
-# that cannot contain fm-watch even after that normalization can never be a
-# deniable watcher command and is fast-allowed without the Node policy owner.
+# Every protected arm/watch execution and every broad watcher kill resolves to a
+# protected byte sequence AFTER the classifier's byte normalization, so a command
+# that cannot contain one even after that normalization can never be a deniable
+# command and is fast-allowed without the Node policy owner.
 # We mirror the classifier's cheapest byte transforms here (drop line-
 # continuation and escape backslashes, quotes, and newlines) so obfuscated
-# protected paths such as fm-watc\<newline>h-arm.sh or fm-"watch"-arm.sh still
-# delegate. Stripping only these non-alphanumeric bytes can never destroy an
-# existing fm-watch run.
+# protected paths such as fm-watc\<newline>h-arm.sh, fm-"watch"-arm.sh, or
+# fm-tg-recv-"arm".sh still delegate. Stripping only these non-alphanumeric
+# bytes can never destroy an existing protected run.
 #
 # The fast path may allow ONLY when BOTH hold: (a) the stripped/normalized text
-# lacks the fm-watch watcher substring, AND (b) the raw command carries no
+# lacks every protected substring, AND (b) the raw command carries no
 # quoting-decoder marker - a $ immediately followed by a single quote (ANSI-C
 # $'...') or a double quote (bash locale $"..."), both of which the classifier
-# decodes and can therefore reconstruct fm-watch from bytes this cheap byte
-# strip cannot. This marker set is COUPLED to the classifier's decoder set in
-# bin/fm-arm-command-policy.mjs: adding any new quote/expansion form the
+# decodes and can therefore reconstruct protected paths from bytes this cheap
+# byte strip cannot. This marker set is COUPLED to the classifier's decoder set
+# in bin/fm-arm-command-policy.mjs: adding any new quote/expansion form the
 # classifier decodes REQUIRES extending this marker set in the same change, or
 # the prefilter stops being a strict superset. Otherwise the command always
 # delegates to the classifier - the single owner of every decision. Any deeper
@@ -137,6 +137,7 @@ case "$CMD" in
   *)
     case "$PREFILTER" in
       *fm-watch*) ;;
+      *fm-tg-recv-arm*) ;;
       *) exit 0 ;;
     esac
     ;;

@@ -43,6 +43,8 @@ matrix_case A14 allow "[ -f 'config/x-mode.env' ] && source 'config/x-mode.env';
 matrix_case A15 allow "cd $ROOT && exec bin/fm-watch-arm.sh"
 matrix_case A16 allow "export FM_HOME=$ROOT && bin/fm-watch-checkpoint.sh --seconds 180"
 matrix_case A17 allow $'source "config/x-mode.env"\nbin/fm-watch-checkpoint.sh --seconds 180'
+matrix_case A18 allow 'bin/fm-tg-recv-arm.sh'
+matrix_case A19 allow 'exec bin/fm-tg-recv-arm.sh'
 
 matrix_case R01 allow "pgrep -fl '/bin/fm-watch.sh' || true"
 matrix_case R02 allow "ps aux | rg '/bin/fm-watch.sh'"
@@ -63,6 +65,7 @@ matrix_case R16 allow $'# bin/fm-watch-arm.sh &\necho ok'
 matrix_case R17 allow "printf '%s\\n' 'fm-watch.sh; a && b || c > out' | sed -n '1p'"
 matrix_case R18 allow "sh -c 'tmux send-keys -t lab \"bin/fm-watch-arm.sh &\" Enter'"
 matrix_case R19 allow "eval 'printf \"%s\\n\" \"bin/fm-watch-arm.sh &\"'"
+matrix_case R20 allow "rg -n 'fm-tg-recv-arm.sh &' docs tests"
 
 matrix_case D01 deny 'bin/fm-watch-arm.sh &'
 matrix_case D02 deny 'nohup bin/fm-watch-arm.sh'
@@ -122,6 +125,10 @@ matrix_case D55 deny 'while true; do pkill -f fm-watch; done'
 matrix_case D56 deny 'for x in 1; do pkill -f fm-watch; done'
 matrix_case D57 deny 'case x in x) pkill -f fm-watch ;; esac'
 matrix_case D58 deny 'until false; do kill $(pgrep -f fm-watch); done'
+matrix_case D59 deny 'bin/fm-tg-recv-arm.sh &'
+matrix_case D60 deny 'bin/fm-tg-recv-arm.sh | cat'
+matrix_case D61 deny 'echo before; bin/fm-tg-recv-arm.sh'
+matrix_case D62 deny "bash -lc 'bin/fm-tg-recv-arm.sh &'"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -230,6 +237,10 @@ test_direct_policy_contract() {
   assert_policy direct-expanded-arm-blessed allow '$FM_HOME/bin/fm-watch-arm.sh'
   assert_policy direct-expanded-arm-background $'deny\twatcher-background' '$FM_HOME/bin/fm-watch-arm.sh &'
   assert_policy direct-expanded-arm-pipeline $'deny\twatcher-pipeline' '$HOME/firstmate/bin/fm-watch-arm.sh | cat'
+  assert_policy direct-tg-arm-blessed allow 'bin/fm-tg-recv-arm.sh'
+  assert_policy direct-tg-arm-background $'deny\twatcher-background' 'bin/fm-tg-recv-arm.sh &'
+  assert_policy direct-tg-arm-pipeline $'deny\twatcher-pipeline' 'bin/fm-tg-recv-arm.sh | cat'
+  assert_policy direct-tg-arm-bundled $'deny\twatcher-bundled' 'echo before; bin/fm-tg-recv-arm.sh'
   assert_policy direct-watch-not-blessed $'deny\twatcher-direct' 'bin/fm-watch.sh'
   assert_policy direct-watch-expanded $'deny\twatcher-direct' '$FM_HOME/bin/fm-watch.sh'
   assert_policy direct-watch-safe-shape $'deny\twatcher-direct' 'cd /tmp; bin/fm-watch.sh'
@@ -348,7 +359,7 @@ test_prefilter_is_strict_superset() {
   "$CHECK" --command "echo 'pkill -f fm-watch'" >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 0 ] || fail "a benign fm-watch-substring command must be classified and allowed, got exit $rc"
-  pass "transport prefilter is a strict superset: non-fm-watch fast-allows, every fm-watch and quoting-decoder-marker command reaches the classifier"
+  pass "transport prefilter is a strict superset: non-protected fast-allows, protected and quoting-decoder-marker commands reach the classifier"
 }
 
 # --- fail-open ----------------------------------------------------------------

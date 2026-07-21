@@ -42,6 +42,33 @@ esac
 cat > "$home/config/fm-tg-recv.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
+printf 'CAPTAIN-TELEGRAM: already pending\n'
+sleep 0.1
+SH
+chmod +x "$home/config/fm-tg-recv.sh"
+fakebin="$TMP_ROOT/fakebin"
+mkdir -p "$fakebin"
+cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+sleep 0.05
+exit 1
+SH
+chmod +x "$fakebin/ps"
+
+out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$ARM" 2>&1)
+case "$out" in
+  *'CAPTAIN-TELEGRAM: already pending'*)
+    case "$out" in
+      *'could not identify receiver process'*) fail "fast-exit receiver output was replayed with an identity failure: $out" ;;
+      *) : ;;
+    esac
+    ;;
+  *) fail "expected fast-exit receiver payload, got: $out" ;;
+esac
+
+cat > "$home/config/fm-tg-recv.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
 printf '%s\n' "$$" > "$FM_HOME/state/receiver.pid"
 while [ ! -f "$FM_HOME/state/stop-receiver" ]; do
   sleep 0.1

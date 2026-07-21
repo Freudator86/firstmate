@@ -44,7 +44,7 @@ function parseArguments(argv) {
 }
 
 function rawMentionsProtected(command) {
-  return /(?:^|[/\s'"`(])fm-watch(?:-(?:arm|checkpoint))?\.sh\b/.test(normalizeLineContinuations(command));
+  return /(?:^|[/\s'"`(])(?:fm-watch(?:-(?:arm|checkpoint))?|fm-tg-recv-arm)\.sh\b/.test(normalizeLineContinuations(command));
 }
 
 function rawMentionsBroadKill(command) {
@@ -597,6 +597,7 @@ export function commandPosition(tokens) {
 
 const PROTECTED_SCRIPTS = [
   { relative: "bin/fm-watch-arm.sh", kind: "arm" },
+  { relative: "bin/fm-tg-recv-arm.sh", kind: "arm" },
   { relative: "bin/fm-watch-checkpoint.sh", kind: "checkpoint" },
   { relative: "bin/fm-watch.sh", kind: "watch" },
 ];
@@ -611,7 +612,7 @@ function protectedIdentity(value, root) {
 
 function hasUnclassifiableProtectedExpansion(word, root) {
   if (!word?.unquotedExpansion || protectedIdentity(word.value, root)) return false;
-  return /(?:^|\/)fm-watch/.test(word.value);
+  return /(?:^|\/)(?:fm-watch|fm-tg-recv-arm)/.test(word.value);
 }
 
 function shellInvocation(position) {

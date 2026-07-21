@@ -125,6 +125,15 @@ child_out=$(mktemp "$STATE/.tg-recv-output.XXXXXX") || {
 child=$!
 identity=$(fm_pid_identity "$child" 2>/dev/null || true)
 if [ -z "$identity" ]; then
+  if [ -s "$child_out" ] || ! fm_pid_alive "$child"; then
+    wait "$child"
+    rc=$?
+    [ -s "$child_out" ] && cat "$child_out"
+    fm_lock_remove_path "$RECV_LOCK" 2>/dev/null || true
+    rm -f "$child_out" 2>/dev/null || true
+    trap - HUP TERM INT
+    exit "$rc"
+  fi
   cleanup
   printf 'telegram receiver: FAILED - could not identify receiver process\n'
   exit 1
