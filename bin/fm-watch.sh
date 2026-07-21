@@ -744,7 +744,13 @@ fi
   exit 1
 }
 
-if ! fm_lock_try_acquire "$WATCH_LOCK"; then
+lock_rc=0
+fm_lock_try_acquire "$WATCH_LOCK" || lock_rc=$?
+if [ "$lock_rc" -ne 0 ]; then
+  if [ "$lock_rc" -eq 2 ]; then
+    echo "watcher: lock acquisition failed for $WATCH_LOCK" >&2
+    exit 1
+  fi
   BEAT="$STATE/.last-watcher-beat"
   if [ -n "${FM_LOCK_HELD_PID:-}" ]; then
     if [ -e "$BEAT" ]; then

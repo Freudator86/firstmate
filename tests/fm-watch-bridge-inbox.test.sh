@@ -6,7 +6,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 WATCH="$ROOT/bin/fm-watch.sh"
-TMP_ROOT=$(fm_test_tmproot fm-watch-bridge-inbox)
+fm_test_tmproot TMP_ROOT fm-watch-bridge-inbox
 
 make_home() {
   local name=$1 home bridge origin

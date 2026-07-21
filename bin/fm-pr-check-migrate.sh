@@ -292,6 +292,12 @@ while [ "$i" -lt 100 ]; do
   if fm_lock_try_acquire "$WATCH_LOCK"; then
     lock_held=1
     break
+  else
+    lock_rc=$?
+  fi
+  if [ "$lock_rc" -eq 2 ]; then
+    echo "PR_CHECK_MIGRATION: watcher exclusion lock could not be created" >&2
+    exit 1
   fi
   # A concurrent migration may have completed while this process waited.
   # Its validated marker proves the old watcher crossed the boundary, so this

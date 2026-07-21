@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Shared durable wake queue and portable lock helpers.
+# Lock acquisition returns 0 when acquired, 1 for genuine contention, and 2 for
+# an operational filesystem failure; FM_LOCK_ERROR describes the latter.
 
 FM_WAKE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_WAKE_DEFAULT_ROOT="$(cd "$FM_WAKE_LIB_DIR/.." && pwd)"
@@ -9,6 +11,7 @@ STATE="${FM_STATE_OVERRIDE:-${STATE:-$FM_HOME/state}}"
 FM_WAKE_QUEUE="${FM_WAKE_QUEUE:-$STATE/.wake-queue}"
 FM_WAKE_QUEUE_LOCK="${FM_WAKE_QUEUE_LOCK:-$STATE/.wake-queue.lock}"
 FM_LOCK_STALE_AFTER="${FM_LOCK_STALE_AFTER:-2}"
+FM_LOCK_STEAL_MAX_DEPTH="${FM_LOCK_STEAL_MAX_DEPTH:-8}"
 mkdir -p "$STATE"
 
 fm_current_pid() {
@@ -157,12 +160,12 @@ fm_lock_claim() {
   mypid=${BASHPID:-$$}
   if ! { printf '%s\n' "$mypid" > "$ownerdir/pid"; } 2>/dev/null; then
     fm_lock_discard_owner "$ownerdir"
-    return 1
+    return 2
   fi
   back=$(cat "$ownerdir/pid" 2>/dev/null || true)
   if [ "$back" != "$mypid" ]; then
     fm_lock_discard_owner "$ownerdir"
-    return 1
+    return 2
   fi
   if ! fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
     fm_lock_discard_owner "$ownerdir"
@@ -179,29 +182,49 @@ fm_lock_claim() {
 }
 
 fm_lock_try_create() {
-  local lockdir=$1 allowed_steal_owner=${2:-} ownerdir
+  local lockdir=$1 allowed_steal_owner=${2:-} ownerdir claim_rc
   FM_LOCK_OWNER_DIR=
-  ownerdir=$(fm_lock_owner_dir "$lockdir") || return 1
+  if ! ownerdir=$(fm_lock_owner_dir "$lockdir"); then
+    FM_LOCK_ERROR="could not create owner directory for $lockdir"
+    return 2
+  fi
   if [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
     fm_lock_discard_owner "$ownerdir"
     return 1
   fi
   if ! fm_lock_prepare_owner "$ownerdir"; then
     fm_lock_discard_owner "$ownerdir"
+    FM_LOCK_ERROR="could not prepare owner directory for $lockdir"
+    return 2
+  fi
+  if ! ln -s "$ownerdir" "$lockdir" 2>/dev/null; then
+    fm_lock_remove_stray_owner_link "$lockdir" "$ownerdir"
+    fm_lock_discard_owner "$ownerdir"
+    if [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
+      return 1
+    fi
+    FM_LOCK_ERROR="could not publish lock $lockdir"
+    return 2
+  fi
+  if ! fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
+    fm_lock_remove_stray_owner_link "$lockdir" "$ownerdir"
+    fm_lock_discard_owner "$ownerdir"
     return 1
   fi
-  if ln -s "$ownerdir" "$lockdir" 2>/dev/null && fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
-    if fm_lock_claim "$lockdir" "$ownerdir" "$allowed_steal_owner"; then
-      FM_LOCK_OWNER_DIR=$ownerdir
-      return 0
-    fi
-    if fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
-      rm -f "$lockdir" 2>/dev/null || true
-    fi
+  if fm_lock_claim "$lockdir" "$ownerdir" "$allowed_steal_owner"; then
+    FM_LOCK_OWNER_DIR=$ownerdir
+    return 0
   else
-    fm_lock_remove_stray_owner_link "$lockdir" "$ownerdir"
+    claim_rc=$?
+  fi
+  if fm_lock_points_to_owner "$lockdir" "$ownerdir"; then
+    rm -f "$lockdir" 2>/dev/null || true
   fi
   fm_lock_discard_owner "$ownerdir"
+  if [ "$claim_rc" -eq 2 ]; then
+    FM_LOCK_ERROR="could not record owner for $lockdir"
+    return 2
+  fi
   return 1
 }
 
@@ -248,13 +271,18 @@ fm_lock_recheck_stale_owner() {
   return 0
 }
 
-fm_lock_try_acquire() {
-  local lockdir=$1 pid steal cur rc steal_owner primary_owner
+fm_lock_try_acquire_inner() {
+  local lockdir=$1 depth=$2 pid steal cur rc steal_owner primary_owner max_depth create_rc
   FM_LOCK_HELD_PID=
   FM_LOCK_OWNER_DIR=
 
   if fm_lock_try_create "$lockdir"; then
     return 0
+  else
+    create_rc=$?
+  fi
+  if [ "$create_rc" -eq 2 ]; then
+    return 2
   fi
 
   pid=$(cat "$lockdir/pid" 2>/dev/null || true)
@@ -267,11 +295,23 @@ fm_lock_try_acquire() {
     return 1
   fi
 
+  max_depth=$FM_LOCK_STEAL_MAX_DEPTH
+  case "$max_depth" in
+    ''|*[!0-9]*) max_depth=8 ;;
+  esac
+  if [ "$depth" -ge "$max_depth" ]; then
+    FM_LOCK_ERROR="steal depth exceeded $max_depth while acquiring $lockdir"
+    return 2
+  fi
+
   steal="$lockdir.steal"
-  if ! fm_lock_try_acquire "$steal"; then
+  if fm_lock_try_acquire_inner "$steal" "$((depth + 1))"; then
+    :
+  else
+    rc=$?
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     FM_LOCK_OWNER_DIR=
-    return 1
+    return "$rc"
   fi
   steal_owner=${FM_LOCK_OWNER_DIR:-}
 
@@ -311,6 +351,8 @@ fm_lock_try_acquire() {
   rc=1
   if fm_lock_try_create "$lockdir" "$steal_owner"; then
     rc=0
+  else
+    rc=$?
   fi
   if [ "$rc" -ne 0 ]; then
     # shellcheck disable=SC2034 # Read by callers after fm_lock_try_acquire returns.
@@ -321,9 +363,29 @@ fm_lock_try_acquire() {
   return "$rc"
 }
 
+fm_lock_try_acquire() {
+  local lockdir=$1 rc
+  FM_LOCK_ERROR=
+  if fm_lock_try_acquire_inner "$lockdir" 0; then
+    return 0
+  else
+    rc=$?
+  fi
+  if [ "$rc" -eq 2 ]; then
+    printf 'fm_lock_try_acquire: %s\n' "${FM_LOCK_ERROR:-filesystem operation failed for $lockdir}" >&2
+  fi
+  return "$rc"
+}
+
 fm_lock_acquire_wait() {
-  local lockdir=$1
-  while ! fm_lock_try_acquire "$lockdir"; do
+  local lockdir=$1 rc
+  while :; do
+    if fm_lock_try_acquire "$lockdir"; then
+      return 0
+    else
+      rc=$?
+    fi
+    [ "$rc" -eq 1 ] || return "$rc"
     sleep 0.1
   done
 }
@@ -364,7 +426,7 @@ fm_wake_append() {
   seq_file="$STATE/.wake-queue.seq"
   status=0
 
-  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return "$?"
   seq=$(cat "$seq_file" 2>/dev/null || echo 0)
   case "$seq" in
     ''|*[!0-9]*) seq=0 ;;

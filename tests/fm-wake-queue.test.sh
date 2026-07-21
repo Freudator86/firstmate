@@ -14,8 +14,34 @@ set -u
 WATCH="$ROOT/bin/fm-watch.sh"
 DRAIN="$ROOT/bin/fm-wake-drain.sh"
 
-TMP_ROOT=$(fm_test_tmproot fm-wake-tests)
+fm_test_tmproot TMP_ROOT fm-wake-tests
 
+test_append_returns_on_lock_filesystem_failure() {
+  local dir state fakebin out err pid rc
+  dir=$(make_case append-lock-filesystem-failure)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/append.out"
+  err="$dir/append.err"
+  cat > "$fakebin/ln" <<'SH'
+#!/usr/bin/env bash
+exit 74
+SH
+  chmod +x "$fakebin/ln"
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" bash -c '
+    . "$1"
+    fm_wake_append signal task "signal: task"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" > "$out" 2> "$err" &
+  pid=$!
+  rc=0
+  wait_for_exit "$pid" 20 || rc=$?
+  [ "$rc" -eq 2 ] || fail "wake append lock failure returned $rc instead of 2"
+  grep -F 'could not publish lock' "$err" >/dev/null \
+    || fail "wake append did not report lock publication failure: $(cat "$err")"
+  [ ! -s "$state/.wake-queue" ] || fail "wake append wrote a queue record without its lock"
+  pass "wake append returns promptly and writes nothing when lock publication fails"
+}
 
 test_concurrent_append_and_drain() {
   local dir state out1 out2 all pids i pid count unique malformed
@@ -234,6 +260,7 @@ test_drain_asserts_watcher_liveness() {
   pass "drain asserts watcher liveness: warns on a lapse, stays silent right after a fire"
 }
 
+test_append_returns_on_lock_filesystem_failure
 test_concurrent_append_and_drain
 test_signal_catchup_without_running_watcher
 test_stale_enqueue_before_suppressor
