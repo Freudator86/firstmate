@@ -486,8 +486,22 @@ install_cmd() {
     no-mistakes) echo "curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh" ;;
     gh-axi|chrome-devtools-axi|lavish-axi) echo "npm install -g $1 && $1 setup hooks" ;;
     tasks-axi|quota-axi) echo "npm install -g $1" ;;
+    chromium) echo "npx --yes playwright install-deps chromium" ;;
     *) return 1 ;;
   esac
+}
+
+# chrome-devtools-axi's headless launches need a real Chromium binary plus its
+# OS-level shared-library dependencies, not just the axi package itself
+# (chromium-toolchain-r7k). No single binary name is universal across install
+# methods (a system package, a Playwright-managed install, etc.), so check
+# every name actually seen in the wild rather than pinning one.
+chromium_binary_present() {
+  local candidate
+  for candidate in chromium chromium-browser google-chrome google-chrome-stable; do
+    command -v "$candidate" >/dev/null 2>&1 && return 0
+  done
+  return 1
 }
 
 manual_install_url() {
@@ -831,6 +845,9 @@ if command -v no-mistakes >/dev/null 2>&1 && ! no_mistakes_compatible; then
 fi
 if command -v tasks-axi >/dev/null 2>&1 && ! fm_tasks_axi_compatible; then
   echo "MISSING: tasks-axi (install: $(install_cmd tasks-axi))"
+fi
+if ! chromium_binary_present; then
+  echo "MISSING: chromium (install: $(install_cmd chromium))"
 fi
 gh auth status >/dev/null 2>&1 || echo "NEEDS_GH_AUTH"
 # Worktree-tangle check: the firstmate primary checkout (FM_ROOT) must sit on its
