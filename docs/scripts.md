@@ -36,8 +36,11 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-turnend-guard-grok.sh` | Grok Stop-hook adapter for the primary turn-end guard                              |
 | `fm-arm-pretool-check.sh` | Stable PreToolUse transport for the supervision-arm command policy (docs/arm-pretool-check.md) |
 | `fm-arm-command-policy.mjs` | Semantic owner of the supervision-arm PreToolUse policy (docs/arm-pretool-check.md) |
+| `fm-continuity-pretool-check.sh` | Narrow Claude recovery gate when in-flight work has no live watcher lock (docs/arm-pretool-check.md) |
+| `fm-continuity-command-policy.mjs` | Semantic owner of Claude continuity-gate fleet-command classification (docs/arm-pretool-check.md) |
 | `fm-cd-pretool-check.sh` | Stable PreToolUse transport for the cd-guard command policy (docs/cd-guard.md)       |
 | `fm-cd-command-policy.mjs` | Semantic owner of the cd-guard PreToolUse policy (docs/cd-guard.md)               |
+| `fm-subagent-pretool-check.sh` | Primary-home delegation-shape PreToolUse guard (docs/subagent-guard.md) |
 | `fm-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
 | `fm-home-seed.sh`        | Transactionally provision a secondmate home and maintain `data/secondmates.md`       |
 | `fm-spawn.sh`            | Spawn crewmates, scouts, `id=repo` batches, and secondmates on the resolved harness and runtime backend |
