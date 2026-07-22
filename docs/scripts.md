@@ -50,6 +50,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-config-push.sh`      | Push declared inherited local material to live secondmate homes mid-session          |
 | `fm-project-mode.sh`     | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`           |
 | `fm-merge-local.sh`      | Fast-forward a `local-only` project's local default branch after approval            |
+| `fm-bridge-relay.sh`     | Guardedly relay envelope-only `send`/`inbox`/`status`/`broadcast` calls to the coditan-bridge checkout's own scripts |
 | `fm-review-diff.sh`      | Review a crewmate branch or recorded PR head against the authoritative base          |
 | `fm-marker-lib.sh`       | Shared from-firstmate request marker, detector, and idempotent transformation         |
 | `fm-mark-parked.sh`      | Validate and declare an ordinary terminal task parked through a seatbelt-safe wrapper |
