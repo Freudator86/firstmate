@@ -54,6 +54,8 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-review-diff.sh`      | Review a crewmate branch or recorded PR head against the authoritative base          |
 | `fm-marker-lib.sh`       | Shared from-firstmate request marker, detector, and idempotent transformation         |
 | `fm-mark-parked.sh`      | Validate and declare an ordinary terminal task parked through a seatbelt-safe wrapper |
+| `fm-pending-reply-lib.sh` | Parent-owned secondmate pending-reply expectations, recovery, and one-shot escalation |
+| `fm-secondmate-report.sh` | Optional helper to append a correlated parent status or document-pointer report       |
 | `fm-gate-refuse-lib.sh`  | Shared no-mistakes gate-context refusal for fleet lifecycle entrypoints               |
 | `fm-watcher-service.sh`  | Select, converge, install, or restart the home-scoped systemd or tmux watcher keeper |
 | `fm-watch-keeper.sh`     | Respawn the daemon watcher inside the detached tmux fallback session                  |
