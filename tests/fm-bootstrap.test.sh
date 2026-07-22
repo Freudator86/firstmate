@@ -349,15 +349,31 @@ SH
 }
 
 test_chromium_binary_detection() {
-  local case_dir fakebin out expected candidate
+  local case_dir fakebin bash_env out expected candidate
   expected="MISSING: chromium (install: npx --yes playwright install-deps chromium)"
 
+  # A runner may have a real chromium/chromium-browser/google-chrome(-stable)
+  # already on its system PATH (e.g. a CI image with a bundled browser for
+  # other jobs), so removing only our fake stub is not enough to prove the
+  # missing case: mask every candidate name the same way the git-required
+  # case above masks a real git.
   case_dir="$TMP_ROOT/chromium-missing"
   mkdir -p "$case_dir/home/config"
   printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
   fakebin=$(make_fake_toolchain "$case_dir")
   rm -f "$fakebin/chromium"
-  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+  bash_env="$case_dir/no-chromium.bash"
+  cat > "$bash_env" <<'SH'
+command() {
+  if [ "${1:-}" = -v ]; then
+    case "${2:-}" in
+      chromium|chromium-browser|google-chrome|google-chrome-stable) return 1 ;;
+    esac
+  fi
+  builtin command "$@"
+}
+SH
+  out=$(PATH="$fakebin:$BASE_PATH" BASH_ENV="$bash_env" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$out" "$expected" "a missing Chromium binary should report MISSING: chromium with an install command"
 
