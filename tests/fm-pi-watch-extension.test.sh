@@ -211,6 +211,10 @@ EOF
 
 test_pi_tool_returns_agent_tool_result() {
   local repo home plugin out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-tool-result-root"
   home="$TMP_ROOT/pi-tool-result-home"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
@@ -273,6 +277,10 @@ EOF
 
 test_pi_redundant_tool_call_is_owned_noop() {
   local repo home plugin log stop out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-redundant-tool-root"
   home="$TMP_ROOT/pi-redundant-tool-home"
   log="$TMP_ROOT/pi-redundant-tool.log"
@@ -336,6 +344,10 @@ EOF
 
 test_pi_scheduled_retry_call_is_owned_noop() {
   local repo home plugin log out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-scheduled-retry-root"
   home="$TMP_ROOT/pi-scheduled-retry-home"
   log="$TMP_ROOT/pi-scheduled-retry.log"
@@ -393,6 +405,10 @@ EOF
 
 test_pi_actionable_close_starts_single_successor_before_delivery() {
   local repo home plugin log stop out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-continuous-rearm-root"
   home="$TMP_ROOT/pi-continuous-rearm-home"
   log="$TMP_ROOT/pi-continuous-rearm.log"
@@ -470,6 +486,10 @@ EOF
 
 test_pi_hung_successor_falls_back_to_typed_wake() {
   local repo home plugin log out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-hung-successor-root"
   home="$TMP_ROOT/pi-hung-successor-home"
   log="$TMP_ROOT/pi-hung-successor.log"
@@ -536,6 +556,10 @@ EOF
 
 test_pi_unretired_successor_falls_back_without_retry() {
   local repo home plugin log release out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-unretired-successor-root"
   home="$TMP_ROOT/pi-unretired-successor-home"
   log="$TMP_ROOT/pi-unretired-successor.log"
@@ -607,6 +631,10 @@ EOF
 
 test_pi_late_unretired_close_resumes_supervision() {
   local kind repo home plugin log ready retired release stop out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   for kind in actionable non-actionable; do
     repo="$TMP_ROOT/pi-late-$kind-root"
     home="$TMP_ROOT/pi-late-$kind-home"
@@ -704,6 +732,10 @@ EOF
 
 test_pi_empty_close_retries_instead_of_disappearing() {
   local repo home plugin log stop out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-empty-close-root"
   home="$TMP_ROOT/pi-empty-close-home"
   log="$TMP_ROOT/pi-empty-close.log"
@@ -763,6 +795,10 @@ EOF
 
 test_pi_established_empty_close_honors_retry_limit() {
   local repo home plugin log out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-established-empty-close-root"
   home="$TMP_ROOT/pi-established-empty-close-home"
   log="$TMP_ROOT/pi-established-empty-close.log"
@@ -814,6 +850,10 @@ EOF
 
 test_pi_actionable_close_rechecks_session_lock() {
   local repo home plugin log release out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-close-lock-root"
   home="$TMP_ROOT/pi-close-lock-home"
   log="$TMP_ROOT/pi-close-lock.log"
@@ -873,6 +913,10 @@ EOF
 
 test_pi_arm_distinguishes_session_lock_ownership() {
   local repo home plugin log out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-lock-ownership-root"
   home="$TMP_ROOT/pi-lock-ownership-home"
   log="$TMP_ROOT/pi-lock-ownership.log"
@@ -954,6 +998,10 @@ EOF
 
 test_pi_process_exit_cleanup_listener_lifecycle() {
   local repo home plugin out status
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-exit-listener-root"
   home="$TMP_ROOT/pi-exit-listener-home"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
@@ -993,6 +1041,10 @@ EOF
 
 test_pi_process_exit_cleanup_stops_arm_child() {
   local repo home plugin cleanup_log pid_file out status pid i
+  if ! node_supports_ts_import; then
+    echo "skip: node lacks native TypeScript-stripping support (ERR_NO_TYPESCRIPT); cannot import the generated .ts extension"
+    return 0
+  fi
   repo="$TMP_ROOT/pi-process-exit-root"
   home="$TMP_ROOT/pi-process-exit-home"
   cleanup_log="$TMP_ROOT/pi-process-exit-cleaned"
