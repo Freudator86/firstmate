@@ -22,11 +22,12 @@
 # meta, get a longer pre-Enter settle so completion popups do not swallow Enter.
 #
 # From-firstmate marker: when the resolved target is a task selector whose meta
-# records kind=secondmate, the text is prefixed with the from-firstmate marker
-# (bin/fm-marker-lib.sh) so the secondmate routes its reply via its status file
-# or a status-pointed doc instead of stranding it in chat the main firstmate
-# never reads. That marked text path first changes a resting secondmate's parent
-# metadata to state=active so routed work is supervision-relevant before delivery.
+# records kind=secondmate, the text uses the live-charter-compatible
+# from-firstmate carrier owned by bin/fm-operational-input.sh so the secondmate
+# routes its reply via its status file or a status-pointed doc instead of
+# stranding it in chat the main firstmate never reads. That marked text path
+# first changes a resting secondmate's parent metadata to state=active so
+# routed work is supervision-relevant before delivery.
 # A crewmate/scout target, an explicit backend-target escape-hatch target, and the
 # --key path are never marked - their behavior is unchanged.
 # After a successful text submit fm-send pauses FM_SEND_SETTLE seconds (default 1,
