@@ -66,6 +66,7 @@ JS
 # false-failing, without gating every other test in this file on it.
 node_supports_ts_import() {
   local probe="$TMP_ROOT/.ts-support-check.ts"
+  mkdir -p "$TMP_ROOT"
   printf 'export default 1;\n' > "$probe"
   node --input-type=module >/dev/null 2>&1 <<EOF
 import { pathToFileURL } from "node:url";
