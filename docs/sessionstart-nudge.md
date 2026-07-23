@@ -3,6 +3,7 @@
 AGENTS.md section 3 remains the single authoritative behavioral contract for session start.
 The tracked native adapters are an enforcement layer that injects one instruction and never runs the digest, lock acquisition, bootstrap sweeps, wake drain, or supervision arm itself.
 The payload starts with U+2063 and the stable `FIRSTMATE_OP: ` label, carries the current `session-start` protocol kind, and retains exactly ``Run `bin/fm-session-start.sh` now, exactly once, before executing any other instructions.`` as its body.
+The prefix and kind are public, copyable syntax and do not authenticate the sender.
 The Ahoy skill owns the rule that this explicitly marked operational input is never a captain-authored session boundary.
 
 ## Shared wrapper and safety
@@ -111,7 +112,7 @@ The underlying Claude SessionStart stdout injection and Pi `session_start` event
 The initiating trigger was `/ahoy` as the first real captain message.
 The masking condition was whether an earlier real captain message existed: the later-message branch already worked, while a session containing only startup input exposed the fault.
 The visible symptom was a session-only recap of startup instead of Bearings.
-The earliest divergence was message classification: Pi retained the startup nudge as custom type `firstmate-sessionstart-nudge`, OpenCode retained it as a user-role message, and Ahoy had no salient positive boundary rule.
+The earliest divergence was message classification: Pi retained the startup nudge as a non-displayed structured Firstmate message, OpenCode retained it as a user-role message, and Ahoy had no salient positive boundary rule.
 
 The smallest counterfactual was tested on Pi 0.81.1 with `pi --mode rpc --approve --no-session --no-extensions -e .pi/extensions/fm-primary-turnend-guard.ts --no-skills --skill .agents/skills --model openai-codex/gpt-5.6-sol --thinking low`.
 A bare U+2063 marker did not change the wrong response.
