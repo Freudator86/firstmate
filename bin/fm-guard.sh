@@ -27,6 +27,8 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 GRACE=${FM_GUARD_GRACE:-300}
+WATCH="$SCRIPT_DIR/fm-watch.sh"
+STUB="$SCRIPT_DIR/fm-wake-wait.sh"
 queue_pending=false
 READ_ONLY=${FM_GUARD_READ_ONLY:-0}
 case "$READ_ONLY" in 1|true|TRUE|yes|YES) READ_ONLY=1 ;; *) READ_ONLY=0 ;; esac
@@ -153,7 +155,6 @@ fi
 # watcher.
 fm_supervision_status "$STATE" "$GRACE"
 in_flight=$FM_SUP_IN_FLIGHT
-watcher_fresh=$FM_SUP_WATCHER_FRESH
 beacon_desc=$FM_SUP_BEACON_DESC
 if [ "$in_flight" -eq 0 ]; then
   # Leave the unhealthy state (no work riding on the watcher): clear so a later
@@ -164,11 +165,24 @@ if [ "$in_flight" -eq 0 ]; then
 fi
 
 [ -s "$FM_WAKE_QUEUE" ] && queue_pending=true
+queue_arg=0
+"$queue_pending" && queue_arg=1
+x_mode=0
+[ -f "$CONFIG/x-mode.env" ] && x_mode=1
+
+daemon_healthy=false
+fm_watcher_healthy "$STATE" "$WATCH" "$GRACE" "$FM_HOME" && daemon_healthy=true
+delivery_armed=false
+if [ -e "$STATE/.afk" ]; then
+  delivery_armed=true
+elif fm_wake_stub_armed "$STATE" "$STUB" "$FM_HOME"; then
+  delivery_armed=true
+fi
 
 # No fresh watcher with tasks in flight is the dangerous state: emit a prominent,
 # bordered banner FIRST so it reads as an alarm, not a buried stderr line. Later
 # calls in the same episode get a one-line reminder only.
-if [ "$watcher_fresh" = false ]; then
+if [ "$daemon_healthy" = false ]; then
   episode_key=$(fm_guard_stale_episode_key "$STATE")
   episode_key=${episode_key%$'\n'}
   print_full_banner=0
@@ -178,30 +192,23 @@ if [ "$watcher_fresh" = false ]; then
     print_full_banner=1
   fi
   if [ "$print_full_banner" -eq 1 ]; then
-    afk=0
-    [ -e "$STATE/.afk" ] && afk=1
-    queue_arg=0
-    "$queue_pending" && queue_arg=1
-    x_mode=0
-    [ -f "$CONFIG/x-mode.env" ] && x_mode=1
-    fix=$("$SCRIPT_DIR/fm-supervision-instructions.sh" \
-      --read-only "$READ_ONLY" \
-      --afk "$afk" \
-      --x-mode "$x_mode" \
-      --queue-pending "$queue_arg" \
-      --repair-line 2>/dev/null || printf '%s\n' 'Resume supervision according to the session-start operating block.')
+    if [ "$READ_ONLY" -eq 1 ]; then
+      fix='Watcher daemon repair belongs to the session holding the fleet lock.'
+    else
+      fix=$("$SCRIPT_DIR/fm-watcher-service.sh" repair-command 2>/dev/null || printf '%s\n' 'bin/fm-watcher-service.sh restart')
+    fi
     rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
     {
       printf '●%s\n' "$rule"
-      printf '●  WATCHER DOWN - SUPERVISION IS OFF\n'
-      printf '●  %s task(s) in flight, but no watcher has a fresh beacon (last beat: %s, grace %ss).\n' "$in_flight" "$beacon_desc" "$GRACE"
+      printf '●  WATCHER DAEMON DOWN - SUPERVISION IS OFF\n'
+      printf '●  %s task(s) in flight, but no identity-matched watcher has a fresh beacon (last beat: %s, grace %ss).\n' "$in_flight" "$beacon_desc" "$GRACE"
       if [ "$READ_ONLY" -eq 1 ]; then
         printf '●  This read-only session should report the lapse, not repair it.\n'
       else
-        printf '●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.\n'
+        printf '●  This is a daemon incident; restart only this home-scoped service and verify its lock plus beacon.\n'
       fi
       printf '●  %s\n' "$CONTINUE_LINE"
-      printf '●  %s\n' "$fix"
+      printf '●  Daemon repair: %s\n' "$fix"
       printf '●%s\n' "$rule"
     } >&2
   else
@@ -212,6 +219,19 @@ else
   # Healthy again while work is still in flight: end the episode so a later
   # restale re-prints the full banner.
   [ "$READ_ONLY" -eq 1 ] || fm_guard_clear_stale_banner
+fi
+
+if [ "$daemon_healthy" = true ] && [ "$delivery_armed" = false ]; then
+  if [ "$READ_ONLY" -eq 1 ]; then
+    echo "WARNING: wake delivery stub missing - the session holding the fleet lock must re-arm its harness delivery wait." >&2
+  else
+    delivery_fix=$("$SCRIPT_DIR/fm-supervision-instructions.sh" \
+      --afk 0 \
+      --x-mode "$x_mode" \
+      --queue-pending "$queue_arg" \
+      --repair-line 2>/dev/null || printf '%s\n' 'Re-arm wake delivery according to the session-start operating block.')
+    printf 'WARNING: wake delivery stub missing - %s\n' "$delivery_fix" >&2
+  fi
 fi
 
 # Queued wakes are an independent hazard; warn whenever they are pending, even if

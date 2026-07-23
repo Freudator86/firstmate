@@ -14,7 +14,7 @@ The primary can otherwise end a turn after handling wakes without resuming super
 On 2026-07-04, that exact gap left a parked no-mistakes gate unwatched for about nine hours.
 
 `bin/fm-turnend-guard.sh` closes the gap by checking the primary's own turn-end path.
-When tasks are in flight and there is no live identity-matched watcher with a fresh beacon, a harness hook must either block the turn end or force a bounded follow-up turn that tells the primary to repair the missing or failed watcher cycle using the recovery instruction in its emitted session-start protocol.
+When tasks are in flight, a harness hook must either prove both supervision halves or force a bounded follow-up turn with the typed repair for whichever half is missing.
 
 ## Shared Predicate
 
@@ -28,13 +28,19 @@ It also requires `AGENTS.md`, `bin/`, and the effective state directory to exist
 For an in-scope primary checkout, it counts supervision-relevant work from `state/*.meta`.
 A `kind=secondmate` record with explicit `state=resting` remains registered but is excluded; every ordinary task, active secondmate, and legacy secondmate with no state still counts.
 If no supervision-relevant work remains, it exits silently.
-If work is in flight, it requires `fm_watcher_healthy <state-dir> <watch-path> [grace-seconds] [home]` from `bin/fm-wake-lib.sh`.
-That is the same identity-matched live lock and fresh beacon check used by `bin/fm-watch-arm.sh`.
-A stale beacon blocks even if a watcher pid is still live.
-A fresh leftover beacon blocks if the watcher lock is missing, dead, or identity-mismatched.
+If work is in flight, the first half requires `fm_watcher_healthy <state-dir> <watch-path> [grace-seconds] [home]` from `bin/fm-wake-lib.sh`.
+That daemon predicate is unchanged: it requires an identity-matched live watcher lock and a fresh beacon.
+A stale beacon blocks even if the watcher pid is still live, and a fresh leftover beacon blocks if the watcher lock is missing, dead, or identity-mismatched.
+The second half requires `fm_wake_stub_armed <state-dir> <stub-path> [home]` from the same library.
+That delivery predicate requires a live pid whose recorded executable identity, home, and current session-lock pid match `state/.wake-stub.lock`.
+The stub needs no beacon because it is a pure blocking wait over the durable queue.
+Daemon failure and delivery failure produce separate repair lines.
+The daemon line names the scoped systemd instance restart or tmux keeper repair and is treated as a real supervision incident.
+The delivery line points to the active harness protocol and costs one cheap re-arm.
+While `state/.afk` is present, the away daemon consumes new durable queue records and intentionally satisfies the delivery half without a session stub; daemon health remains mandatory.
 
 `FM_STATE_OVERRIDE` wins over `FM_HOME/state`, and `FM_HOME` wins over repo-root `state/`.
-`FM_GUARD_GRACE` controls the beacon freshness window and defaults to 300 seconds.
+`FM_GUARD_GRACE` controls only the daemon beacon freshness window and defaults to 300 seconds.
 If `jq` is missing or hook stdin is empty, the guard fails open and exits 0 because it cannot safely read loop-guard fields.
 
 ## Harness Integrations
@@ -63,6 +69,14 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it poin
 ## Empirical Validation
 
 All harnesses were validated on 2026-07-08 in scratch repos or throwaway homes, not against the captain's live primary fleet state.
+
+The external-loop predicate was validated on 2026-07-23 against the real systemd 255 user manager on Linux with a disposable `FM_HOME`.
+`SYSTEMD_UNIT_PATH="$PWD/systemd:/usr/lib/systemd/user" systemd-analyze --user verify "fm-watch@$(systemd-escape --path "$PWD").service"` accepted the tracked template with no diagnostics after instantiated `/%I` path expansion.
+`FM_SYSTEMD_LIVE=1 tests/fm-watcher-systemd-smoke.test.sh` created a transient per-home unit with `Restart=always`, never installed or enabled a persistent unit, and established the unchanged identity-matched lock plus fresh-beacon predicate.
+The smoke armed `bin/fm-wake-wait.sh`, verified its pid, executable, home, and session-lock identity, sent the stub `SIGTERM`, and observed an empty durable queue afterward.
+One re-arm then delivered one queued wake while leaving exactly one record in `state/.wake-queue` for the model-owned drain.
+Sending `SIGTERM` to the systemd-owned watcher produced a different healthy watcher pid under the same active unit, proving daemon failure and delivery-stub failure have independent recovery paths.
+The default automated suite leaves this test skipped unless `FM_SYSTEMD_LIVE=1` because it intentionally exercises the host's real user manager.
 
 Claude Code 2.1.204 preserved the existing behavior.
 Hook file used: `.claude/settings.json`.
@@ -96,9 +110,10 @@ The next no-tool prompt produced exactly one `TURN WOULD END BLIND` follow-up, a
 The three earlier tool turns produced no guard follow-up because no work was in flight.
 Command used to fire the watcher: `printf 'done: pi e2e watcher fire\n' > "$FM_HOME/state/pi-e2e.status"`.
 Observed output after the wake: Pi ran `bin/fm-wake-drain.sh`, read the terminal status, called `fm_watch_arm_pi`, and rendered `watcher: started Pi extension arm child 2`.
-This 2026-07-09 observation predates extension-owned successor continuity; see the Mechanism A description below for the current ordinary-wake contract.
+This 2026-07-09 observation predates the external watcher service; the current Pi child is only the delivery stub, and post-drain re-arming remains model-owned.
 The complete pane contained one guard message and zero foreground `bin/fm-watch-arm.sh` bash calls.
-`/quit` printed `PI_EXIT=0`, and the second arm process plus its watcher child were both gone afterward.
+`/quit` printed `PI_EXIT=0`, and the legacy arm process plus its watcher child were both gone afterward.
+That cleanup observation is historical rather than evidence that the current service should stop with Pi; the 2026-07-23 real-systemd smoke above owns the current service-lifetime evidence.
 
 Grok 0.2.91 was validated with a scratch `GROK_HOME` and symlinked auth/config.
 Hook file used for tracked project-hook loading: `<scratch-project>/.grok/hooks/fm-smoke.json`, matching the tracked `.grok/hooks/fm-primary-turnend-guard.json` location.
@@ -127,7 +142,7 @@ Only unmarked child worktrees fall through to the linked-worktree exemption, and
 
 "No turn ends blind" for a secondmate is delivered by the same two mechanisms the main primary relies on.
 Mechanism B, the turn-end backstop, is this guard; its secondmate-home behavior is covered by hermetic tests in `tests/fm-turnend-guard.test.sh` (`test_hook_blocks_in_secondmate_own_home`, `test_hook_blocks_in_treehouse_leased_secondmate_home`, `test_hook_silent_in_idle_secondmate_home`, `test_hook_silent_with_resting_secondmate_direct_report`, `test_hook_secondmate_loop_guard_allows_retry`, `test_hook_secondmate_reinvoke_recovery_loop`, `test_hook_silent_in_secondmate_child_worktree`, and `test_hook_exempts_linked_worktree_with_stray_marker`).
-Mechanism A, the autonomous wake, is a harness property; the emitted supervision protocol owns whether the model or an extension/plugin continues the watcher cycle after delivering that wake.
+Mechanism A, the autonomous wake, is a harness property; the emitted supervision protocol owns whether the model or an extension/plugin re-arms the delivery wait after handling that wake.
 Mechanism A cannot be a hermetic CI assertion because it requires a live model session, so it is recorded here as a dated first-hand measurement while `test_hook_secondmate_reinvoke_recovery_loop` covers the guard's deterministic half of the same recovery loop.
 
 Autonomous-re-invoke measurement, run first-hand on Claude Code 2.1.207 (Darwin 25.5.0) on 2026-07-12.
@@ -149,6 +164,6 @@ No Herdr command was issued and no fleet state was touched; the experiment wrote
 
 ## Tests
 
-`tests/fm-turnend-guard.test.sh` covers the shared predicate, primary scoping (including a secondmate's own home being guarded like the main primary while its child worktrees stay exempt), `FM_HOME` and `FM_STATE_OVERRIDE` precedence, Pi logical-run latch behavior for no-tool and multi-tool runs, fail-open behavior without `jq`, tracked hook registration for all five harnesses, and the Grok adapter's forced-resume loop guard and permission-mode regression.
+`tests/fm-turnend-guard.test.sh` covers the split daemon-and-delivery predicate, independent repair lines, delivery-stub pid and identity matching, primary scoping, `FM_HOME` and `FM_STATE_OVERRIDE` precedence, away-mode delivery ownership, fail-open behavior without `jq`, tracked hook registration for all five harnesses, and passive-adapter loop guards.
 The default behavior suite does not invoke live language-model harnesses.
 `FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh` opts into the isolated interactive Pi regression recorded above.

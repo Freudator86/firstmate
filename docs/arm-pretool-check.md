@@ -8,12 +8,12 @@ The tracked harness adapters forward command text without classifying it.
 
 ## Purpose and boundary
 
-A firstmate primary must arm `bin/fm-watch-arm.sh`, run `bin/fm-watch-checkpoint.sh`, or arm `bin/fm-tg-recv-arm.sh` through an observable harness call.
+A firstmate primary must arm `bin/fm-watch-arm.sh`, run `bin/fm-watch-checkpoint.sh`, await `bin/fm-wake-wait.sh` through a tracked adapter, or arm `bin/fm-tg-recv-arm.sh` through an observable harness call.
 A shell background operator, pipeline, redirection, wrapper, or unrelated command list can hide failure or let the supervised child die with the tool call.
 The seatbelt rejects those command shapes before execution.
 
 This policy is not a post-arm liveness guarantee.
-`bin/fm-guard.sh`, `bin/fm-turnend-guard.sh`, the watcher lock, the watcher beacon, and the Telegram receiver lock still prove whether supervision is healthy after an allowed call.
+`bin/fm-guard.sh`, `bin/fm-turnend-guard.sh`, the watcher lock and beacon, the delivery-stub lock, and the Telegram receiver lock still prove whether supervision is healthy after an allowed call.
 
 The classifier never executes, sources, evaluates, or expands any part of the submitted command.
 It tokenizes the bytes and classifies lexical execution positions only.
@@ -63,6 +63,7 @@ A command word in executed position is a protected execution when its normalized
 ```text
 bin/fm-watch-arm.sh          (arm; blessed entry point)
 bin/fm-watch-checkpoint.sh   (checkpoint; blessed entry point)
+bin/fm-wake-wait.sh          (delivery stub; blessed entry point)
 bin/fm-watch.sh              (watch; protected but never blessed)
 bin/fm-tg-recv-arm.sh        (arm; blessed entry point)
 ```
@@ -91,7 +92,7 @@ An actual protected command with a heredoc still has a redirection and is denied
 ## Blessed syntax tree
 
 An allowed supervision-arm program is one linear outer command list with zero or more approved setup nodes followed by exactly one direct protected node.
-`bin/fm-watch-arm.sh`, `bin/fm-watch-checkpoint.sh`, and `bin/fm-tg-recv-arm.sh` are the blessed final nodes, including their expanded-path forms; a `bin/fm-watch.sh` final node is never blessed and denies with `watcher-direct`.
+`bin/fm-watch-arm.sh`, `bin/fm-watch-checkpoint.sh`, `bin/fm-wake-wait.sh`, and `bin/fm-tg-recv-arm.sh` are the blessed final nodes, including their expanded-path forms; a `bin/fm-watch.sh` final node is never blessed and denies with `watcher-direct`.
 
 Approved setup nodes are:
 
@@ -217,7 +218,7 @@ The Grok debug transcript showed four exit-0 results from `project/fm-primary-pr
 OpenCode displayed the four allowed command outputs and then `bin/fm-watch-arm.sh & failed` with the stderr deny object.
 Claude and Pi both reported that calls one through four ran and the final call was blocked.
 
-Native supervision paths were also validated in the same scratch project:
+The original native supervision paths were also validated in the same scratch project before watcher daemonization:
 
 - Claude ran `bin/fm-watch-arm.sh --restart` with its native tracked background option and produced `watcher: started pid=<scratch> (scratch)`.
 - Grok ran the same exact command with `background: true`, its hook returned exit 0, and the dummy arm produced the same started line.
@@ -226,6 +227,10 @@ Native supervision paths were also validated in the same scratch project:
 - Pi loaded both primary extensions, called `fm_watch_arm_pi`, and created the scratch automatic-arm marker.
 
 Every native-path automatic marker was present and every deny sentinel remained absent.
+
+The daemonized command tree adds direct and immediate-`exec` forms of `bin/fm-wake-wait.sh` as blessed final nodes.
+The same background, pipeline, redirection, wrapper, nested-shell, and bundled-command denials apply to the stub because harness observation and identity cleanup still depend on owning that exact blocking process.
+The current automated matrix pins `bin/fm-wake-wait.sh`, `exec bin/fm-wake-wait.sh`, `bin/fm-wake-wait.sh &`, and `bin/fm-wake-wait.sh | cat` across all five transports.
 
 ## Automated validation
 

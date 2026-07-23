@@ -225,9 +225,9 @@ test_compressed_agents_retains_authority_and_supervision_safety() {
     'If fast-path risk needs more rigor, escalate whether to use no-mistakes instead of inventing a manual gate.' \
     '**local-only** has the worker stop with a clean ready branch, then waits for the configured merge authority' \
     'A status line is a wake event, not current state' \
-    'keep exactly one live supervision cycle' \
+    'keep exactly one live wake-delivery wait armed' \
     'Never broadly kill watchers' \
-    'While `state/.afk` exists, the daemon owns supervision' \
+    'While `state/.afk` exists, the away daemon owns wake delivery' \
     'post the final completion follow-up before teardown'; do
     assert_grep "$phrase" "$AGENTS" "compressed AGENTS.md lost safety phrase '$phrase'"
   done

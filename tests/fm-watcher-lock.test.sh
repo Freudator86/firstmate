@@ -115,7 +115,7 @@ test_guard_warnings() {
   #       warning follows it, and the guidance is re-arm-after-drain (never the
   #       old conflicting "restart NOW first").
   #   (2) a fresh watcher and an empty queue: total silence.
-  local dir state err first banner_line queue_line
+  local dir state err first banner_line queue_line live identity
   dir=$(make_case guard)
   state="$dir/state"
   err="$dir/guard.err"
@@ -132,17 +132,16 @@ test_guard_warnings() {
     '●'*) ;;
     *) fail "no-watcher banner is not the first thing the guard prints (got '$first')" ;;
   esac
-  grep -F 'WATCHER DOWN - SUPERVISION IS OFF' "$err" >/dev/null || fail "guard banner missing the alarm title"
+  grep -F 'WATCHER DAEMON DOWN - SUPERVISION IS OFF' "$err" >/dev/null || fail "guard banner missing the alarm title"
   grep -F '2 task(s) in flight' "$err" >/dev/null || fail "guard banner missing the in-flight count"
   grep -F 'last beat: never' "$err" >/dev/null || fail "guard banner missing the beacon age"
   grep -F 'guarded operation WILL still run' "$err" >/dev/null || fail "guard banner missing generic continuation wording"
   ! grep -F 'requested message WILL still be sent' "$err" >/dev/null || fail "shared guard used send-specific continuation wording"
-  grep -F 'resume supervision' "$err" >/dev/null || fail "guard banner missing the harness-aware fix command"
+  grep -F 'Daemon repair:' "$err" >/dev/null || fail "guard banner missing the home-scoped daemon repair command"
   grep -F 'queued wakes pending - drain them' "$err" >/dev/null || fail "guard did not warn about pending queue"
-  grep -F 'After draining queued wakes, resume supervision' "$err" >/dev/null || fail "guard did not order supervision repair after drain"
   ! grep -F 'Restart it NOW, before anything else' "$err" >/dev/null || fail "guard still gave conflicting restart-first instruction"
   ! grep -F 'as the harness-tracked background task' "$err" >/dev/null || fail "guard still printed the old universal background-task repair text"
-  banner_line=$(grep -n 'WATCHER DOWN' "$err" | head -1 | cut -d: -f1)
+  banner_line=$(grep -n 'WATCHER DAEMON DOWN' "$err" | head -1 | cut -d: -f1)
   queue_line=$(grep -n 'queued wakes pending - drain them' "$err" | head -1 | cut -d: -f1)
   [ "$banner_line" -lt "$queue_line" ] || fail "queued-wakes warning printed before the no-watcher banner"
 
@@ -153,17 +152,32 @@ test_guard_warnings() {
   printf 'project=x\n' > "$state/task.meta"
   : > "$dir/config/x-mode.env"
   FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
-  grep -F "source '$dir/config/x-mode.env' first" "$err" >/dev/null || fail "guard repair line did not source the X-mode cadence config"
+  ! grep -F "source '$dir/config/x-mode.env' first" "$err" >/dev/null || fail "guard repair line still made the session own X-mode cadence"
 
   # (2) fresh watcher, empty queue -> silence.
   dir=$(make_case guard-fresh)
   state="$dir/state"
   err="$dir/guard.err"
   printf 'project=x\n' > "$state/task.meta"
+  sleep 60 &
+  live=$!
+  identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$live")
+  mkdir -p "$state/.watch.lock" "$state/.wake-stub.lock"
+  printf '%s\n' "$live" > "$state/.watch.lock/pid"
+  printf '%s\n' "$dir" > "$state/.watch.lock/fm-home"
+  printf '%s\n' "$ROOT/bin/fm-watch.sh" > "$state/.watch.lock/watcher-path"
+  printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
+  printf '%s\n' "$live" > "$state/.wake-stub.lock/pid"
+  printf '%s\n' "$dir" > "$state/.wake-stub.lock/fm-home"
+  printf '%s\n' "$ROOT/bin/fm-wake-wait.sh" > "$state/.wake-stub.lock/stub-path"
+  printf '\n' > "$state/.wake-stub.lock/session-lock-pid"
+  printf '%s\n' "$identity" > "$state/.wake-stub.lock/pid-identity"
   touch "$state/.last-watcher-beat"
   # Non-git FM_ROOT keeps the worktree-tangle check inert so "fresh watcher ->
   # total silence" stays a pure assertion about watcher state.
   FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=300 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
+  kill "$live" 2>/dev/null || true
+  wait "$live" 2>/dev/null || true
   [ ! -s "$err" ] || fail "guard warned with a fresh watcher and no queued wakes: $(cat "$err")"
   pass "guard banner leads when down with pending wakes (re-arm-after-drain) and stays silent when fresh"
 }
@@ -920,14 +934,4 @@ test_lock_does_not_steal_live_lock
 test_lock_empty_pid_uses_minimum_grace
 test_lock_late_claim_loses_after_recreate
 test_lock_paused_mid_acquire_claim_fails_during_steal
-test_watch_restart_rejects_reused_pid
-test_watch_restart_reports_healthy_peer_without_attaching
 test_watcher_self_evicts_on_lock_takeover
-test_arm_attaches_and_waits_for_live_fresh_watcher
-test_arm_starts_and_self_heals
-test_arm_sigkill_from_validation_worktree_reaps_child
-test_watcher_survives_failed_ps_parent_read
-test_arm_hup_cleans_child_and_temp_output
-test_arm_propagates_immediate_wake_before_confirmation
-test_arm_waits_for_peer_beacon_after_child_stands_down
-test_arm_fails_loud_when_no_fresh_watcher_confirmable

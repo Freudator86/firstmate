@@ -220,4 +220,16 @@ WTN=$(wc -l < "$TMP/wtcalls" | tr -d '[:space:]')
 [ "$WTN" = 2 ] || fail "after EVENT_CAP_FAIL_MAX connect failures the event path must be disabled for the process (expected 2 wait_transition calls, got $WTN)"
 pass "event_wait_or_sleep: consecutive event-path failures disable the fast-path and revert to pure polling (fail-closed)"
 
+# A daemon watcher may remain alive indefinitely, so the disabled memo must
+# expire and re-probe instead of waiting for a process restart.
+CAP_CALLS=0
+EVENT_CAP_REPROBE_SECS=1
+_event_cap_probe_epoch=0
+fm_backend_events_capable() { CAP_CALLS=$((CAP_CALLS + 1)); return 0; }
+event_wait_or_sleep
+[ "$CAP_CALLS" = 1 ] || fail "disabled event capability was not re-probed in the long-lived process"
+WTN=$(wc -l < "$TMP/wtcalls" | tr -d '[:space:]')
+[ "$WTN" = 3 ] || fail "successful capability re-probe did not restore the event wait path"
+pass "event_wait_or_sleep: a long-lived daemon re-probes and restores a disabled Herdr event path"
+
 echo "# fm-supervision-events.test.sh: all assertions passed"

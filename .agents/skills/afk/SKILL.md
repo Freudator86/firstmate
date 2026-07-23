@@ -47,8 +47,9 @@ batched digest rather than per-wake injections.
    The daemon is **presence-gated**: it injects escalations only while
    `state/.afk` exists, and stays quiet otherwise.
 
-3. **Do not separately arm `fm-watch.sh`.** The daemon manages the watcher as
-   its child; the singleton lock no-ops a stray arm harmlessly.
+3. **Keep the watcher service running, but do not arm a session delivery stub.**
+   The external systemd or tmux keeper continues the watcher loop.
+   The away daemon reads newly appended durable queue records through its own cursor and never drains the queue.
 
 4. **Acknowledge** in `AGENTS.md` section 9 language: "Captain, away mode is active; I will batch routine updates and surface only decisions, failures, credentials, or review-ready work until you return."
 
@@ -126,12 +127,11 @@ did not land instead of leaving it unsubmitted.
 
 ## Classification policy
 
-The daemon wraps `fm-watch.sh`, runs the watcher as a child, classifies each
-wake reason in bash, and self-handles the routine majority without consuming a
-firstmate turn.
+The daemon reads each newly appended wake record from `state/.wake-queue`, classifies its payload in bash, and self-handles the routine majority without consuming a firstmate turn.
+It never owns or restarts `fm-watch.sh`, and it never drains the model-owned queue.
 Captain-relevant events, plus a bounded recheck of a declared external wait that remains idle, escalate to firstmate's context as one pre-read, single-line, batched digest.
 The classification predicates (the captain-relevant verb set, declared-pause vocabulary, signal/stale tests, and fleet-scan) live in the shared `bin/fm-classify-lib.sh`, the same library the always-on watcher uses for its own triage when afk is off, so the two modes apply one identical policy.
-While `state/.afk` exists the daemon owns the watcher, so the watcher reverts to one-shot and lets the daemon do the triage - the two never run their triage at the same time.
+While `state/.afk` exists, the external watcher enqueues every detected wake without normal-mode absorption, and the away daemon performs the only triage over new queue records.
 
 Classify each wake this way:
 
@@ -225,9 +225,7 @@ These properties must hold:
 - Wedge detection is bounded-latency, not lossy.
 - Declared external waits are rechecked on a separate, bounded cadence rather than being mislabeled as wedges.
 - The catch-all scan backs up the keyword classifier.
-- The daemon preserves a single-instance portable lock, crash-loop backoff,
-  a pane-gone guard, and a signal-trapped shutdown that flushes buffered
-  escalations before exit.
+- The daemon preserves a single-instance portable lock, a pane-gone guard, and a signal-trapped shutdown that flushes buffered escalations before exit.
 
 `FM_INJECT_SKIP` (default `heartbeat`) force-self-handles matching kinds,
 overriding classification.

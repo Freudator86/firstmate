@@ -33,12 +33,9 @@ fi
 
 fm_test_tmproot TMP_ROOT fm-wake-daemon-e2e
 
-# Run the daemon-managed watcher once: under the supervise-daemon (away mode) the
-# watcher is one-shot - it exits with a single reason line on EVERY wake and the
-# daemon does the triage. This e2e exercises exactly that path, so it runs with
-# state/.afk present (which the daemon owns) to keep the watcher one-shot; the
-# always-on standalone triage is covered by fm-watch-triage.test.sh. fakebin
-# shadows tmux. Echoes nothing; the caller reads $out.
+# Run the legacy one-shot compatibility mode once while away mode is active.
+# The external service uses daemon mode in production; the focused queue-cursor
+# case below covers that continuous-loop integration.
 run_watcher_once() {
   local state=$1 fakebin=$2 out=$3
   mkdir -p "$state"
@@ -145,5 +142,35 @@ test_stale_pane_transient_persistent_resume() {
   pass "lifecycle: stale pane transient self-handles, persistent escalates once and clears, resumed clears quietly"
 }
 
+test_away_daemon_reads_without_draining_service_queue() {
+  local dir state snapshot handled
+  dir=$(make_supercase wd-service-queue)
+  state="$dir/state"
+  snapshot="$dir/snapshot"
+  handled="$dir/handled"
+  : > "$state/.afk"
+  : > "$handled"
+  (
+    export FM_STATE_OVERRIDE="$state"
+    # shellcheck source=bin/fm-wake-lib.sh
+    . "$ROOT/bin/fm-wake-lib.sh"
+    handle_wake() { printf '%s\n' "$1" >> "$handled"; }
+    fm_wake_append heartbeat fleet heartbeat
+    fm_wake_append signal task "signal: $state/task.status"
+    process_queued_wakes "$state" "$snapshot"
+    [ "$(wc -l < "$FM_WAKE_QUEUE" | tr -d '[:space:]')" -eq 2 ] \
+      || fail "away daemon drained the model-owned durable queue"
+    [ "$(wc -l < "$handled" | tr -d '[:space:]')" -eq 2 ] \
+      || fail "away daemon did not classify both new queue records"
+    [ "$(cat "$state/.subsuper-wake-cursor")" -eq 2 ] \
+      || fail "away daemon did not persist its private queue cursor"
+    process_queued_wakes "$state" "$snapshot"
+    [ "$(wc -l < "$handled" | tr -d '[:space:]')" -eq 2 ] \
+      || fail "away daemon reprocessed records behind its durable cursor"
+  )
+  pass "away daemon reads continuous watcher output without draining or duplicating durable wakes"
+}
+
 test_routine_then_terminal_after_restart
 test_stale_pane_transient_persistent_resume
+test_away_daemon_reads_without_draining_service_queue

@@ -13,10 +13,10 @@ test_selected_harness_block_only() {
   local out
   out=$("$RENDER" --harness codex)
   assert_contains "$out" "SUPERVISION OPERATING INSTRUCTIONS - primary harness: codex" "codex heading missing"
-  assert_contains "$out" "Mode: Codex foreground checkpoint." "codex snippet missing"
+  assert_contains "$out" "Mode: Codex foreground wake checkpoint." "codex snippet missing"
   assert_contains "$out" "bin/fm-watch-checkpoint.sh" "codex checkpoint helper missing"
   assert_not_contains "$out" "Mode: Claude background-notify supervision." "renderer printed the claude snippet too"
-  assert_not_contains "$out" "Mode: Pi extension background wake." "renderer printed the pi snippet too"
+  assert_not_contains "$out" "Mode: Pi extension wake delivery." "renderer printed the pi snippet too"
   pass "renderer prints exactly the selected harness block"
 }
 
@@ -38,7 +38,7 @@ test_conditional_stanzas() {
   assert_contains "$out" "- Away mode: active" "afk stanza missing"
   assert_contains "$out" "- X mode: active" "x-mode stanza missing"
   assert_contains "$out" "$config/x-mode.env" "x-mode stanza did not render the effective config path"
-  assert_contains "$out" 'Mode: Codex foreground checkpoint.' "codex snippet missing"
+  assert_contains "$out" 'Mode: Codex foreground wake checkpoint.' "codex snippet missing"
   assert_not_contains "$out" "Source \`config/x-mode.env\`" "snippet kept the repo-relative x-mode config path"
   pass "renderer includes read-only, afk, and effective x-mode current-state stanzas"
 }
@@ -57,7 +57,7 @@ test_repair_lines() {
 
   : > "$home/config/x-mode.env"
   out=$(FM_HOME="$home" FM_CODEX_WATCH_CHECKPOINT=7 "$RENDER" --harness codex --x-mode 1 --repair-line)
-  assert_contains "$out" "source '$home/config/x-mode.env' first" "x-mode repair line did not source the effective cadence config"
+  assert_not_contains "$out" "source '$home/config/x-mode.env' first" "x-mode delivery repair still sourced daemon-owned cadence"
   assert_contains "$out" "bin/fm-watch-checkpoint.sh --seconds 7" "x-mode codex repair line lost the checkpoint helper"
 
   out=$(FM_HOME="$home" "$RENDER" --harness opencode --read-only 1 --repair-line)
@@ -72,7 +72,7 @@ test_repair_lines() {
 test_grok_is_background_notify() {
   local out
   out=$("$RENDER" --harness grok)
-  assert_contains "$out" "Mode: Grok background-notify supervision." "grok snippet missing background-notify mode"
+  assert_contains "$out" "Mode: Grok background-notify wake delivery." "grok snippet missing background-notify mode"
   assert_contains "$out" "background: true" "grok snippet missing tracked background tool instruction"
   assert_contains "$out" "synthetic_reason: task_completed" "grok snippet missing auto-wake synthetic prompt detail"
   assert_contains "$out" "bin/fm-watch-arm.sh" "grok snippet missing watcher arm"
@@ -98,11 +98,11 @@ test_re_arm_before_reply_ordering() {
   local out
 
   out=$("$RENDER" --harness claude)
-  assert_contains "$out" "immediately start exactly one fresh background task before composing any reply or beginning long work" \
+  assert_contains "$out" "start exactly one fresh background task before composing any reply or beginning long work" \
     "claude snippet lost the re-arm-before-reply ordering"
 
   out=$("$RENDER" --harness grok)
-  assert_contains "$out" "Re-arm the next cycle immediately with the same background \`bin/fm-watch-arm.sh\` call if work remains in flight or X mode still needs polling, before composing any reply or beginning long work." \
+  assert_contains "$out" "Re-arm exactly one delivery wait with the same background \`bin/fm-watch-arm.sh\` call before composing any reply or beginning long work" \
     "grok snippet lost the re-arm-before-reply ordering"
 
   out=$("$RENDER" --harness codex)
@@ -110,7 +110,7 @@ test_re_arm_before_reply_ordering() {
     "codex snippet lost the checkpoint-next-tool-call ordering"
 
   out=$("$RENDER" --harness pi)
-  assert_contains "$out" "immediately call \`fm_watch_arm_pi\` before composing any reply or beginning long work" \
+  assert_contains "$out" "call \`fm_watch_arm_pi\` before composing a reply or beginning long work" \
     "pi snippet lost the re-arm-before-reply ordering"
 
   out=$("$RENDER" --harness opencode)
@@ -130,14 +130,15 @@ test_agents_md_resume_protocol_ordering() {
   pass "AGENTS.md states the re-arm-before-reply ordering for both harness mechanisms"
 }
 
-test_grok_command_sources_effective_config() {
+test_grok_command_leaves_cadence_to_service() {
   local home config out
   home="$TMP_ROOT/grok-home"
   config="$TMP_ROOT/grok-config"
   mkdir -p "$home/state" "$config"
   out=$(FM_HOME="$home" FM_CONFIG_OVERRIDE="$config" "$RENDER" --harness grok --x-mode 1)
-  assert_contains "$out" "[ -f '$config/x-mode.env' ] && . '$config/x-mode.env'; exec bin/fm-watch-arm.sh" "grok arm command did not use the effective x-mode config path"
-  pass "grok rendered command sources the effective x-mode config"
+  assert_contains "$out" "exec bin/fm-watch-arm.sh" "grok arm command lost the delivery wrapper"
+  assert_not_contains "$out" "source '$config/x-mode.env'" "grok delivery command still sources the service-owned x-mode config"
+  pass "grok rendered command leaves x-mode cadence to the watcher service"
 }
 
 test_pi_snippet_uses_effective_extension_path() {
@@ -164,5 +165,5 @@ test_grok_is_background_notify
 test_no_change_wakes_are_explicitly_silent
 test_re_arm_before_reply_ordering
 test_agents_md_resume_protocol_ordering
-test_grok_command_sources_effective_config
+test_grok_command_leaves_cadence_to_service
 test_pi_snippet_uses_effective_extension_path

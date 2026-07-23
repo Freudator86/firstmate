@@ -2,7 +2,7 @@
 name: bootstrap-diagnostics
 description: >-
   Agent-only handling playbook for session-start bootstrap diagnostics.
-  Use whenever the session-start digest's bootstrap section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, NEEDS_GH_AUTH, TANGLE, SELF_DRIFT, CREW_DISPATCH invalid, FLEET_SYNC, PR_CHECK_MIGRATION, SECONDMATE_SYNC, SECONDMATE_LIVENESS, NUDGE_SECONDMATES, AXI_SUITE_UPDATED, AXI_SUITE_REVIEW, AXI_SUITE_STUCK, FIRSTMATE_UPDATE_AVAILABLE, FIRSTMATE_UPDATE_STUCK, FORK_SYNC, FORK_SYNC_STUCK, or FMX - or when a standalone bin/fm-bootstrap.sh run prints one of those lines.
+  Use whenever the session-start digest's bootstrap section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, NEEDS_GH_AUTH, TANGLE, SELF_DRIFT, CREW_DISPATCH invalid, FLEET_SYNC, PR_CHECK_MIGRATION, SECONDMATE_SYNC, SECONDMATE_LIVENESS, NUDGE_SECONDMATES, AXI_SUITE_UPDATED, AXI_SUITE_REVIEW, AXI_SUITE_STUCK, FIRSTMATE_UPDATE_AVAILABLE, FIRSTMATE_UPDATE_STUCK, FORK_SYNC, FORK_SYNC_STUCK, WATCHER_UNIT, or FMX - or when a standalone bin/fm-bootstrap.sh run prints one of those lines.
   A silent bootstrap section, or a BOOTSTRAP_INFO fact, means no skill load.
 user-invocable: false
 metadata:
@@ -24,6 +24,17 @@ When any diagnostic needs captain attention, report the plain consequence and re
 - `MISSING_MANUAL: <tool> (instructions: <url>)` - tell the captain why the tool is required and give them the printed instructions URL, but do not pass the tool to `bin/fm-bootstrap.sh install`; wait for the captain to complete the manual installation, then rerun session start to confirm the dependency is present.
 - `BACKEND_INVALID: <name> (known: <names>)` - the resolved runtime backend has no verified dependency or lifecycle contract, so do not dispatch work until the invalid `FM_BACKEND` or `config/backend` value is corrected to one of the listed backends.
 - `NEEDS_GH_AUTH` - ask the captain to run `! gh auth login` (interactive; you cannot run it for them).
+- `WATCHER_UNIT: missing ...` or `WATCHER_UNIT: ... disabled ...` - explain that persistent supervision needs the per-home user-service instance, ask for explicit consent, then run `bin/fm-bootstrap.sh install watcher-unit` only after approval.
+  The installation copies the tracked template, writes this home's private environment, reloads the user manager, and enables and starts only the instance encoded from this home.
+- `WATCHER_UNIT: user lingering is disabled ...` - explain that logout can stop the user manager, ask separately for explicit consent, then run `bin/fm-bootstrap.sh install watcher-linger` only after approval.
+  Never run `loginctl enable-linger` from an inference or bundle it into unit-install consent.
+- `WATCHER_UNIT: <instance> needs locked convergence ...` - this read-only session found stale unit bytes, source path or version, X-mode environment, runtime state, or watcher identity.
+  Leave repair to the lock-holding session and rerun session start after that session converges the instance.
+- `WATCHER_UNIT: <instance> convergence failed ...` - inspect the named `systemctl --user status` result and the home-scoped watcher lock and beacon, then report the concrete failure.
+  Do not fall back to tmux merely because an otherwise usable systemd manager has a broken installed unit.
+- `WATCHER_UNIT: systemd --user unavailable ... tmux keeper fallback ...` - the selected fallback is automatic and needs no captain consent.
+  A detect-only session leaves startup to the lock holder; a locked session reports only when the fallback could not establish a healthy watcher.
+- `WATCHER_UNIT: systemd --user is unavailable and tmux is not installed ...` - supervision has no restart owner, so do not dispatch until one backend is available.
 - `AXI_SUITE_UPDATED: <tool> <old> -> <new>` - the vessel completed a gated patch or minor self-update; report it only when it materially affects current work.
 - `AXI_SUITE_REVIEW: <detail>` - a major release or newly required suite command was deliberately not installed; present the printed install command and purpose to the captain, then use `bin/fm-bootstrap.sh install <approved tool...>` only after consent.
 - `AXI_SUITE_STUCK: <detail>` - the vessel could not check or apply an eligible update and persisted the condition in `state/axi-suite-update.stuck`; investigate the local install path first, and if the vessel cannot repair itself, relay the status through the existing Bridge workflow by dispatching a crewmate rather than calling project automation directly.
@@ -57,4 +68,4 @@ When any diagnostic needs captain attention, report the plain consequence and re
 - `NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>` - the secondmate sweep fast-forwarded a running secondmate home and its loaded instruction surface (`AGENTS.md`, `bin/`, or `.agents/skills/`) changed, but the deterministic `fm-send.sh fm-<id>` re-read nudge failed.
   Inspect the reason, keep the pending marker under `state/.secondmate-nudge-pending/` intact, and rerun session start after the endpoint or metadata issue is fixed so bootstrap can retry the exact same marked send.
 - `FMX: X mode on ...` / `FMX: X mode off ...` - bootstrap confirmed or removed the local X-mode poll artifacts (`docs/configuration.md` "X mode (.env)").
-  Only when a running watcher needs the cadence transition applied immediately, restart the home-scoped watcher through the emitted harness supervision protocol; bootstrap deliberately never restarts the watcher itself.
+  The same locked bootstrap pass converges an already-installed watcher service against the generated X-mode environment, including a scoped restart when the process inherited stale cadence.

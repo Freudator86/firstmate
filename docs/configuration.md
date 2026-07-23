@@ -18,6 +18,9 @@ The tracked code root contains the shared instruction, skill, documentation, wor
 The producing PR and X helpers own the fields they append, `bin/fm-classify-lib.sh` owns status-event vocabulary, and `bin/fm-crew-state.sh` owns current-state reconciliation.
 Wake, watcher, direct Telegram receiver, away-mode, and X-specific state mechanics remain with their named scripts and reference sections rather than being duplicated into one exhaustive state tree here.
 
+Watcher coordination uses `state/.watch.lock` for the daemon pid, executable, home, manager, source, and X-mode identities, `state/.last-watcher-beat` for daemon freshness, `state/.wake-queue` for durable delivery, `state/.wake-queue.lock` for atomic append and drain, and `state/.wake-stub.lock` for the current session's delivery-stub pid plus executable, home, and session-lock identities.
+The tmux fallback also records `state/.watch-keeper.pid`, while systemd convergence writes the private mode-`0600` `state/.watch-service.env` environment file.
+
 `bin/fm-session-start.sh`'s header is the single owner of session-start ordering, composed commands, digest contents, and the digest's startup mechanism.
 `docs/sessionstart-nudge.md` owns the native session-open adapter mechanics that nudge the digest command.
 `AGENTS.md` retains the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
@@ -176,6 +179,21 @@ The full zellij home label also includes a short hash of the resolved `FM_ROOT` 
 For the cmux backend, `FM_CONFIG_OVERRIDE` overrides where `config/cmux-socket-password` is read from, while `FM_HOME` determines the default config path and readable home prefix embedded in workspace titles.
 The full cmux home label also includes a short hash of the resolved `FM_ROOT` path, and there is no per-home container split.
 
+## Watcher service
+
+`bin/fm-watcher-service.sh` selects a `systemd --user` template when the user manager is usable and otherwise selects a detached tmux keeper named from the home basename plus a path checksum.
+The tracked template is `systemd/fm-watch@.service`.
+The instance is `fm-watch@$(systemd-escape --path "$FM_HOME").service`, so each operational home has an independent restart boundary.
+The first unit copy and `enable --now` require explicit captain consent through `WATCHER_UNIT:` and `bin/fm-bootstrap.sh install watcher-unit`.
+Bootstrap never installs or enables the unit silently.
+After installation, every locked bootstrap compares the tracked template bytes, the checkout path, a hash of the watcher entry point plus its in-memory shell libraries and backend adapters, the running manager identity, and the X-mode environment hash, then reloads and restarts only a stale instance.
+That convergence restarts a unit whose old process survived a `/updatefirstmate` fast-forward and would otherwise keep executing old watcher bytes.
+`config/x-mode.env` is an optional second `EnvironmentFile` on the template, while `state/.watch-service.env` records its hash so an opt-in, opt-out, or cadence change triggers convergence.
+User lingering keeps a user service alive without an interactive login session.
+If `loginctl` reports lingering disabled, bootstrap emits a separate `WATCHER_UNIT:` consent request for `bin/fm-bootstrap.sh install watcher-linger`; it never calls `loginctl enable-linger` without that approval.
+When `systemctl --user` is unusable, the tmux keeper fallback starts automatically and needs no unit or linger installation.
+Both tiers run `bin/fm-watch.sh` with `FM_WATCH_DAEMON=1`; the queue, stub, guard, and harness contracts do not change with the selected keeper.
+
 ## Harness support
 
 claude, codex, opencode, pi, and grok are all empirically verified; new harnesses get verified through a supervised trial task before joining the set.
@@ -184,7 +202,7 @@ Launch mechanics, including the verified command templates, live in [`bin/fm-spa
 Primary-session turn-end guard integrations for verified harnesses are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
 The Codex repo-local profile and Graphify PreToolUse hook are documented above because they are Codex configuration, not harness launch mechanics.
 Primary-session watcher wake protocols are rendered at session start by [`bin/fm-supervision-instructions.sh`](../bin/fm-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
-Claude and Grok use background-notify cycles, Codex uses bounded foreground checkpoints, Pi uses its two tracked primary extensions, and OpenCode uses its TUI plugin.
+Claude and Grok use background-notify delivery waits, Codex uses bounded foreground delivery checkpoints, Pi uses its two tracked primary extensions, and OpenCode uses its TUI plugin.
 
 ## Direct Telegram receiver (config/telegram.env / config/fm-tg-recv.sh)
 
@@ -320,12 +338,13 @@ For direct client invocations, environment values override `.env`; bootstrap act
 `FMX_ENV_FILE` can point direct poll/reply client invocations at another `.env`-style file, but it does not change bootstrap activation.
 
 The locked session-start bootstrap step turns the token into local generated state.
-It writes `state/x-watch.check.sh`, a byte-static identity shim for `bin/fm-x-poll.sh`, and `config/x-mode.env`, which exports `FM_CHECK_INTERVAL=30` for watcher processes in that home.
+It writes `state/x-watch.check.sh`, a byte-static identity shim for `bin/fm-x-poll.sh`, and `config/x-mode.env`, which sets `FM_CHECK_INTERVAL=30` for watcher processes in that home.
 The watcher accepts the shim only when its bytes match the expected generated content, then invokes the trusted repository poll script directly instead of executing state-file source.
-This section is the single owner of the X-mode cadence contract: an X instance polls every 30 seconds instead of the default 300, only an X instance speeds up because a non-X home has no `config/x-mode.env`, and the session-start supervision operating block includes the cadence instruction when that file exists.
-The active primary-harness supervision protocol owns how that sourced cadence reaches the watcher process.
-Because `bin/fm-watch.sh` reads `FM_CHECK_INTERVAL` only at process start, a cadence transition - opt-in while a watcher is already running, or opt-out - is applied by restarting the home-scoped watcher through the emitted harness protocol; bootstrap deliberately never restarts the watcher itself.
-While away mode is active the daemon owns the watcher and its default cadence applies; away-mode X cadence is a deferred follow-up.
+This section is the single owner of the X-mode cadence contract: an X instance polls every 30 seconds instead of the default 300, and only an X instance speeds up because a non-X home has no `config/x-mode.env`.
+The watcher service template loads `config/x-mode.env` as an optional `EnvironmentFile`.
+Because `bin/fm-watch.sh` reads `FM_CHECK_INTERVAL` only at process start, the locked bootstrap convergence check compares the X-mode environment hash and restarts an already-installed stale service instance after opt-in, opt-out, or cadence change.
+The tmux keeper receives the same environment when it respawns the watcher.
+Away mode does not change this cadence because the external watcher keeps running while the away daemon consumes its queued events.
 When the token is removed or empty, the next locked session-start bootstrap step removes those artifacts.
 Steady-state off is silent and writes nothing.
 X mode remains additive to non-X lifecycle behavior: homes without the generated artifacts keep the default watcher cadence and do not run the X poll.
@@ -441,12 +460,16 @@ FM_LOCK_STEAL_MAX_DEPTH=8   # hard cap on nested stale-lock steal recursion; acq
 FM_LOCK_WAIT_TIMEOUT=30   # seconds a blocking lock acquisition may remain contended before it fails loudly (rc 2)
 FM_GUARD_GRACE=300      # seconds before guard warnings, arm health checks, and the primary turn-end guard treat a watcher beacon as stale
 FM_ARM_CONFIRM_TIMEOUT=10   # seconds fm-watch-arm waits to confirm a fresh watcher before reporting FAILED
-FM_ARM_ATTACH_POLL=0.5  # seconds between checks while fm-watch-arm is attached to an existing healthy watcher cycle
 FM_TG_RECV_ATTACH_POLL=0.5  # seconds between checks while fm-tg-recv-arm is attached to an existing receiver
 FM_TG_RECV_ATTACH_CONFIRM_TIMEOUT=2  # seconds fm-tg-recv-arm waits for a competing arm to publish receiver metadata
 FM_TG_RECV_TERM_WAIT_CYCLES=30  # termination polling cycles before fm-tg-recv-arm preserves a live receiver lock after wrapper shutdown
 FM_TG_RECV_TERM_WAIT_POLL=0.1  # seconds between termination checks during fm-tg-recv-arm cleanup
-FM_WATCH_ARM_OWNER_PID=   # internal: fm-watch-arm sets this to its own pid on the watcher it forks, so the watcher can self-terminate if that arm wrapper dies before running its own cleanup; unset for a directly-invoked watcher
+FM_WATCH_DAEMON=1       # internal: external keeper mode; actionable wake appends continue the watcher loop and skip session-parent reaping
+FM_WATCH_MANAGER=       # internal: systemd or keeper identity recorded in state/.watch.lock
+FM_WATCH_SOURCE_VERSION= # internal: watcher plus loaded-library content version recorded for bootstrap convergence
+FM_WATCH_X_MODE_VERSION= # internal: X-mode environment version recorded for systemd and keeper convergence
+FM_WATCH_STOP_TIMEOUT=20 # seconds the tmux fallback waits for an identity-matched watcher to stop during scoped convergence
+FM_EVENT_CAP_REPROBE_SECS=300 # seconds before a long-lived watcher re-probes a disabled Herdr event-wait capability
 FM_OPENCODE_ARM_READY_TIMEOUT_MS=12000   # milliseconds the OpenCode primary watcher plugin waits for an arm attempt to report started, healthy, wake, or failure
 FM_WATCHER_STALE_GRACE=300   # defaults to FM_GUARD_GRACE; seconds a live watcher lock may have a stale beacon before re-arm errors
 FM_SIGNAL_GRACE=30      # seconds to coalesce nearby status and turn-end signals into one wake
