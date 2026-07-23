@@ -16,7 +16,7 @@ function setArmStatus(status) {
 }
 
 function readyStatus() {
-  if (armStatus === "armed" || armStatus === "wake" || armStatus === "failed" || armStatus === "external") return armStatus;
+  if (armStatus === "armed" || armStatus === "wake" || armStatus === "failed") return armStatus;
   return "";
 }
 

@@ -79,24 +79,28 @@ test_spawn_template_mentions_pi_watch_placeholder() {
   pass "Pi secondmate launch wiring includes both tracked primary extensions"
 }
 
-test_pi_extension_reports_external_healthy_watcher() {
+test_pi_extension_surfaces_typed_wake_delivery_failure() {
   if ! fm_node_supports_ts_import; then
     echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
     return
   fi
-  local repo home plugin out status
-  repo="$TMP_ROOT/pi-external-healthy-root"
-  home="$TMP_ROOT/pi-external-healthy-home"
+  local repo home plugin log out status
+  repo="$TMP_ROOT/pi-wake-delivery-failed-root"
+  home="$TMP_ROOT/pi-wake-delivery-failed-home"
+  log="$TMP_ROOT/pi-wake-delivery-failed.log"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
-printf 'watcher: healthy pid=1 (beacon 0s)\n'
+printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+printf 'wake delivery: FAILED - watcher beacon stale for 999s (grace 300s)\n' >&2
+exit 1
 SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 FM_WATCH_REARM_RETRY_LIMIT=2 node --input-type=module 2>&1 <<'EOF'
-import { writeFileSync } from "node:fs";
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 FM_WATCH_REARM_RETRY_LIMIT=1 node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 let handler = null;
@@ -141,20 +145,24 @@ if (!prompt.includes("FIRSTMATE WATCHER WAKE")) {
   console.error(`missing follow-up prompt: ${prompt}`);
   process.exit(1);
 }
-if (!prompt.includes("external healthy watcher")) {
-  console.error(prompt);
+if (!prompt.includes("wake delivery: FAILED - watcher beacon stale for 999s (grace 300s)")) {
+  console.error(`typed stub failure was not propagated: ${prompt}`);
   process.exit(1);
 }
-if (!prompt.includes("watcher: healthy pid=1")) {
-  console.error(prompt);
+if (prompt.includes("fm-watch-arm.sh exited")) {
+  console.error(`stub failure fell through to the generic exit-code catch-all: ${prompt}`);
   process.exit(1);
 }
+const rows = existsSync(process.env.FM_ARM_LOG)
+  ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n")
+  : [];
+if (rows.length !== 2) throw new Error(`retry limit launched ${rows.length} arm cycles: ${rows.join(" | ")}`);
 EOF
 )
   status=$?
-  expect_code 0 "$status" "Pi extension must surface an external healthy watcher as an owned-wake failure"
-  [ -z "$out" ] || fail "Pi external-healthy test printed output: $out"
-  pass "Pi extension reports external healthy watcher output"
+  expect_code 0 "$status" "Pi extension must surface fm-wake-wait.sh's typed wake delivery: FAILED reason, not the generic exit-code catch-all"
+  [ -z "$out" ] || fail "Pi wake-delivery-failure test printed output: $out"
+  pass "Pi extension surfaces a typed wake delivery: FAILED stub failure instead of a generic catch-all"
 }
 
 test_pi_tool_returns_agent_tool_result() {
@@ -872,7 +880,8 @@ test_opencode_primary_watch_plugin_static_wiring() {
   assert_contains "$text" "sessionOwnsLock" "OpenCode plugin does not gate arm attempts on the session lock"
   assert_contains "$text" 'fm-watch-arm.sh"' "OpenCode plugin does not run the delivery arm wrapper"
   assert_not_contains "$text" 'fm-watch-arm.sh" --restart' "OpenCode plugin still restarts the external watcher on each idle event"
-  assert_contains "$text" 'setArmStatus("external")' "OpenCode plugin still treats an external healthy watcher as armed"
+  assert_not_contains "$text" "watcher: healthy" "OpenCode plugin still carries the dead watcher: healthy branch"
+  assert_contains "$text" "wake delivery: FAILED" "OpenCode plugin does not surface the typed wake-delivery-stub failure"
   pass "OpenCode primary watcher plugin has the verified TUI wake wiring"
 }
 
@@ -1303,7 +1312,7 @@ EOF
 test_tracked_extension_present_and_self_hashing
 test_spawn_template_mentions_pi_watch_placeholder
 if fm_node_supports_ts_import; then
-  test_pi_extension_reports_external_healthy_watcher
+  test_pi_extension_surfaces_typed_wake_delivery_failure
   test_pi_tool_returns_agent_tool_result
   test_pi_actionable_close_waits_for_drain_before_rearm
   test_pi_empty_close_retries_instead_of_disappearing
