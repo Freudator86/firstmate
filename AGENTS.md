@@ -193,7 +193,7 @@ For an ordinary direct report whose endpoint is dead or metadata has no window, 
 For a dead secondmate direct report, load `secondmate-provisioning` and reconcile only that secondmate, never its whole child tree from the main home.
 Each secondmate reconciles work already in its own home and then idles; recovery never authorizes it to invent work.
 
-If away mode is present, load `/afk` and let its daemon own supervision rather than arming another cycle.
+If away mode is present, load `/afk` and let its daemon own queue delivery rather than arming a session delivery wait; the watcher service continues to own the loop.
 Surface only captain-relevant decisions, review-ready PRs, failures, and credential needs; otherwise resume the emitted supervision protocol silently.
 A restart must be a non-event because durable state and live backend inventory, not conversation memory, are authoritative.
 
@@ -330,9 +330,10 @@ Scratch commits and debug edits never ride along, and a reproduced bug becomes t
 
 Fleet supervision is an always-loaded operational contract; `docs/architecture.md`, `docs/turnend-guard.md`, the emitted session-start block, and script help own mechanisms and harness-specific recipes.
 
-Whenever work is under way, keep exactly one live supervision cycle using the emitted protocol for this primary harness.
-X mode may require that same live cycle with no fleet work.
-Do not substitute another harness's wait shape, use shell `&`, or create a second cycle when a healthy one already exists.
+The watcher service owns the long-running supervision loop.
+Whenever work is under way, keep exactly one live wake-delivery wait armed using the emitted protocol for this primary harness.
+X mode may require that same delivery wait with no fleet work.
+Do not substitute another harness's wait shape, use shell `&`, or create a second delivery wait when a healthy one already exists.
 When the session-start digest reports direct Telegram receive as active, keep `bin/fm-tg-recv-arm.sh` armed as its own separate tracked background task; it starts or attaches to the receiver for this home.
 After every actionable wake, resume the emitted protocol at the earliest harness-safe point before composing any reply or beginning unrelated long work.
 Background-notify harnesses re-arm immediately after draining, while a blocking foreground checkpoint follows wake handling as its next tool call.
@@ -355,7 +356,7 @@ When any wake reports a merged PR for a project cloned in this home, refresh tha
 When X-linked work reaches a milestone or terminal state, load `fmx-respond`; before terminal teardown, always post the final completion follow-up so the link clears even if earlier follow-ups were spent.
 
 A secondmate's idle endpoint is healthy, and parent supervision relies on its routed status rather than treating a quiet pane as stale.
-Waiting on a healthy supervision cycle is silent.
+Waiting on a healthy wake-delivery wait is silent.
 Benign wake handling ends the turn with tool calls only and no message; empty polls, elapsed time, and no-change updates are not captain-facing progress.
 Never broadly kill watchers, especially never `pkill -f bin/fm-watch.sh`, because that can kill sibling firstmate homes.
 A forced repair must use the home-scoped owner path emitted by supervision instructions.
@@ -371,7 +372,7 @@ Invoke the `/afk` skill when the captain says `/afk`, says they are going afk, `
 The skill owns the daemon procedure; these safety facts remain inline:
 
 - Every daemon injection starts with `FM_INJECT_MARK` plus U+2063 INVISIBLE SEPARATOR, which distinguishes internal escalation from captain input.
-- While `state/.afk` exists, the daemon owns supervision; do not arm a separate watcher.
+- While `state/.afk` exists, the away daemon owns wake delivery; do not arm a session delivery wait.
 - A marked message while away mode is active is internal escalation and does not exit away mode.
 - A message beginning `/afk` refreshes away mode.
 - Any other unmarked message means the captain returned; load `/afk`, run the return owner, and do not process that message as ordinary work until its durable catch-up gate clears.
@@ -494,7 +495,7 @@ X mode ships inert and causes no behavior change until the home opts in by placi
 That token is consent for public replies and normal reversible lifecycle actions from eligible mentions, not authority for destructive, irreversible, or security-sensitive action; those still require trusted-channel confirmation.
 `docs/configuration.md` owns activation, generated state, cadence, wire protocol, and opt-out mechanics.
 
-An X-only home still requires the live supervision cycle so mentions can wake it without fleet work.
+An X-only home still requires the live wake-delivery wait so mentions can wake it without fleet work.
 On an `x-mention <request_id>` or `x-mode-error ...` check wake, load `fmx-respond`, which owns classification, public-safety policy, reply or dismissal, task linking, and follow-ups.
 For every X-linked terminal outcome, load that owner and post the final completion follow-up before teardown, regardless of earlier milestone follow-ups.
 

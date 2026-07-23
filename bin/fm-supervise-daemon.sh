@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # fm-supervise-daemon.sh — presence-gated sub-supervisor (closes #27's P2).
 #
-# Wraps bin/fm-watch.sh: runs it as a child, classifies each wake reason, and
+# Consumes newly appended durable wake records from the external watcher,
+# classifies each reason, and
 # either SELF-HANDLES the routine majority in bash (no firstmate turn) or
 # ESCALATES a batched, distilled digest to the supervisor pane on
 # captain-relevant events plus bounded declared-pause rechecks. This is the
@@ -30,12 +31,13 @@
 # channel - so they live together under /afk.
 #
 # Reliability model (see the /afk skill):
-#   - Nothing is lost in away mode: while state/.afk exists, the watcher reverts
-#     to daemon-owned one-shot behavior and enqueues every wake to
+#   - Nothing is lost in away mode: while state/.afk exists, the external watcher
+#     enqueues every wake to
 #     state/.wake-queue BEFORE advancing its suppression markers, so a
 #     crash/restart/missed injection is recovered on the next fm-wake-drain.sh.
-#     The daemon does not touch the queue; it only reads the watcher's stdout
-#     reason.
+#     The daemon never drains the queue.  It advances a private sequence cursor
+#     only after classifying each copied record; the model remains the atomic
+#     queue consumer through bin/fm-wake-drain.sh.
 #   - Fail-safe-to-escalate: any wake the classifier cannot confidently mark
 #     routine is escalated.
 #   - Bounded wedge latency: a stale pane without a declared external wait is
@@ -53,10 +55,9 @@
 #     state/*.status for a captain-relevant line the per-wake classifier might
 #     have missed (e.g. a status verb outside CAPTAIN_RE) and escalates it.
 #
-# The robustness shell from the prior always-inject version is preserved:
-# single-instance lock (portable helper, no flock dependency), crash-loop
-# backoff, pane-gone guard, and a signal-trapped shutdown that flushes buffered
-# escalations before exit.
+# The robustness shell from the prior always-inject version preserves the
+# single-instance lock, pane-gone guard, and a signal-trapped shutdown that
+# flushes buffered escalations before exit.
 #
 # Usage: fm-supervise-daemon.sh
 #          Long-lived background loop. Normally started by the /afk skill, which
@@ -131,13 +132,12 @@
 #                                   not misread as pending input.
 #          FM_INJECT_CONFIRM_SLEEP  seconds between daemon submit checks
 #                                   (default 0.5)
-#          FM_LOG_MAX_BYTES / FM_LOG_KEEP_LINES / FM_CRASH_*  log + crash guards
+#          FM_LOG_MAX_BYTES / FM_LOG_KEEP_LINES  log bounds
 #          FM_STATE_OVERRIDE        alternate state dir (testing)
 #          Logs each wake to state/.supervise-daemon.log (size-capped). Single
 #          instance via portable lock on state/.supervise-daemon.lock. Trapped
-#          SIGTERM/SIGINT shut down within ~1s, flush escalations, release the
-#          lock. A crashing fm-watch.sh is logged and restarted, never killing
-#          the daemon; a tight crash-restart spin is detected and backed off.
+#          SIGTERM/SIGINT shut down within ~1s, flush escalations, and release
+#          the lock. The watcher service owns loop restart independently.
 set -u
 
 FM_DAEMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -198,10 +198,6 @@ WEDGE_ALARM_NOTIFIER_PID=
 INJECT_FAIL_SLEEP_DEFAULT=30
 INJECT_CONFIRM_RETRIES_DEFAULT=3
 INJECT_CONFIRM_SLEEP_DEFAULT=0.5
-CRASH_THRESHOLD_DEFAULT=10
-CRASH_WINDOW_DEFAULT=60
-CRASH_BACKOFF_DEFAULT=60
-CRASH_NORMAL_SLEEP_DEFAULT=5
 LOG_MAX_BYTES_DEFAULT=1048576
 LOG_KEEP_LINES_DEFAULT=2000
 
@@ -1144,21 +1140,6 @@ should_force_self() {  # <reason>
   return 1
 }
 
-# A real watcher WAKE reason starts with one of these prefixes. Anything else on
-# the watcher child's stdout (e.g. "watcher: already running" on a singleton-lock
-# collision, reachable if the daemon was SIGKILL'd and its orphaned watcher child
-# still holds the #29 singleton lock) is a STATUS line, not a wake: handling it
-# as an unknown wake would flood the escalation buffer and restart the child with
-# no crash backoff. The main loop treats a non-wake line as idle (log + sleep +
-# continue), so a singleton collision cannot hot-loop escalations.
-is_wake_reason() {  # <reason>
-  local reason=$1
-  case "$reason" in
-    signal:*|stale:*|check:*|heartbeat|heartbeat:*) return 0 ;;
-  esac
-  return 1
-}
-
 # --- dispatch one wake reason to self-handle or escalate --------------------
 # Side effects: logging, marker records, escalation buffer appends.
 handle_wake() {  # <reason> <state>
@@ -1235,6 +1216,29 @@ trim_log() {
   tail -n "${FM_LOG_KEEP_LINES:-$LOG_KEEP_LINES_DEFAULT}" "$LOG" >"$tmp" 2>/dev/null && mv -f "$tmp" "$LOG"
 }
 
+# Copy queue records newer than this daemon's durable cursor while holding the
+# queue lock, then classify the copy without ever truncating or moving the queue.
+# The cursor advances after each handled record, giving at-least-once recovery if
+# the daemon is interrupted between classification and cursor publication.
+process_queued_wakes() {  # <state> <snapshot-path>
+  local state=$1 snapshot=$2 cursor_file cursor epoch seq kind key payload tmp
+  cursor_file="$state/.subsuper-wake-cursor"
+  cursor=$(cat "$cursor_file" 2>/dev/null || echo 0)
+  case "$cursor" in ''|*[!0-9]*) cursor=0 ;; esac
+
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
+  awk -F '\t' -v cursor="$cursor" 'NF >= 5 && $2 > cursor { print }' "$FM_WAKE_QUEUE" > "$snapshot"
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+
+  while IFS=$(printf '\t') read -r epoch seq kind key payload || [ -n "$epoch$seq$kind$key$payload" ]; do
+    case "$seq" in ''|*[!0-9]*) continue ;; esac
+    handle_wake "$payload" "$state"
+    tmp="$cursor_file.tmp.${BASHPID:-$$}"
+    printf '%s\n' "$seq" > "$tmp" && mv -f "$tmp" "$cursor_file"
+  done < "$snapshot"
+  : > "$snapshot"
+}
+
 # ============================================================================
 # Everything below runs only when the script is EXECUTED, not sourced. The pure
 # classifiers above are sourceable for unit tests (tests/fm-daemon.test.sh).
@@ -1250,18 +1254,10 @@ fm_super_main() {
   # shellcheck source=bin/fm-wake-lib.sh
   FM_STATE_OVERRIDE="$STATE" . "$FM_DAEMON_DIR/fm-wake-lib.sh"
 
-  local WATCH="$FM_DAEMON_DIR/fm-watch.sh"
   local LOG="$STATE/.supervise-daemon.log"
-  local WATCH_ERR="$STATE/.supervise-daemon.watcher.err"
   local LOCK="$STATE/.supervise-daemon.lock"
   local PIDFILE="$STATE/.supervise-daemon.pid"
   local INJECT_FAIL_SLEEP=${FM_INJECT_FAIL_SLEEP:-$INJECT_FAIL_SLEEP_DEFAULT}
-  local CRASH_THRESHOLD=${FM_CRASH_THRESHOLD:-$CRASH_THRESHOLD_DEFAULT}
-  local CRASH_WINDOW=${FM_CRASH_WINDOW:-$CRASH_WINDOW_DEFAULT}
-  local CRASH_BACKOFF=${FM_CRASH_BACKOFF:-$CRASH_BACKOFF_DEFAULT}
-  local CRASH_NORMAL_SLEEP=${FM_CRASH_NORMAL_SLEEP:-$CRASH_NORMAL_SLEEP_DEFAULT}
-
-  [ -x "$WATCH" ] || { echo "error: watcher not found or not executable: $WATCH" >&2; exit 1; }
 
   # --- single instance (portable lock, no flock dependency) ------------------
   local lock_rc=0
@@ -1360,16 +1356,12 @@ fm_super_main() {
   log "daemon starting (pid $$); target=$TARGET; target_source=$target_source; backend=$BACKEND; backend_source=$backend_source; afk=$afk_status; inject_skip='${FM_INJECT_SKIP:-$INJECT_SKIP_DEFAULT}'; stale_escalate=${FM_STALE_ESCALATE_SECS:-$STALE_ESCALATE_SECS_DEFAULT}s; batch=${FM_ESCALATE_BATCH_SECS:-$ESCALATE_BATCH_SECS_DEFAULT}s"
   migrate_watcher_pause_markers "$STATE"
 
-  # --- shutdown: flush buffered escalations, reap child, release lock -------
-  local WATCHER_PID="" CUR_TMP=""
+  # --- shutdown: flush buffered escalations and release the daemon lock -------
+  local CUR_TMP=""
   cleanup() {
     trap - TERM INT
     wedge_alarm_stop_active_notifier
     escalate_flush "$STATE" 2>/dev/null || true
-    if [ -n "${WATCHER_PID:-}" ]; then
-      kill "$WATCHER_PID" 2>/dev/null || true
-      wait "$WATCHER_PID" 2>/dev/null || true
-    fi
     if [ -n "${CUR_TMP:-}" ]; then
       rm -f "$CUR_TMP" 2>/dev/null || true
     fi
@@ -1380,33 +1372,10 @@ fm_super_main() {
   }
   trap cleanup TERM INT
 
-  # --- crash-loop guard -----------------------------------------------------
-  local crash_times=() backoff_secs=$CRASH_NORMAL_SLEEP
-  record_crash() {
-    local now t
-    now=$(_now)
-    local -a keep=()
-    for t in "${crash_times[@]:-}"; do
-      [ -n "$t" ] && [ $((now - t)) -lt "$CRASH_WINDOW" ] && keep+=("$t")
-    done
-    keep+=("$now")
-    crash_times=("${keep[@]}")
-    if [ "${#crash_times[@]}" -gt "$CRASH_THRESHOLD" ]; then
-      log "ERROR: watcher crashed ${#crash_times[@]} times within ${CRASH_WINDOW}s; backing off ${CRASH_BACKOFF}s"
-      crash_times=()
-      backoff_secs=$CRASH_BACKOFF
-    else
-      backoff_secs=$CRASH_NORMAL_SLEEP
-    fi
+  CUR_TMP=$(mktemp "${TMPDIR:-/tmp}/fm-supervise-queue.XXXXXX") || {
+    log "error: queue snapshot creation failed"
+    cleanup
   }
-
-  start_watcher() {
-    CUR_TMP=$(mktemp "${TMPDIR:-/tmp}/fm-watch.XXXXXX") || { log "error: mktemp failed; retrying in 5s"; sleep 5; return 1; }
-    "$WATCH" >"$CUR_TMP" 2>>"$WATCH_ERR" &
-    WATCHER_PID=$!
-  }
-
-  local rc reason
   while true; do
     # --- pane-gone guard (preserved) ---------------------------------------
     # With the #29 watcher's enqueue-before-suppress, a wake is no longer
@@ -1422,48 +1391,10 @@ fm_super_main() {
       continue
     fi
 
-    # --- (re)start watcher if it has exited --------------------------------
-    if [ -z "${WATCHER_PID:-}" ] || ! kill -0 "${WATCHER_PID:-}" 2>/dev/null; then
-      if [ -n "${WATCHER_PID:-}" ]; then
-        # child exited: reap + classify its wake reason
-        if wait "${WATCHER_PID}"; then rc=0; else rc=$?; fi
-        reason=""
-        if [ -n "${CUR_TMP:-}" ] && [ -e "${CUR_TMP:-}" ]; then
-          reason=$(<"${CUR_TMP}")
-        fi
-        if [ -n "${CUR_TMP:-}" ]; then
-          rm -f "${CUR_TMP}" 2>/dev/null || true
-        fi
-        CUR_TMP=""
-        if [ "$rc" -ne 0 ] || [ -z "$reason" ]; then
-          record_crash
-          log "watcher exited rc=$rc reason='$reason'; restarting after ${backoff_secs}s"
-          WATCHER_PID=""
-          sleep "$backoff_secs"
-          continue
-        fi
-        # Non-wake stdout (e.g. a watcher singleton-collision "already running"
-        # status line) is NOT a wake: idling here prevents an escalation flood
-        # and a backoff-less child restart. record_crash is intentionally
-        # skipped (rc=0, this is normal idle, not a crash).
-        if ! is_wake_reason "$reason"; then
-          log "watcher non-wake stdout, idling: $reason"
-          WATCHER_PID=""
-          sleep "${HOUSEKEEPING_TICK:-$HOUSEKEEPING_TICK_DEFAULT}"
-          continue
-        fi
-        log "wake: $reason"
-        handle_wake "$reason" "$STATE"
-        trim_log
-      fi
-      start_watcher || continue
-    fi
+    process_queued_wakes "$STATE" "$CUR_TMP" || log "queue snapshot failed; retrying"
+    trim_log
 
     # --- one housekeeping tick (gated to HOUSEKEEPING_TICK), then poll -------
-    # The watcher child runs on its own FM_POLL cadence internally; we only need
-    # to detect its exit (the kill -0 above) promptly and run housekeeping often
-    # enough that batch flushes, stale rechecks, and the catch-all scan fire on
-    # cadence. Gating keeps a large fleet cheap between ticks.
     sleep 1
     if [ "$(_file_age "$STATE/.subsuper-last-housekeep")" -ge "${FM_HOUSEKEEPING_TICK:-$HOUSEKEEPING_TICK_DEFAULT}" ]; then
       _now > "$STATE/.subsuper-last-housekeep"

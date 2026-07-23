@@ -580,14 +580,15 @@ test_bootstrap_activates_on_env_token() {
   [ -x "$home/state/x-watch.check.sh" ] || fail "the check shim must be executable"
   assert_grep "fm-x-poll.sh" "$home/state/x-watch.check.sh" "the shim must exec the poll script"
   assert_present "$home/config/x-mode.env" "bootstrap must drop the cadence config"
-  assert_grep "export FM_CHECK_INTERVAL=30" "$home/config/x-mode.env" "cadence must be 30s"
-  # Cadence inheritance: sourcing the config exports the 30s interval to a child,
-  # exactly how fm-watch-arm.sh's forked watcher inherits it.
+  assert_grep "FM_CHECK_INTERVAL=30" "$home/config/x-mode.env" "cadence must be 30s"
+  assert_not_contains "$(cat "$home/config/x-mode.env")" "export FM_CHECK_INTERVAL" "systemd EnvironmentFile syntax must not contain export"
+  # Cadence inheritance: the tmux keeper sources with export-all, matching the
+  # same assignment file systemd reads directly.
   local inherited
   # shellcheck source=/dev/null
-  inherited=$( . "$home/config/x-mode.env" && bash -c 'echo "${FM_CHECK_INTERVAL:-300}"' )
+  inherited=$( set -a; . "$home/config/x-mode.env"; set +a; bash -c 'echo "${FM_CHECK_INTERVAL:-300}"' )
   [ "$inherited" = "30" ] \
-    || fail "sourcing the cadence config must export FM_CHECK_INTERVAL=30 to a child"
+    || fail "keeper-style sourcing must pass FM_CHECK_INTERVAL=30 to a child"
   # Idempotent: re-running changes nothing and does not duplicate the shim.
   sum1=$(cat "$home/state/x-watch.check.sh" "$home/config/x-mode.env" | shasum)
   FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
@@ -769,8 +770,8 @@ test_bootstrap_opt_out_cleanup() {
   printf 'FMX_PAIRING_TOKEN=\n' > "$home/.env"
   out=$(CLAUDECODE=1 FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
   assert_contains "$out" "FMX: X mode off" "opt-out must announce X mode off when it removed artifacts"
-  assert_contains "$out" "Claude Code background task" "opt-out remediation must use the harness-aware repair renderer"
-  assert_not_contains "$out" "bin/fm-watch-arm.sh --restart" "opt-out remediation must not hardcode a background-arm restart"
+  assert_contains "$out" "watcher service convergence applies the default cadence" "opt-out must delegate cadence to service convergence"
+  assert_not_contains "$out" "background task" "opt-out must not make a harness delivery wait own cadence"
   assert_absent "$home/state/x-watch.check.sh" "opt-out must remove the shim"
   assert_absent "$home/config/x-mode.env" "opt-out must remove the cadence config"
   # Steady-state off: another run with nothing to remove is silent.

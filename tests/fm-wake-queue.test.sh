@@ -239,10 +239,10 @@ test_drain_dedupes_obvious_duplicates() {
 }
 
 # The drain runs at the top of every wake-handling turn, so it also asserts
-# watcher liveness via fm-guard.sh: a lapsed re-arm chain then surfaces even on a
-# plain drain-and-handle turn that runs no other supervision script. It must warn
-# when work is in flight with no live watcher, and stay silent right after a
-# normal fire (a fresh beacon within grace), so it never false-alarms every wake.
+# watcher liveness via fm-guard.sh: a lapsed daemon or delivery wait then surfaces
+# even on a plain drain-and-handle turn that runs no other supervision script.
+# A fresh beacon alone is insufficient; health requires identity-matched daemon
+# and stub locks.
 test_drain_asserts_watcher_liveness() {
   local dir state err
   dir=$(make_case drain-liveness)
@@ -250,14 +250,17 @@ test_drain_asserts_watcher_liveness() {
   err="$dir/drain.err"
   printf 'window=test:fm-x\nkind=ship\n' > "$state/x.meta"
   FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2> "$err" || fail "drain failed while asserting liveness"
-  grep -F 'WATCHER DOWN' "$err" >/dev/null || fail "drain did not surface the watcher-down banner with work in flight and no live watcher"
+  grep -F 'WATCHER DAEMON DOWN' "$err" >/dev/null || fail "drain did not surface the daemon-down banner with work in flight and no live watcher"
   : > "$err"
   touch "$state/.last-watcher-beat"
   FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=300 "$DRAIN" >/dev/null 2> "$err" || fail "drain failed with a fresh beacon"
-  if grep -F 'WATCHER DOWN' "$err" >/dev/null; then
-    fail "drain false-alarmed right after a normal fire (fresh beacon within grace)"
-  fi
-  pass "drain asserts watcher liveness: warns on a lapse, stays silent right after a fire"
+  grep -E 'WATCHER DAEMON DOWN|watcher still down' "$err" >/dev/null \
+    || fail "drain accepted a fresh beacon without an identity-matched watcher"
+  : > "$err"
+  fm_test_record_supervision_healthy "$FM_ROOT_OVERRIDE" "$state"
+  FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=300 "$DRAIN" >/dev/null 2> "$err" || fail "drain failed with healthy supervision"
+  [ ! -s "$err" ] || fail "drain warned with identity-matched daemon and delivery locks: $(cat "$err")"
+  pass "drain asserts watcher liveness: rejects beacon-only state and accepts identity-matched daemon plus stub"
 }
 
 test_append_returns_on_lock_filesystem_failure

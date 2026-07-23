@@ -1,15 +1,12 @@
 # shellcheck shell=bash
-# Shared "supervision missing" predicate.
+# Shared in-flight and beacon status fields.
 # Usage: . bin/fm-supervision-lib.sh
 #
-# True exactly when a firstmate home has supervision-relevant work but no watcher
-# has a fresh liveness beacon (state/.last-watcher-beat, touched every poll cycle,
-# within the grace window). A state/<id>.meta normally counts as in flight. The
+# A state/<id>.meta normally counts as in flight. The
 # one exception is a kind=secondmate record whose explicit state=resting: it stays
 # registered and may stay alive, but has no work for Stop-hook supervision.
-# bin/fm-guard.sh uses this grace-based warning predicate directly;
-# bin/fm-turnend-guard.sh uses the status fields here for its banner but performs
-# its end-of-turn block decision with the live watcher lock check in
+# bin/fm-guard.sh and bin/fm-turnend-guard.sh use these fields for banners, then
+# apply the daemon lock and delivery-stub identity predicates from
 # bin/fm-wake-lib.sh.
 
 # Portable mtime; Linux stat lacks -f, macOS stat lacks -c.

@@ -31,8 +31,7 @@ JS
 
 
 test_tracked_extension_present_and_self_hashing() {
-  local text expected_config_source
-  expected_config_source="config_dir=\\\"\${FM_CONFIG_OVERRIDE:-\$FM_HOME/config}\\\""
+  local text
   assert_present "$EXT" "tracked Pi primary watcher extension is missing"
   text=$(cat "$EXT")
   assert_contains "$text" "fm_watch_arm_pi" "tracked extension missing tool name"
@@ -57,8 +56,8 @@ test_tracked_extension_present_and_self_hashing() {
   assert_contains "$text" "const config = process.env.FM_CONFIG_OVERRIDE" "tracked extension missing effective config resolution"
   assert_contains "$text" "FM_CONFIG_OVERRIDE: config" "tracked extension does not pass the effective config to the watcher arm"
   assert_contains "$text" "FM_WATCH_ARM_SCRIPT: armScript" "tracked extension does not pass the effective watcher arm script"
-  assert_contains "$text" "$expected_config_source" "tracked extension does not source the effective x-mode config"
-  assert_contains "$text" "exec \\\"\$FM_WATCH_ARM_SCRIPT\\\" --restart" "tracked extension does not restart into a Pi-owned watcher child"
+  assert_contains "$text" "exec \\\"\$FM_WATCH_ARM_SCRIPT\\\"" "tracked extension does not run the delivery arm wrapper"
+  assert_not_contains "$text" "exec \\\"\$FM_WATCH_ARM_SCRIPT\\\" --restart" "tracked extension still restarts the external watcher on every delivery arm"
   assert_contains "$text" 'label: "Arm firstmate watcher"' "tracked extension tool is missing its human-readable label"
   assert_contains "$text" 'parameters: Type.Object({})' "tracked extension tool is not using Pi's canonical TypeBox schema"
   assert_contains "$text" 'content: [{ type: "text", text: result.message }]' "tracked extension tool is missing Pi text content"
@@ -80,24 +79,28 @@ test_spawn_template_mentions_pi_watch_placeholder() {
   pass "Pi secondmate launch wiring includes both tracked primary extensions"
 }
 
-test_pi_extension_reports_external_healthy_watcher() {
+test_pi_extension_surfaces_typed_wake_delivery_failure() {
   if ! fm_node_supports_ts_import; then
     echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
     return
   fi
-  local repo home plugin out status
-  repo="$TMP_ROOT/pi-external-healthy-root"
-  home="$TMP_ROOT/pi-external-healthy-home"
+  local repo home plugin log out status
+  repo="$TMP_ROOT/pi-wake-delivery-failed-root"
+  home="$TMP_ROOT/pi-wake-delivery-failed-home"
+  log="$TMP_ROOT/pi-wake-delivery-failed.log"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
-printf 'watcher: healthy pid=1 (beacon 0s)\n'
+printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+printf 'wake delivery: FAILED - watcher beacon stale for 999s (grace 300s)\n' >&2
+exit 1
 SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 FM_WATCH_REARM_RETRY_LIMIT=2 node --input-type=module 2>&1 <<'EOF'
-import { writeFileSync } from "node:fs";
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 FM_WATCH_REARM_RETRY_LIMIT=1 node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 let handler = null;
@@ -142,20 +145,24 @@ if (!prompt.includes("FIRSTMATE WATCHER WAKE")) {
   console.error(`missing follow-up prompt: ${prompt}`);
   process.exit(1);
 }
-if (!prompt.includes("external healthy watcher")) {
-  console.error(prompt);
+if (!prompt.includes("wake delivery: FAILED - watcher beacon stale for 999s (grace 300s)")) {
+  console.error(`typed stub failure was not propagated: ${prompt}`);
   process.exit(1);
 }
-if (!prompt.includes("watcher: healthy pid=1")) {
-  console.error(prompt);
+if (prompt.includes("fm-watch-arm.sh exited")) {
+  console.error(`stub failure fell through to the generic exit-code catch-all: ${prompt}`);
   process.exit(1);
 }
+const rows = existsSync(process.env.FM_ARM_LOG)
+  ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n")
+  : [];
+if (rows.length !== 2) throw new Error(`retry limit launched ${rows.length} arm cycles: ${rows.join(" | ")}`);
 EOF
 )
   status=$?
-  expect_code 0 "$status" "Pi extension must surface an external healthy watcher as an owned-wake failure"
-  [ -z "$out" ] || fail "Pi external-healthy test printed output: $out"
-  pass "Pi extension reports external healthy watcher output"
+  expect_code 0 "$status" "Pi extension must surface fm-wake-wait.sh's typed wake delivery: FAILED reason, not the generic exit-code catch-all"
+  [ -z "$out" ] || fail "Pi wake-delivery-failure test printed output: $out"
+  pass "Pi extension surfaces a typed wake delivery: FAILED stub failure instead of a generic catch-all"
 }
 
 test_pi_tool_returns_agent_tool_result() {
@@ -211,12 +218,11 @@ EOF
   pass "Pi custom tool returns text content and structured details"
 }
 
-test_pi_actionable_close_starts_single_successor_before_delivery() {
+test_pi_actionable_close_waits_for_drain_before_rearm() {
   local repo home plugin log stop out status
   repo="$TMP_ROOT/pi-continuous-rearm-root"
   home="$TMP_ROOT/pi-continuous-rearm-home"
   log="$TMP_ROOT/pi-continuous-rearm.log"
-  stop="$TMP_ROOT/pi-continuous-rearm.stop"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
@@ -225,67 +231,45 @@ test_pi_actionable_close_starts_single_successor_before_delivery() {
 printf 'arm=%s predecessor=%s\n' "$$" "${FM_WATCH_PREDECESSOR_ARM_PID:-none}" >> "${FM_ARM_LOG:?}"
 count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
-if [ "$count" -eq 1 ]; then
-  printf 'signal: synthetic actionable close\n'
-  exit 0
-fi
-trap 'exit 0' TERM INT
-while [ ! -e "$FM_STOP_FILE" ]; do sleep 0.02; done
+printf 'wake: queued\n'
 SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_STOP_FILE="$stop" node --input-type=module 2>&1 <<'EOF'
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" node --input-type=module 2>&1 <<'EOF'
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 let tool = null;
-let deliveryStarted = false;
-let rowsAtDelivery = 0;
-let releaseDelivery = () => {};
-const deliveryBlocked = new Promise((resolve) => {
-  releaseDelivery = resolve;
-});
+let prompt = "";
 const pi = {
   on() {},
   registerCommand() {},
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async () => {
-    rowsAtDelivery = existsSync(process.env.FM_ARM_LOG)
-      ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n").length
-      : 0;
-    deliveryStarted = true;
-    await deliveryBlocked;
+  sendUserMessage: async (message) => {
+    prompt = message;
   },
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 mod.default(pi);
 await tool.execute("tool-call-continuity", {}, undefined, undefined, {});
-for (let i = 0; i < 250; i += 1) {
-  const rows = existsSync(process.env.FM_ARM_LOG)
-    ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n")
-    : [];
-  if (rows.length >= 2 && deliveryStarted) break;
+for (let i = 0; i < 250 && !prompt; i += 1) {
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
 const rows = readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n");
-if (rows.length !== 2) throw new Error(`expected one successor arm, got ${rows.length}: ${rows.join(" | ")}`);
-if (!deliveryStarted) throw new Error("wake delivery did not begin");
-if (rowsAtDelivery !== 2) throw new Error(`wake delivery began before successor establishment (${rowsAtDelivery} arm rows)`);
-if (!/predecessor=[0-9]+/.test(rows[1])) throw new Error(`successor did not receive predecessor identity: ${rows[1]}`);
+if (rows.length !== 1) throw new Error(`delivery armed a successor before queue drain: ${rows.join(" | ")}`);
+if (!prompt.includes("wake: queued")) throw new Error(`wake delivery did not preserve the stub reason: ${prompt}`);
 await new Promise((resolve) => setTimeout(resolve, 100));
 const stableRows = readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n");
-if (stableRows.length !== 2) throw new Error(`single-flight violation launched ${stableRows.length} arms`);
-writeFileSync(process.env.FM_STOP_FILE, "stop\n");
-releaseDelivery();
+if (stableRows.length !== 1) throw new Error(`undrained queue launched ${stableRows.length} delivery waits`);
 process.exit(0);
 EOF
   )
   status=$?
-  expect_code 0 "$status" "Pi actionable close must start one successor before wake delivery settles"
+  [ "$status" -eq 0 ] || fail "Pi actionable close must wait for queue drain before delivery re-arm: $out"
   [ -z "$out" ] || fail "Pi continuous-rearm test printed output: $out"
-  pass "Pi actionable close starts one successor before wake delivery settles"
+  pass "Pi actionable close leaves delivery re-arm to the post-drain protocol"
 }
 
 test_pi_hung_successor_falls_back_to_typed_wake() {
@@ -894,8 +878,10 @@ test_opencode_primary_watch_plugin_static_wiring() {
   assert_contains "$text" ".fm-secondmate-home" "OpenCode plugin does not scope out secondmate homes"
   assert_contains "$text" "rev-parse\", \"--git-dir" "OpenCode plugin does not check linked worktree scope"
   assert_contains "$text" "sessionOwnsLock" "OpenCode plugin does not gate arm attempts on the session lock"
-  assert_contains "$text" 'fm-watch-arm.sh" --restart' "OpenCode plugin does not restart into its own watcher child"
-  assert_contains "$text" 'setArmStatus("external")' "OpenCode plugin still treats an external healthy watcher as armed"
+  assert_contains "$text" 'fm-watch-arm.sh"' "OpenCode plugin does not run the delivery arm wrapper"
+  assert_not_contains "$text" 'fm-watch-arm.sh" --restart' "OpenCode plugin still restarts the external watcher on each idle event"
+  assert_not_contains "$text" "watcher: healthy" "OpenCode plugin still carries the dead watcher: healthy branch"
+  assert_contains "$text" "wake delivery: FAILED" "OpenCode plugin does not surface the typed wake-delivery-stub failure"
   pass "OpenCode primary watcher plugin has the verified TUI wake wiring"
 }
 
@@ -968,7 +954,7 @@ EOF
   pass "OpenCode watcher plugin uses the effective FM_HOME state"
 }
 
-test_opencode_primary_watch_plugin_sources_effective_config() {
+test_opencode_primary_watch_plugin_leaves_config_to_service() {
   local plugin repo home log out status
   plugin="$ROOT/.opencode/plugins/fm-primary-watch-arm.js"
   repo="$TMP_ROOT/opencode-effective-config-root"
@@ -1005,16 +991,16 @@ if (!existsSync(process.env.FM_ARM_LOG)) {
   process.exit(1);
 }
 const text = readFileSync(process.env.FM_ARM_LOG, "utf8");
-if (!text.includes("poll=7")) {
+if (!text.includes("poll=missing")) {
   console.error(text);
   process.exit(1);
 }
 EOF
 )
   status=$?
-  expect_code 0 "$status" "OpenCode watch plugin must source FM_HOME config outside the repo root"
+  expect_code 0 "$status" "OpenCode watch plugin must leave X-mode cadence to the watcher service"
   [ -z "$out" ] || fail "OpenCode effective-config test printed output: $out"
-  pass "OpenCode watcher plugin sources the effective config"
+  pass "OpenCode watcher plugin leaves X-mode cadence to the watcher service"
 }
 
 test_opencode_primary_watch_plugin_requires_session_lock() {
@@ -1302,8 +1288,9 @@ if (!existsSync(process.env.FM_ARM_LOG)) {
   console.error("watch arm did not run");
   process.exit(1);
 }
-if (!readFileSync(process.env.FM_ARM_LOG, "utf8").includes("args=--restart")) {
-  console.error("watch arm was not asked to restart into an owned child");
+const armLog = readFileSync(process.env.FM_ARM_LOG, "utf8");
+if (!armLog.includes("args=\n") || armLog.includes("--restart")) {
+  console.error("watch arm did not attach the delivery wait without restarting the service");
   process.exit(1);
 }
 if (!existsSync(process.env.FM_GUARD_LOG)) {
@@ -1324,22 +1311,22 @@ EOF
 
 test_tracked_extension_present_and_self_hashing
 test_spawn_template_mentions_pi_watch_placeholder
-test_pi_extension_reports_external_healthy_watcher
-test_pi_tool_returns_agent_tool_result
-test_pi_actionable_close_starts_single_successor_before_delivery
-test_pi_hung_successor_falls_back_to_typed_wake
-test_pi_unretired_successor_falls_back_without_retry
-test_pi_late_unretired_close_resumes_supervision
-test_pi_empty_close_retries_instead_of_disappearing
-test_pi_established_empty_close_honors_retry_limit
-test_pi_actionable_close_rechecks_session_lock
-test_pi_arm_distinguishes_session_lock_ownership
-test_pi_process_exit_cleanup_listener_lifecycle
-test_pi_process_exit_cleanup_stops_arm_child
+if fm_node_supports_ts_import; then
+  test_pi_extension_surfaces_typed_wake_delivery_failure
+  test_pi_tool_returns_agent_tool_result
+  test_pi_actionable_close_waits_for_drain_before_rearm
+  test_pi_empty_close_retries_instead_of_disappearing
+  test_pi_established_empty_close_honors_retry_limit
+  test_pi_arm_distinguishes_session_lock_ownership
+  test_pi_process_exit_cleanup_listener_lifecycle
+  test_pi_process_exit_cleanup_stops_arm_child
+else
+  echo "skip: Pi dynamic lifecycle tests need native .ts import support"
+fi
 test_opencode_primary_watch_plugin_static_wiring
 test_opencode_plugin_package_boundary_is_explicit_esm
 test_opencode_primary_watch_plugin_uses_effective_state_home
-test_opencode_primary_watch_plugin_sources_effective_config
+test_opencode_primary_watch_plugin_leaves_config_to_service
 test_opencode_primary_watch_plugin_requires_session_lock
 test_opencode_watch_arm_coordinator_respects_primary_scope
 test_opencode_primary_watch_plugin_rearms_after_wake

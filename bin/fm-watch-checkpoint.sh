@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Run one bounded foreground watcher checkpoint for harnesses that should not
-# rely on background-task completion to wake the model.
+# Run one bounded foreground wake-delivery checkpoint for harnesses that should
+# not rely on background-task completion to wake the model.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,8 +10,8 @@ usage() {
   cat <<'EOF'
 Usage: fm-watch-checkpoint.sh [--seconds <n>]
 
-Run bin/fm-watch.sh in the foreground for a bounded checkpoint.
-On an actionable watcher wake, pass through the watcher output and exit 0.
+Wait on bin/fm-wake-wait.sh in the foreground for a bounded checkpoint.
+When the durable queue becomes non-empty, pass through the stub output and exit 0.
 On a quiet checkpoint, print "checkpoint: no actionable wake within <n>s" and exit 124.
 EOF
 }
@@ -70,15 +70,15 @@ run_with_perl_timeout() {
     alarm $seconds;
     waitpid $pid, 0;
     exit($? >> 8);
-  ' "$SECONDS_ARG" "$SCRIPT_DIR/fm-watch.sh"
+  ' "$SECONDS_ARG" "$SCRIPT_DIR/fm-wake-wait.sh"
 }
 
 set +e
 if command -v timeout >/dev/null 2>&1; then
-  timeout "$SECONDS_ARG" "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
+  timeout "$SECONDS_ARG" "$SCRIPT_DIR/fm-wake-wait.sh" >"$OUT" 2>"$ERR"
   RC=$?
 elif command -v gtimeout >/dev/null 2>&1; then
-  gtimeout "$SECONDS_ARG" "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
+  gtimeout "$SECONDS_ARG" "$SCRIPT_DIR/fm-wake-wait.sh" >"$OUT" 2>"$ERR"
   RC=$?
 else
   run_with_perl_timeout >"$OUT" 2>"$ERR"
@@ -86,17 +86,10 @@ else
 fi
 set -e
 
-if grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >/dev/null 2>&1; then
+if grep -E '^wake: queued$' "$OUT" >/dev/null 2>&1; then
   cat "$OUT"
   [ ! -s "$ERR" ] || cat "$ERR" >&2
   exit 0
-fi
-
-if grep -E '^watcher: already running' "$OUT" "$ERR" >/dev/null 2>&1; then
-  [ ! -s "$OUT" ] || cat "$OUT"
-  [ ! -s "$ERR" ] || cat "$ERR" >&2
-  echo "checkpoint: watcher is already running outside this foreground checkpoint" >&2
-  exit 1
 fi
 
 if [ "$RC" -eq 124 ]; then

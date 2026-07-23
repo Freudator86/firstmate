@@ -44,6 +44,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # re-enables it against its isolated fake npm registry.
 export FM_AXI_SUITE_DISABLE=1
 
+# The watcher-service integration has its own dedicated suite with fake
+# systemd and tmux managers.
+# Unrelated behavior suites must not inspect or mutate the developer's live
+# user manager merely because they compose fm-bootstrap.sh.
+export FM_TEST_SKIP_WATCHER_SERVICE=1
+
 # --- reporters --------------------------------------------------------------
 
 fail() {
@@ -201,6 +207,32 @@ fm_write_secondmate_meta() {
     "yolo=off" \
     "home=$home" \
     "projects=$projects"
+}
+
+# fm_test_record_supervision_healthy <home> [state]: record identity-matched
+# daemon and delivery-stub locks owned by the long-lived test shell. This is for
+# fixtures whose subject merely passes through fm-guard.sh; tests of watcher
+# health itself should construct each state explicitly.
+fm_test_record_supervision_healthy() {
+  local home=$1 state=${2:-$1/state} pid identity session_lock
+  pid=$$
+  identity=$(LC_ALL=C ps -p "$pid" -o lstart= -o command= 2>/dev/null) \
+    || fail "could not read test-shell identity"
+  identity=$(printf '%s\n' "$identity" | sed 's/^[[:space:]]*//')
+  [ -n "$identity" ] || fail "test-shell identity was empty"
+  session_lock=$(cat "$state/.lock" 2>/dev/null || true)
+
+  mkdir -p "$state/.watch.lock" "$state/.wake-stub.lock"
+  printf '%s\n' "$pid" > "$state/.watch.lock/pid"
+  printf '%s\n' "$home" > "$state/.watch.lock/fm-home"
+  printf '%s\n' "$ROOT/bin/fm-watch.sh" > "$state/.watch.lock/watcher-path"
+  printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
+  printf '%s\n' "$pid" > "$state/.wake-stub.lock/pid"
+  printf '%s\n' "$home" > "$state/.wake-stub.lock/fm-home"
+  printf '%s\n' "$ROOT/bin/fm-wake-wait.sh" > "$state/.wake-stub.lock/stub-path"
+  printf '%s\n' "$session_lock" > "$state/.wake-stub.lock/session-lock-pid"
+  printf '%s\n' "$identity" > "$state/.wake-stub.lock/pid-identity"
+  touch "$state/.last-watcher-beat"
 }
 
 # --- common assertions ------------------------------------------------------

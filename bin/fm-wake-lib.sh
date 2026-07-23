@@ -68,6 +68,35 @@ fm_watcher_lock_matches_pid() {
   [ "$current_identity" = "$lock_identity" ]
 }
 
+fm_wake_stub_lock_matches_pid() {
+  local state=$1 stub_path=$2 pid=$3 home=${4:-$FM_HOME} lockdir lock_home lock_path lock_identity current_identity
+  local lock_session current_session
+  lockdir="$state/.wake-stub.lock"
+  lock_home=$(cat "$lockdir/fm-home" 2>/dev/null || true)
+  lock_path=$(cat "$lockdir/stub-path" 2>/dev/null || true)
+  lock_identity=$(cat "$lockdir/pid-identity" 2>/dev/null || true)
+  lock_session=$(cat "$lockdir/session-lock-pid" 2>/dev/null || true)
+  current_session=$(cat "$state/.lock" 2>/dev/null || true)
+  [ "$lock_home" = "$home" ] || return 1
+  [ "$lock_path" = "$stub_path" ] || return 1
+  [ "$lock_session" = "$current_session" ] || return 1
+  [ -n "$lock_identity" ] || return 1
+  current_identity=$(fm_pid_identity "$pid") || return 1
+  [ "$current_identity" = "$lock_identity" ]
+}
+
+FM_WAKE_STUB_ARMED_PID=
+fm_wake_stub_armed() {
+  local state=$1 stub_path=$2 home=${3:-$FM_HOME} pid
+  FM_WAKE_STUB_ARMED_PID=
+  pid=$(cat "$state/.wake-stub.lock/pid" 2>/dev/null || true)
+  fm_pid_alive "$pid" || return 1
+  fm_wake_stub_lock_matches_pid "$state" "$stub_path" "$pid" "$home" || return 1
+  # shellcheck disable=SC2034 # Read by callers after fm_wake_stub_armed returns.
+  FM_WAKE_STUB_ARMED_PID=$pid
+  return 0
+}
+
 FM_WATCHER_HEALTHY_PID=
 fm_watcher_healthy() {
   local state=$1 watch_path=$2 grace=${3:-${FM_GUARD_GRACE:-300}} home=${4:-$FM_HOME} lockdir beat pid age
@@ -91,6 +120,12 @@ fm_lock_clean_known_files() {
     "$lockdir/fm-home" \
     "$lockdir/pid-identity" \
     "$lockdir/watcher-path" \
+    "$lockdir/stub-path" \
+    "$lockdir/session-lock-pid" \
+    "$lockdir/manager" \
+    "$lockdir/source-version" \
+    "$lockdir/x-mode-version" \
+    "$lockdir/daemon" \
     "$lockdir/receiver-path" \
     "$lockdir/output-path" \
     2>/dev/null || true

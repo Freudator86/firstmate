@@ -44,6 +44,7 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 GRACE=${FM_GUARD_GRACE:-300}
 WATCH="$SCRIPT_DIR/fm-watch.sh"
+STUB="$SCRIPT_DIR/fm-wake-wait.sh"
 
 # shellcheck source=bin/fm-supervision-lib.sh
 . "$SCRIPT_DIR/fm-supervision-lib.sh"
@@ -83,20 +84,38 @@ fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
 fm_supervision_status "$STATE" "$GRACE"
 [ "$FM_SUP_IN_FLIGHT" -gt 0 ] || exit 0
-fm_watcher_healthy "$STATE" "$WATCH" "$GRACE" "$FM_HOME" && exit 0
+daemon_healthy=0
+delivery_armed=0
+fm_watcher_healthy "$STATE" "$WATCH" "$GRACE" "$FM_HOME" && daemon_healthy=1
+if [ -e "$STATE/.afk" ]; then
+  # Away mode's own daemon consumes new durable queue records; normal session
+  # delivery waits remain intentionally paused under the /afk contract.
+  delivery_armed=1
+elif fm_wake_stub_armed "$STATE" "$STUB" "$FM_HOME"; then
+  delivery_armed=1
+fi
+[ "$daemon_healthy" -eq 1 ] && [ "$delivery_armed" -eq 1 ] && exit 0
 
 afk=0
 [ -e "$STATE/.afk" ] && afk=1
 x_mode=0
 [ -f "$CONFIG/x-mode.env" ] && x_mode=1
-REASON=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
-  || printf '%s\n' 'tasks in flight, no live watcher - resume supervision according to the session-start operating block before ending the turn')
+DELIVERY_REASON=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
+  || printf '%s\n' 're-arm wake delivery according to the session-start operating block before ending the turn')
+DAEMON_REASON=$("$SCRIPT_DIR/fm-watcher-service.sh" repair-command 2>/dev/null \
+  || printf '%s\n' 'bin/fm-watcher-service.sh restart')
 rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 {
   printf '●%s\n' "$rule"
-  printf '●  TURN WOULD END BLIND - SUPERVISION IS OFF\n'
-  printf '●  %s task(s) in flight, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_IN_FLIGHT" "$FM_SUP_BEACON_DESC"
-  printf '●  %s\n' "$REASON"
+  printf '●  TURN WOULD END BLIND - SUPERVISION IS INCOMPLETE\n'
+  if [ "$daemon_healthy" -eq 0 ]; then
+    printf '●  Watcher daemon down: %s task(s) in flight and no healthy daemon holds this home lock (last beat: %s).\n' "$FM_SUP_IN_FLIGHT" "$FM_SUP_BEACON_DESC"
+    printf '●  Daemon repair: %s; treat this as a supervision incident and verify the beacon+lock predicate.\n' "$DAEMON_REASON"
+  fi
+  if [ "$delivery_armed" -eq 0 ]; then
+    printf '●  Wake delivery missing: no identity-matched delivery stub is armed for this session.\n'
+    printf '●  Delivery repair: %s\n' "$DELIVERY_REASON"
+  fi
   printf '●  This forced continuation is internal maintenance; after draining and re-arming, end silently unless a queued wake is captain-relevant under AGENTS.md section 9.\n'
   printf '●%s\n' "$rule"
 } >&2

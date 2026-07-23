@@ -764,6 +764,7 @@ run_bootstrap() {
 
 run_config_push() {
   local w=$1
+  fm_test_record_supervision_healthy "$w/home"
   PATH="$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     "$ROOT/bin/fm-config-push.sh"
 }

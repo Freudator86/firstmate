@@ -20,7 +20,7 @@ fm_test_tmproot TMP_ROOT fm-turnend-guard
 
 fm_git_identity fmtest fmtest@example.invalid
 
-REQUIRED_REASON='resume supervision with bin/fm-watch-arm.sh as its own Claude Code background task'
+REQUIRED_REASON='re-arm wake delivery with bin/fm-watch-arm.sh as its own Claude Code background task'
 SILENT_REASON='This forced continuation is internal maintenance'
 
 # --- PREDICATE: bin/fm-supervision-lib.sh -----------------------------------
@@ -242,6 +242,19 @@ record_watcher_lock() {
   printf '%s\n' "$identity" > "$dir/state/.watch.lock/pid-identity"
 }
 
+record_stub_lock() {
+  local dir=$1 pid=$2 identity=$3 root bin_dir session_pid
+  root=$(cd "$dir" && pwd)
+  bin_dir=$(cd "$dir/bin" && pwd)
+  session_pid=$(cat "$dir/state/.lock" 2>/dev/null || true)
+  mkdir -p "$dir/state/.wake-stub.lock"
+  printf '%s\n' "$pid" > "$dir/state/.wake-stub.lock/pid"
+  printf '%s\n' "$root" > "$dir/state/.wake-stub.lock/fm-home"
+  printf '%s\n' "$bin_dir/fm-wake-wait.sh" > "$dir/state/.wake-stub.lock/stub-path"
+  printf '%s\n' "$session_pid" > "$dir/state/.wake-stub.lock/session-lock-pid"
+  printf '%s\n' "$identity" > "$dir/state/.wake-stub.lock/pid-identity"
+}
+
 test_hook_silent_when_no_work_in_flight() {
   local dir out status
   dir=$(make_primary_dir "$TMP_ROOT/hook-idle")
@@ -288,6 +301,7 @@ test_hook_silent_with_live_lock_and_fresh_beacon() {
     fail "could not identify live watcher holder"
   }
   record_watcher_lock "$dir" "$pid" "$identity"
+  record_stub_lock "$dir" "$pid" "$identity"
   touch "$dir/state/.last-watcher-beat"
   out=$(run_hook "$dir" false); status=$?
   kill "$pid" 2>/dev/null || true
@@ -295,6 +309,24 @@ test_hook_silent_with_live_lock_and_fresh_beacon() {
   expect_code 0 "$status" "hook must exit 0 with a live identity-matched watcher lock and fresh beacon"
   [ -z "$out" ] || fail "hook produced output despite a live fresh watcher lock: $out"
   pass "fm-turnend-guard: silent no-op with a live watcher lock and fresh beacon"
+}
+
+test_hook_blocks_with_live_daemon_but_no_stub() {
+  local dir pid identity out status
+  dir=$(make_primary_dir "$TMP_ROOT/hook-live-daemon-no-stub")
+  : > "$dir/state/task1.meta"
+  sleep 60 &
+  pid=$!
+  identity=$(watcher_identity "$dir" "$pid") || fail "could not identify live watcher holder"
+  record_watcher_lock "$dir" "$pid" "$identity"
+  touch "$dir/state/.last-watcher-beat"
+  out=$(run_hook "$dir" false); status=$?
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  expect_code 2 "$status" "hook must block when daemon is healthy but no delivery stub is armed"
+  assert_contains "$out" "Wake delivery missing" "split predicate did not identify the missing delivery half"
+  assert_not_contains "$out" "Watcher daemon down" "split predicate falsely reported the daemon half down"
+  pass "fm-turnend-guard: healthy daemon without a session delivery stub blocks with the cheap re-arm repair"
 }
 
 test_hook_blocks_with_live_lock_and_stale_beacon() {
@@ -350,8 +382,8 @@ test_hook_x_mode_reason_sources_cadence() {
   : > "$dir/state/task1.meta"
   out=$(run_hook "$dir" false); status=$?
   expect_code 2 "$status" "hook must block when in-flight X-mode work has no live watcher"
-  assert_contains "$out" "source '$home/config/x-mode.env' first" "block reason must source the effective X-mode cadence"
-  pass "fm-turnend-guard: X-mode repair reason sources the cadence config"
+  assert_not_contains "$out" "source '$home/config/x-mode.env' first" "delivery repair must not source daemon-owned X-mode cadence"
+  pass "fm-turnend-guard: X-mode cadence belongs to the watcher service, not the delivery wait"
 }
 
 test_hook_ignores_repo_state_when_fm_home_set() {
@@ -460,6 +492,7 @@ test_hook_secondmate_reinvoke_recovery_loop() {
     fail "could not identify live watcher holder"
   }
   record_watcher_lock "$dir" "$pid" "$identity"
+  record_stub_lock "$dir" "$pid" "$identity"
   touch "$dir/state/.last-watcher-beat"
   out=$(run_hook "$dir" false); status=$?
   expect_code 0 "$status" "secondmate turn must end silently while its watcher is live (Stop #1)"
@@ -970,6 +1003,7 @@ test_hook_silent_when_no_work_in_flight
 test_hook_blocks_when_fresh_beacon_has_no_live_lock
 test_hook_blocks_when_dead_lock_has_fresh_beacon
 test_hook_silent_with_live_lock_and_fresh_beacon
+test_hook_blocks_with_live_daemon_but_no_stub
 test_hook_blocks_with_live_lock_and_stale_beacon
 test_hook_blocks_when_unhealthy_in_primary
 test_hook_blocks_from_fm_home_state

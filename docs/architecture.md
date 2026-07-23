@@ -11,7 +11,7 @@ firstmate's always-loaded operating contract and routing index for conditional p
 A zero-token bash watcher (`bin/fm-watch.sh`) sleeps on the fleet, classifies detected wakes in bash, and wakes the first mate only when something is actionable.
 Actionable wakes include captain-relevant status signals, no-verb signals whose crew is not provably working, authenticated check output such as PR merge polling or an X-mode mention, stale panes whose crew is not provably working whether their status log looks terminal or non-terminal, provably-working stale panes that persist past `FM_STALE_ESCALATE_SECS`, declared external waits (a crew's `paused:` status or a firstmate-declared `.parked-<window-key>` marker) that remain past `FM_PAUSE_RESURFACE_SECS`, and heartbeat backstop hits.
 Repeated provably-working stale escalations on the same unchanged pane add an escalation count to the wake reason and, at `FM_WEDGE_DEMAND_INSPECT_COUNT`, a `demand-deep-inspection` marker.
-Those actionable wakes are written to a durable local queue (`state/.wake-queue`) before detector state advances, so a missed process exit can be recovered by draining the queue.
+Those actionable wakes are written to a durable local queue (`state/.wake-queue`) before detector state advances, so losing a model-facing delivery wait cannot lose the wake.
 No-verb wakes, such as `working:` notes and bare turn-ended signals, are benign only when `bin/fm-crew-state.sh` reports positive evidence that the crew is still working: an actively running no-mistakes step for that crew's branch or a backend busy signature.
 A crew that declares `paused:` for a known external wait is separately absorbed while idle and re-surfaced only on the longer pause cadence, rather than being treated as a possible wedge.
 Its initial normal-mode status signal still surfaces through the no-verb path, while away mode self-handles that routine signal and owns the later recheck.
@@ -48,20 +48,23 @@ Optional X mode integrates with the watcher only after explicit opt-in; [configu
 The optional per-home Bridge inbox check uses the same watcher path to bounded-fetch and read a configured vessel's unacknowledged envelopes from the Bridge clone's `origin/main` without acknowledging them.
 It surfaces each pending inbox tree signature once and tightens only its own cadence for high or immediate priority; [configuration.md](configuration.md#bridge-inbox-check-fm_bridge_) owns the mechanics.
 
-At session start, `bin/fm-session-start.sh` emits exactly one primary-harness supervision block rendered by `bin/fm-supervision-instructions.sh` from `docs/supervision-protocols/`.
-That block owns the live wait shape for the running primary harness: Claude and Grok use background-notify cycles, Codex uses bounded foreground checkpoints, Pi uses its two tracked primary extensions, and OpenCode uses its TUI plugin.
-`bin/fm-watch-arm.sh` remains the verified arm wrapper for protocols that call it; it forks the watcher as a tracked child, verifies it is genuinely alive with a fresh liveness beacon, and prints exactly one honest status line (`started` / `attached` / restart-only `healthy` / `FAILED`, the last exiting non-zero).
-On `attached` it stays live until that existing cycle ends so background-notify harnesses do not get an empty false wake from a healthy no-op exit.
-Its `--restart` mode signals only the watcher recorded in the current home's `state/.watch.lock`, so restarting one home cannot kill sibling secondmate watchers.
+At session start, `bin/fm-session-start.sh` emits exactly one primary-harness delivery block rendered by `bin/fm-supervision-instructions.sh` from `docs/supervision-protocols/`.
+The watcher loop is external to the model harness and runs continuously in an enabled `systemd --user` template instance, or in a detached home-scoped tmux keeper when the user manager is unavailable.
+The harness block owns only the lightweight `bin/fm-wake-wait.sh` delivery shape: Claude and Grok use background notification, Codex uses bounded foreground checkpoints, Pi uses its tracked extension, and OpenCode uses its TUI plugin.
+`bin/fm-watch-arm.sh` is the verified service-and-delivery wrapper: it converges or restarts only this home's service, verifies the unchanged identity-matched watcher lock plus fresh-beacon predicate, then replaces itself with the delivery stub.
+It prints one honest `started`, `attached`, or `FAILED` status before the stub blocks.
+The stub publishes `state/.wake-stub.lock`, exits with `wake: queued` when the durable queue becomes non-empty, and never drains that queue.
+Killing the stub loses no wake and costs exactly one delivery re-arm.
+`bin/fm-watcher-service.sh` owns systemd instance encoding, unit convergence, scoped restarts, explicit-consent installation and lingering, and the tmux fallback keeper.
 Optional direct Telegram receive is armed separately from watcher supervision when `config/telegram.env` and an executable `config/fm-tg-recv.sh` exist.
 `bin/fm-tg-recv-arm.sh` starts or attaches to one home-scoped receiver through `state/.tg-recv.lock`, while the local receiver script owns the Telegram protocol and emitted `CAPTAIN-TELEGRAM` line.
-A pull-based guard (`bin/fm-guard.sh`) warns through supervision tool output if the primary checkout is tangled, or if tasks are in flight and that watcher stops running or queued wakes are waiting to be drained.
+A pull-based guard (`bin/fm-guard.sh`) warns through supervision tool output if the primary checkout is tangled, if tasks are in flight and the daemon lock plus beacon are unhealthy, if the current session's delivery-stub identity is absent, or if queued wakes are waiting to be drained.
 The drain script calls that guard after emptying the queue, which avoids repeating the queued-wakes warning for records it just consumed while still warning on stale watcher liveness.
 It leads with a prominent bordered tangle banner, while `bin/fm-guard.sh` owns the stale-watcher banner/reminder policy so repeated guarded commands stay noisy without reprinting the full watcher-down banner in the same episode.
-On every verified primary harness, tracked hook integration gives the primary session a push-based backstop: when work is in flight and no identity-matched watcher lock with a fresh beacon is live, direct Stop hooks block and passive turn-end hooks force one bounded follow-up.
+On every verified primary harness, tracked hook integration gives the primary session a push-based backstop: when work is in flight and either the daemon is unhealthy or the session delivery stub is unarmed, direct Stop hooks block and passive turn-end hooks force one bounded follow-up.
 The guard covers the main primary and genuinely marked secondmate homes, exempts child crewmate/scout worktrees, is loop-safe per harness, and is documented in [turnend-guard.md](turnend-guard.md).
 
-A presence-gated sub-supervisor (`bin/fm-supervise-daemon.sh`) extends this for walk-away supervision: the `/afk` skill starts it through the tracked foreground helper `bin/fm-afk-start.sh`, after which the watcher reverts to daemon-managed one-shot mode and the daemon self-handles routine wakes in bash.
+A presence-gated sub-supervisor (`bin/fm-supervise-daemon.sh`) extends this for walk-away supervision: the `/afk` skill starts it through the tracked foreground helper `bin/fm-afk-start.sh`, after which the external watcher keeps enqueuing and the away daemon reads new queue records without draining the queue.
 The watcher and daemon share `bin/fm-classify-lib.sh` for captain-relevant status verbs, declared-external-wait vocabulary, and status-scan primitives.
 The always-on watcher also uses that library's absorb classification on no-verb signals and first-sighting stale panes before status-log terminality is trusted, while the daemon maintains distinct wedge and declared-pause recheck cadences.
 The daemon escalates captain-relevant events, plus a bounded recheck for a declared pause that remains idle, as one batched, single-line digest prefixed with a terminal-safe U+2063 sentinel marker so firstmate can tell daemon injections apart from real messages.
@@ -256,5 +259,6 @@ Use `/stow` before an intentional reset when the conversation may hold durable k
 
 ## Development notes
 
-The current watcher reliability work combines always-on bash triage with a durable queue for actionable wakes, a race-proof singleton lock, duplicate self-eviction, drain-time liveness assertion, a self-verifying tracked-child arm wrapper, and arm-owner liveness reaping so a watcher forked by that wrapper (including one armed from within a worktree) cannot outlive it as an orphan if the wrapper is killed before it can run its own cleanup.
-The presence-gated sub-supervisor (`bin/fm-supervise-daemon.sh`) provides walk-away supervision via the `/afk` skill while reusing the same shared wake classifier as the always-on watcher.
+The watcher service combines always-on bash triage with a durable queue, a race-proof singleton lock, systemd or tmux-keeper restart ownership, source-version convergence, and a separately identity-matched session delivery stub.
+The presence-gated sub-supervisor (`bin/fm-supervise-daemon.sh`) provides walk-away supervision via the `/afk` skill while reading the same durable queue without taking ownership of the watcher process.
+The Herdr event-wait capability cache periodically re-probes a disabled push path inside the long-lived watcher, so a transient capability failure does not persist until service restart.

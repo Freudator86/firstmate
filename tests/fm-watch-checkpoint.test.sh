@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for bounded foreground watcher checkpoints used by Codex supervision.
+# Tests for bounded foreground wake-delivery checkpoints used by Codex.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -15,79 +15,78 @@ make_home() {
   printf '%s\n' "$home"
 }
 
+record_fake_daemon() {
+  local home=$1 pid=$2 identity
+  identity=$(FM_HOME="$home" bash -c '. "$1"; fm_pid_identity "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$pid")
+  mkdir -p "$home/state/.watch.lock"
+  printf '%s\n' "$pid" > "$home/state/.watch.lock/pid"
+  printf '%s\n' "$home" > "$home/state/.watch.lock/fm-home"
+  printf '%s\n' "$ROOT/bin/fm-watch.sh" > "$home/state/.watch.lock/watcher-path"
+  printf '%s\n' "$identity" > "$home/state/.watch.lock/pid-identity"
+  touch "$home/state/.last-watcher-beat"
+}
+
 test_quiet_checkpoint_exits_124_cleanly() {
-  local home out err status
+  local home out err status daemon
   home=$(make_home quiet)
   out="$home/out.txt"
   err="$home/err.txt"
+  sleep 60 & daemon=$!
+  record_fake_daemon "$home" "$daemon"
   status=0
-  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
+  FM_HOME="$home" "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
+  kill "$daemon" 2>/dev/null || true
+  wait "$daemon" 2>/dev/null || true
   expect_code 124 "$status" "quiet checkpoint exit"
   assert_contains "$(cat "$out")" "checkpoint: no actionable wake within 1s" "quiet checkpoint line missing"
-  assert_absent "$home/state/.watch.lock/pid" "watch lock pid survived quiet checkpoint timeout"
-  pass "quiet checkpoint exits 124 with a clean checkpoint line and no live lock"
+  assert_absent "$home/state/.wake-stub.lock/pid" "stub lock pid survived quiet checkpoint timeout"
+  pass "quiet checkpoint exits 124 and its timed-out delivery stub releases the lock"
 }
 
-test_signal_passes_through_and_exits_zero() {
-  local home out err status drained
-  home=$(make_home signal)
+test_queued_wake_passes_through_and_exits_zero() {
+  local home out err status daemon queued
+  home=$(make_home queued)
   out="$home/out.txt"
   err="$home/err.txt"
+  sleep 60 & daemon=$!
+  record_fake_daemon "$home" "$daemon"
   (
     sleep 1
-    printf 'done: synthetic wake\n' > "$home/state/demo.status"
+    FM_HOME="$home" bash -c '. "$1"; fm_wake_append signal demo.status "signal: demo.status"' _ "$ROOT/bin/fm-wake-lib.sh"
   ) &
   status=0
-  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 "$CHECKPOINT" --seconds 8 >"$out" 2>"$err" || status=$?
-  expect_code 0 "$status" "signal checkpoint exit"
-  assert_contains "$(cat "$out")" "signal:" "signal wake was not passed through"
-  drained=$(FM_HOME="$home" "$ROOT/bin/fm-wake-drain.sh")
-  assert_contains "$drained" $'\tsignal\tdemo.status\t' "signal wake was not queued durably"
-  pass "checkpoint passes through a real watcher wake and leaves the queue for drain"
+  FM_HOME="$home" "$CHECKPOINT" --seconds 8 >"$out" 2>"$err" || status=$?
+  kill "$daemon" 2>/dev/null || true
+  wait "$daemon" 2>/dev/null || true
+  expect_code 0 "$status" "queued checkpoint exit"
+  assert_contains "$(cat "$out")" "wake: queued" "queue delivery signal was not passed through"
+  queued=$(cat "$home/state/.wake-queue")
+  assert_contains "$queued" $'\tsignal\tdemo.status\tsignal: demo.status' "checkpoint drained or lost the durable wake"
+  pass "checkpoint reports a queued wake and leaves the queue untouched"
 }
 
-test_registered_check_uses_preserved_watcher_environment() {
-  local home out err status
-  home=$(make_home check-env)
-  out="$home/out.txt"
-  err="$home/err.txt"
-  printf '%s\n' fm-pr-check-migration-scan-v1 > "$home/state/.pr-check-migration-scan-v1"
-  printf '%s\n' fm-pr-check-migration-v1 > "$home/state/.pr-check-migration-v1"
-  chmod 0600 "$home/state/.pr-check-migration-scan-v1" "$home/state/.pr-check-migration-v1"
-  cat > "$home/state/env-check.check.sh" <<'SH'
-#!/usr/bin/env bash
-printf 'env check fired with FM_CHECK_INTERVAL=%s\n' "${FM_CHECK_INTERVAL:-missing}"
-SH
-  chmod 0700 "$home/state/env-check.check.sh"
-  FM_HOME="$home" "$ROOT/bin/fm-check-register.sh" env-check >/dev/null \
-    || fail "could not register checkpoint custom check"
-  status=0
-  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=1 "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
-  expect_code 0 "$status" "check checkpoint exit"
-  assert_contains "$(cat "$out")" "check:" "check wake was not passed through"
-  assert_contains "$(cat "$out")" "FM_CHECK_INTERVAL=1" "watcher environment was not preserved"
-  pass "checkpoint preserves watcher environment for registered custom checks"
-}
-
-test_existing_singleton_watcher_is_not_success() {
-  local home out err status
+test_existing_delivery_stub_is_not_success() {
+  local home out err status daemon first
   home=$(make_home singleton)
   out="$home/out.txt"
   err="$home/err.txt"
-  printf '%s\n' fm-pr-check-migration-scan-v1 > "$home/state/.pr-check-migration-scan-v1"
-  printf '%s\n' fm-pr-check-migration-v1 > "$home/state/.pr-check-migration-v1"
-  chmod 0600 "$home/state/.pr-check-migration-scan-v1" "$home/state/.pr-check-migration-v1"
-  mkdir "$home/state/.watch.lock"
-  printf '%s\n' "$$" > "$home/state/.watch.lock/pid"
+  sleep 60 & daemon=$!
+  record_fake_daemon "$home" "$daemon"
+  FM_HOME="$home" "$ROOT/bin/fm-wake-wait.sh" >/dev/null 2>&1 & first=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ -e "$home/state/.wake-stub.lock/pid" ] && break
+    sleep 0.1
+  done
   status=0
-  FM_HOME="$home" FM_GUARD_GRACE=300 "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
-  expect_code 1 "$status" "singleton checkpoint exit"
-  assert_contains "$(cat "$out")" "watcher: already running" "singleton watcher output was not passed through"
-  assert_contains "$(cat "$err")" "outside this foreground checkpoint" "singleton watcher failure was not explained"
-  pass "checkpoint rejects an existing watcher singleton as unowned"
+  FM_HOME="$home" "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
+  kill "$first" "$daemon" 2>/dev/null || true
+  wait "$first" 2>/dev/null || true
+  wait "$daemon" 2>/dev/null || true
+  expect_code 1 "$status" "duplicate delivery checkpoint exit"
+  assert_contains "$(cat "$err")" "another delivery stub already holds" "duplicate delivery failure was not explained"
+  pass "checkpoint rejects a duplicate session delivery stub"
 }
 
 test_quiet_checkpoint_exits_124_cleanly
-test_signal_passes_through_and_exits_zero
-test_registered_check_uses_preserved_watcher_environment
-test_existing_singleton_watcher_is_not_success
+test_queued_wake_passes_through_and_exits_zero
+test_existing_delivery_stub_is_not_success

@@ -47,6 +47,18 @@ run_guard_case_read_only() {
     "$ROOT/bin/fm-guard.sh" 2>&1
 }
 
+record_live_daemon() {
+  local home=$1 pid=$2 identity state
+  state="$home/state"
+  identity=$(FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$pid")
+  mkdir -p "$state/.watch.lock"
+  printf '%s\n' "$pid" > "$state/.watch.lock/pid"
+  printf '%s\n' "$home" > "$state/.watch.lock/fm-home"
+  printf '%s\n' "$ROOT/bin/fm-watch.sh" > "$state/.watch.lock/watcher-path"
+  printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
+  touch "$state/.last-watcher-beat"
+}
+
 count_text() {
   local haystack=$1 needle=$2
   awk -v needle="$needle" 'index($0, needle) { c++ } END { print c + 0 }' <<EOF
@@ -58,10 +70,10 @@ test_first_stale_call_prints_full_banner() {
   local dir out
   dir=$(make_guard_case first-stale)
   out=$(run_guard_case "$dir")
-  [ "$(count_text "$out" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
+  [ "$(count_text "$out" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")" -eq 1 ] \
     || fail "first stale guard call did not print exactly one full banner: $out"
-  assert_contains "$out" "Trust the emitted supervision protocol" \
-    "full banner must keep the actionable watcher-repair instruction"
+  assert_contains "$out" "Daemon repair: systemctl --user restart" \
+    "full banner must keep the scoped daemon-repair instruction"
   assert_contains "$out" "WILL still run" \
     "full banner must keep the guarded-operation continuation line"
   pass "fm-guard stale banner: first stale call prints the full actionable banner"
@@ -72,9 +84,9 @@ test_repeated_same_episode_prints_reminder_only() {
   dir=$(make_guard_case repeated-stale)
   out1=$(run_guard_case "$dir")
   out2=$(run_guard_case "$dir")
-  [ "$(count_text "$out1" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
+  [ "$(count_text "$out1" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")" -eq 1 ] \
     || fail "first stale call did not print the full banner: $out1"
-  [ "$(count_text "$out2" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 0 ] \
+  [ "$(count_text "$out2" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")" -eq 0 ] \
     || fail "second stale call repeated the full banner: $out2"
   assert_contains "$out2" "full banner already printed this episode" \
     "second stale call did not print the concise reminder"
@@ -86,22 +98,27 @@ test_repeated_same_episode_prints_reminder_only() {
 }
 
 test_healthy_recovery_rearms_next_stale_episode() {
-  local dir home out1 healthy out2
+  local dir home out1 healthy out2 live
   dir=$(make_guard_case healthy-recovery)
   home=$(case_home "$dir")
   out1=$(run_guard_case "$dir")
-  [ "$(count_text "$out1" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
+  [ "$(count_text "$out1" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")" -eq 1 ] \
     || fail "first stale episode did not print the full banner: $out1"
 
-  touch "$home/state/.last-watcher-beat"
+  sleep 60 & live=$!
+  record_live_daemon "$home" "$live"
+  : > "$home/state/.afk"
   healthy=$(run_guard_case "$dir")
   [ -z "$healthy" ] || fail "guard should be silent after watcher recovery, got: $healthy"
   assert_absent "$home/state/.guard-watcher-stale-banner" \
     "healthy recovery must clear the stale-banner marker"
 
+  kill "$live" 2>/dev/null || true
+  wait "$live" 2>/dev/null || true
+  rm -f "$home/state/.afk"
   rm -f "$home/state/.last-watcher-beat"
   out2=$(run_guard_case "$dir")
-  [ "$(count_text "$out2" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
+  [ "$(count_text "$out2" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")" -eq 1 ] \
     || fail "second stale episode did not re-print the full banner: $out2"
   pass "fm-guard stale banner: healthy recovery rearms the next stale episode"
 }
@@ -124,7 +141,7 @@ test_concurrent_same_episode_prints_one_full_banner() {
     wait "$pid" 2>/dev/null || fail "concurrent guard subprocess failed"
   done
   all=$(cat "$out_dir"/*.out)
-  full=$(count_text "$all" "WATCHER DOWN - SUPERVISION IS OFF")
+  full=$(count_text "$all" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")
   reminders=$(count_text "$all" "full banner already printed this episode")
   [ "$full" -eq 1 ] || fail "concurrent same-episode calls printed $full full banners"$'\n'"$all"
   [ "$reminders" -eq 29 ] || fail "concurrent same-episode calls printed $reminders reminders, expected 29"$'\n'"$all"
@@ -138,9 +155,9 @@ test_home_isolation() {
   out_a1=$(run_guard_case "$dir_a")
   out_b1=$(run_guard_case "$dir_b")
   out_a2=$(run_guard_case "$dir_a")
-  [ "$(count_text "$out_a1" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
+  [ "$(count_text "$out_a1" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")" -eq 1 ] \
     || fail "home A first stale call did not print a full banner: $out_a1"
-  [ "$(count_text "$out_b1" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
+  [ "$(count_text "$out_b1" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")" -eq 1 ] \
     || fail "home B first stale call was suppressed by home A: $out_b1"
   assert_contains "$out_a2" "full banner already printed this episode" \
     "home A repeated stale call did not remember its own episode"
@@ -152,7 +169,7 @@ test_queued_wake_warning_stays_independent() {
   dir=$(make_guard_case queued-wake)
   home=$(case_home "$dir")
   out1=$(run_guard_case "$dir")
-  [ "$(count_text "$out1" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
+  [ "$(count_text "$out1" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")" -eq 1 ] \
     || fail "first stale call did not print the full banner before queued wake case: $out1"
   printf 'signal: %s/state/task.status\n' "$home" > "$home/state/.wake-queue"
   out2=$(run_guard_case "$dir")
@@ -171,13 +188,13 @@ test_read_only_before_writable_does_not_consume_full_banner() {
   lock="$home/state/.guard-watcher-stale-banner.lock"
 
   out_ro=$(run_guard_case_read_only "$dir")
-  [ "$(count_text "$out_ro" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
+  [ "$(count_text "$out_ro" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")" -eq 1 ] \
     || fail "read-only stale call should print the advisory full banner: $out_ro"
   assert_absent "$marker" "read-only stale call must not create the stale-banner marker"
   assert_absent "$lock" "read-only stale call must not create the stale-banner lock"
 
   out_rw=$(run_guard_case "$dir")
-  [ "$(count_text "$out_rw" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
+  [ "$(count_text "$out_rw" "WATCHER DAEMON DOWN - SUPERVISION IS OFF")" -eq 1 ] \
     || fail "writable stale call should still receive the full banner after read-only: $out_rw"
   assert_present "$marker" "writable stale call should claim the stale-banner marker"
   pass "fm-guard stale banner: read-only before writable does not consume full banner"
@@ -200,19 +217,23 @@ test_read_only_during_episode_observes_without_mutating_marker() {
 }
 
 test_healthy_read_only_does_not_clear_marker() {
-  local dir home marker before after healthy
+  local dir home marker before after healthy live
   dir=$(make_guard_case healthy-read-only)
   home=$(case_home "$dir")
   marker="$home/state/.guard-watcher-stale-banner"
 
   run_guard_case "$dir" >/dev/null
   before=$(cat "$marker")
-  touch "$home/state/.last-watcher-beat"
+  sleep 60 & live=$!
+  record_live_daemon "$home" "$live"
+  : > "$home/state/.afk"
   healthy=$(run_guard_case_read_only "$dir")
   [ -z "$healthy" ] || fail "healthy read-only guard should stay silent, got: $healthy"
   assert_present "$marker" "healthy read-only guard must not clear the stale-banner marker"
   after=$(cat "$marker")
   [ "$after" = "$before" ] || fail "healthy read-only guard must not update the marker"
+  kill "$live" 2>/dev/null || true
+  wait "$live" 2>/dev/null || true
   pass "fm-guard stale banner: healthy read-only does not clear marker"
 }
 

@@ -1,35 +1,26 @@
-Mode: Pi extension background wake.
+Mode: Pi extension wake delivery.
 
 When this session owns supervision and away mode is not active:
+
 1. Drain first with `bin/fm-wake-drain.sh`.
-2. Confirm the Pi primary auto-loaded both project extensions (plain `pi`, after approving project trust once per clone); if not, restart with `-e __FM_PI_TURNEND_EXT__ -e __FM_PI_EXT__` as a trust-free fallback.
-3. Arm supervision with the `fm_watch_arm_pi` tool.
+2. Confirm the Pi primary auto-loaded both project extensions.
+   If not, restart with `-e __FM_PI_TURNEND_EXT__ -e __FM_PI_EXT__` as a trust-free fallback.
+3. Arm delivery with the `fm_watch_arm_pi` tool.
    Use `/fm-watch-arm-pi` only as a human-entered fallback.
-   Never run `bin/fm-watch-arm.sh` through Pi's bash tool because that foreground arm can wedge the agent and bypasses extension-owned cleanup.
+   Never run `bin/fm-watch-arm.sh` through Pi's bash tool because that foreground wait can wedge the agent and bypasses extension-owned cleanup.
 4. If the extension says no live session holds the lock, run `bin/fm-session-start.sh` to reclaim the session lock, then call `fm_watch_arm_pi` again.
-5. The extension starts `bin/fm-watch-arm.sh --restart`, keeps the child attached to the live Pi process, and sends a follow-up user message when the child exits with an actionable watcher reason.
-   On an actionable close the extension first tries to keep supervision continuous: it launches a successor arm and only surfaces the wake once that successor is confirmed ready, or after it exhausts `FM_WATCH_REARM_RETRY_LIMIT` bounded retries, retiring each unready successor before the next attempt.
-   A non-actionable close schedules its own bounded continuity retry the same way.
-   This is single-flight - a wake never arrives before the extension has either a confirmed successor or a typed restoration failure appended to the message.
-6. If the extension says the watcher is already healthy, do not start another cycle.
-7. If the extension reports a watcher failure, drain queued wakes, inspect the failure text, and restart Pi with both extensions loaded if needed.
-8. Never use shell `&` for watcher supervision.
-   The arm mechanism above is extension-owned, not a model tool call, but a manual recovery probe that backgrounds, pipes, or bundles the arm is denied automatically by the PreToolUse seatbelt (`bin/fm-arm-pretool-check.sh`, wired into the turn-end guard extension at `__FM_PI_TURNEND_EXT__`).
-9. On an extension wake, drain queued wakes, immediately call `fm_watch_arm_pi` before composing any reply or beginning long work, then handle the drained wakes.
-10. If nothing reaches `AGENTS.md` section 9's escalation bar, including a review-ready PR, findings, a needed decision, a real blocker or failure, or a needed credential, end the turn with tool calls only and send no chat text.
+5. The extension starts and awaits `bin/fm-watch-arm.sh`, keeps that lightweight delivery child attached to the live Pi process, and sends a follow-up user message when it exits with `wake: queued` or a failure.
+6. An actionable close never starts a successor before drain because the durable queue remains non-empty.
+   Drain and handle the queued wake, then call `fm_watch_arm_pi` before composing a reply or beginning long work.
+7. A non-actionable child failure uses the extension's bounded retry path and surfaces a typed failure if continuity cannot be restored.
+8. If the extension reports a watcher failure, drain queued wakes, inspect the failure text, and restart Pi with both extensions loaded if needed.
+9. Never use shell `&` for wake delivery.
+   The arm mechanism above is extension-owned, but a manual recovery probe that backgrounds, pipes, or bundles the arm is denied automatically by the PreToolUse seatbelt (`bin/fm-arm-pretool-check.sh`, wired into the turn-end guard extension at `__FM_PI_TURNEND_EXT__`).
+10. If nothing reaches `AGENTS.md` section 9's escalation bar, end the turn with tool calls only and send no chat text.
     Any no-change wake turn that sends chat text is a protocol violation, not politeness.
 
+The external service owns the watcher loop.
+The extension owns only the delivery stub and its cleanup when Pi exits.
 The turn-end guard extension lives at `__FM_PI_TURNEND_EXT__`.
 The watcher extension lives at `__FM_PI_EXT__`.
-Both are tracked, project-local `.pi/extensions/*.ts` files that Pi auto-discovers once the project is trusted; `bin/fm-session-start.sh` reports when the running Pi session has not loaded both required extensions.
-
-Verification on 2026-07-09 used Pi 0.80.5, an isolated `PI_CODING_AGENT_DIR`, an isolated `FM_HOME`, and the dedicated tmux socket `fm-pi-q6-lab`.
-The command `Use the fm_watch_arm_pi custom tool now. Do not use bash.` rendered `watcher: started Pi extension arm child 1`, then the model returned `DONE` without the prior `result.content.filter(...)` crash.
-The extension tool returned Pi's required text `content` plus structured `details` and used `Type.Object({})` for its parameter schema.
-The human command `/fm-watch-arm-pi` notified through `ctx.ui.notify(...)` and returned no value.
-The clean-exit probe ran `/quit`, printed `PI_EXIT=0`, and confirmed that both the attached arm process and watcher child were gone.
-That cleanup is owned by a one-shot process `exit` listener because Pi 0.80.5 did not reliably emit `session_shutdown` for `/quit`; the listener is removed when `session_shutdown` does run.
-Command run for the complete interactive regression: `FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh`.
-Observed output: `ok - Pi 0.80.5 live E2E rendered the tool, guarded once, woke, re-armed, and cleaned up on exit`.
-Command run for the installed-type contract: `tests/fm-pi-primary-types.test.sh`.
-Observed output: `ok - Pi primary extensions pass strict no-emit typecheck against Pi 0.80.5`.
+Both are tracked, project-local `.pi/extensions/*.ts` files that Pi auto-discovers once the project is trusted.

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Firstmate watcher.
-# Classifies supervision wakes in bash. In normal mode it absorbs benign wakes
-# and keeps blocking; it queues and exits only for actionable wakes.
+# Classifies supervision wakes in bash.
+# Session mode exits after an actionable queue append, while daemon mode keeps
+# the external loop alive after the same durable append.
 # The no-verb signal and stale path is absorb-only-when-provably-working: a wake
 # is absorbed only when the crew shows POSITIVE evidence it is still working (an
 # actively-running no-mistakes step, or a backend busy signal), and surfaced
@@ -10,8 +11,9 @@
 # a firstmate-declared parked terminal task is the separate idle absorb case and
 # re-surfaces only on its long bounded cadence. A new status write still surfaces
 # immediately in normal mode and clears parked tracking.
-# While state/.afk exists, the daemon owns triage and this watcher queues and exits
-# on every wake. Printed reason lines:
+# While state/.afk exists, the away daemon owns triage and this watcher queues
+# every wake without running the more expensive normal-mode classifiers.
+# Printed reason lines:
 #   signal: <file>...      status/turn-end signals, surfaced when a listed status
 #                          has a captain-relevant verb OR a no-verb signal's crew
 #                          is not provably working, unless afk is active
@@ -82,17 +84,18 @@ mkdir -p "$STATE"
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
 WATCHER_STALE_GRACE=${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-300}}
-# A watcher forked by fm-watch-arm.sh remains owned by that wrapper. The arm's
-# ordinary-signal traps stop it directly; this parent check covers SIGKILL and
-# other exits where the wrapper cannot run cleanup. Direct watcher invocations
-# have no owner pid and retain their existing standalone lifecycle.
+WATCH_DAEMON=${FM_WATCH_DAEMON:-0}
+case "$WATCH_DAEMON" in 1|true|TRUE|yes|YES) WATCH_DAEMON=1 ;; *) WATCH_DAEMON=0 ;; esac
+# Legacy session-owned watcher launches may still provide an explicit owner pid.
+# The external daemon never does, and skips this compatibility parent check even
+# if an inherited environment accidentally carries the variable.
 WATCH_ARM_OWNER_PID=${FM_WATCH_ARM_OWNER_PID:-}
 # The singleton-lock acquisition, EXIT trap, and the blocking supervision loop
 # all live below the source guard at the very bottom of this file (see "Main
 # entry"). Sourcing this file for unit tests therefore loads the functions -
 # including the event-wait splice below - and returns before acquiring the lock
-# or starting the loop. Running it as a script executes the runtime exactly as
-# before, byte-for-byte.
+# or starting the loop. Running it as a script executes either the compatible
+# one-shot runtime or the external daemon loop selected above.
 
 # Portable stat. macOS (BSD) stat uses `-f <fmt>`; Linux (GNU) stat uses `-c <fmt>`.
 # Do NOT use the `stat -f <fmt> ... || stat -c <fmt> ...` fallback form: on Linux
@@ -145,11 +148,11 @@ BUSY_REGEX=${FM_BUSY_REGEX:-'esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel'}
 # (no done: status) is never swallowed. An ACTIONABLE wake (a captain-relevant
 # signal, a no-verb signal whose crew is not provably working, any check, a stale
 # pane whose crew is not provably working, a provably-working stale past the
-# threshold, or anything unknown) is written to the durable queue and exits, which
-# is what wakes the LLM through the background-task completion. The same classifier
-# (fm-classify-lib.sh) backs the away-mode daemon; while state/.afk exists the
-# daemon owns triage, so this watcher reverts to one-shot (enqueue + exit on every
-# wake) and never double-triages - and never runs the costly provably-working read.
+# threshold, or anything unknown) is written to the durable queue.
+# In daemon mode the loop continues and the delivery stub wakes the model.
+# The same classifier (fm-classify-lib.sh) backs the away-mode daemon; while
+# state/.afk exists this watcher enqueues every wake and skips the costly
+# provably-working read so the away daemon can triage each new queue record.
 STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provably-working stale escalates as a possible wedge
 # A crew that DECLARED a pause (paused: <reason>, fm-classify-lib.sh), or a terminal
 # task that firstmate marks state/.parked-<window-key> after relaying its outcome,
@@ -161,22 +164,24 @@ PAUSE_RESURFACE_SECS=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT
 TRIAGE_LOG="$STATE/.watch-triage.log"
 TRIAGE_LOG_MAX_BYTES=${FM_WATCH_TRIAGE_LOG_MAX_BYTES:-262144}
 # Consecutive event-path failures (fm_backend_wait_transition returning 2 -
-# connect/subscribe failure) before the push fast-path is disabled for the rest
-# of this watcher process and the loop reverts to pure polling (report section
-# 5c trigger 3: proven-unreliable-at-runtime). A watcher restart re-probes
-# capability, so a transient herdr hiccup self-heals on the next cycle chain.
+# connect/subscribe failure) before the push fast-path is disabled and the loop
+# reverts to polling.
+# A disabled capability is re-probed periodically because daemon mode may keep
+# one watcher process alive indefinitely.
 EVENT_CAP_FAIL_MAX=${FM_EVENT_CAP_FAIL_MAX:-3}
+EVENT_CAP_REPROBE_SECS=${FM_EVENT_CAP_REPROBE_SECS:-300}
 # Per-process memo for the push-capability probe (fm_backend_events_capable runs
-# a ~220KB `herdr api schema` read, too heavy to repeat every poll). Keyed by
-# "<backend>:<session>"; re-probed only when that key changes.
+# a ~220KB `herdr api schema` read, too heavy to repeat every poll).
+# It is keyed by "<backend>:<session>" and also expires after the configured
+# re-probe interval when the capability is disabled.
 _event_cap_key=""
 _event_cap_ok=0
 _event_cap_fails=0
+_event_cap_probe_epoch=0
 
-# afk_present: 0 while the away-mode flag exists. When set, the daemon wraps this
-# watcher and owns triage, so the watcher must behave one-shot (enqueue + exit on
-# every wake) and let the daemon classify - never absorb here, or the daemon's
-# digest/injection layer would never see the wake.
+# afk_present: 0 while the away-mode flag exists.
+# When set, the away daemon owns triage, so the watcher must enqueue every wake
+# and let the daemon classify it instead of absorbing it here.
 afk_present() { [ -e "$STATE/.afk" ]; }
 
 # Append one line to the triage debug log explaining an absorbed (benign) wake,
@@ -264,15 +269,23 @@ recorded_windows() {
   done
 }
 
-# Exit reporting a wake. Consecutive heartbeats with no other wake in between
+# Report a wake. Consecutive heartbeats with no other wake in between
 # mean an idle fleet, so the heartbeat interval backs off exponentially
 # (base * 2^streak, capped at HEARTBEAT_MAX); any real wake resets the cadence.
+# A session-owned one-shot watcher exits as before.  The external service sets
+# FM_WATCH_DAEMON=1, records WAKE_PENDING, and lets the main loop advance to its
+# next cycle without restarting the process.
+WAKE_PENDING=0
 wake() {
   case "$1" in
     heartbeat*) echo $(( $(cat "$STATE/.heartbeat-streak" 2>/dev/null || echo 0) + 1 )) > "$STATE/.heartbeat-streak" ;;
     *) echo 0 > "$STATE/.heartbeat-streak" ;;
   esac
   echo "$1"
+  if [ "$WATCH_DAEMON" -eq 1 ]; then
+    WAKE_PENDING=1
+    return 0
+  fi
   exit 0
 }
 
@@ -316,6 +329,7 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
         fm_wake_append stale "$win" "$reason" || exit 1
         rm -f "$since_file"
         wake "$reason"
+        return
       fi
       ;;
   esac
@@ -348,6 +362,7 @@ handle_paused_stale() {  # <window> <task> <hash>
     fm_wake_append stale "$win" "$reason" || exit 1
     date +%s > "$rf"
     wake "$reason"
+    return
   fi
   triage_log "absorbed stale (paused, awaiting external, age ${age}s): $win"
 }
@@ -524,6 +539,7 @@ handle_parked_stale() {  # <window> <hash>
     fm_wake_append stale "$win" "$reason" || exit 1
     date +%s > "$STATE/.parkedresurfaced-$key"
     wake "$reason"
+    return
   fi
   age=$(age_of "$STATE/.parked-$key")
   triage_log "absorbed stale (parked terminal wait, age ${age}s): $win"
@@ -560,6 +576,7 @@ surface_nonterminal_stale() {  # <window> <hash>
   printf '%s' "$h" > "$STATE/.stale-$key"
   rm -f "$STATE/.stale-since-$key" "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key"
   wake "stale: $win"
+  return
 }
 
 # Check and heartbeat cadence must survive actionable exits and restarts: the
@@ -805,7 +822,7 @@ heartbeat_scan_finds_actionable() {
 # supervision cycle: the reader is a short-lived subprocess of THIS watcher, not
 # a second watcher, so every guard/beacon/arm/turn-end mechanism is unchanged.
 event_wait_or_sleep() {
-  local w b session first_backend="" first_session="" rec rc
+  local w b session first_backend="" first_session="" rec rc now
   local windows=()
   while IFS= read -r w; do
     b=$(window_backend "$w")
@@ -832,8 +849,12 @@ event_wait_or_sleep() {
   fi
 
   # Memoized capability probe (fm_backend_events_capable runs a heavy schema
-  # read); re-probed only when the backend/session key changes.
-  if [ "$_event_cap_key" != "$first_backend:$first_session" ]; then
+  # read).  A one-shot watcher naturally re-probed on its next process.  A
+  # long-lived daemon also re-probes a disabled path on a bounded cadence so one
+  # transient herdr failure cannot disable push delivery until service restart.
+  now=$(date +%s)
+  if [ "$_event_cap_key" != "$first_backend:$first_session" ] \
+    || { [ "$_event_cap_ok" != 1 ] && [ $((now - _event_cap_probe_epoch)) -ge "$EVENT_CAP_REPROBE_SECS" ]; }; then
     _event_cap_key="$first_backend:$first_session"
     if fm_backend_events_capable "$first_backend" "$first_session"; then
       _event_cap_ok=1
@@ -841,6 +862,7 @@ event_wait_or_sleep() {
       _event_cap_ok=0
     fi
     _event_cap_fails=0
+    _event_cap_probe_epoch=$now
   fi
   if [ "$_event_cap_ok" != 1 ]; then
     sleep "$POLL"
@@ -859,7 +881,10 @@ event_wait_or_sleep() {
       # budget and count toward the runtime-disable threshold; past it, drop to
       # pure polling for the rest of this watcher process.
       _event_cap_fails=$((_event_cap_fails + 1))
-      [ "$_event_cap_fails" -ge "$EVENT_CAP_FAIL_MAX" ] && _event_cap_ok=0
+      if [ "$_event_cap_fails" -ge "$EVENT_CAP_FAIL_MAX" ]; then
+        _event_cap_ok=0
+        _event_cap_probe_epoch=$(date +%s)
+      fi
       sleep "$POLL"
       ;;
     *)
@@ -900,7 +925,6 @@ handle_push_transition() {  # <backend> <session> <record>
       fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
       date +%s > "$STATE/.parkedresurfaced-$key"
       wake "$reason"
-      # shellcheck disable=SC2317  # wake exits in production; unit tests override it to verify ordering.
       return
     fi
     triage_log "absorbed push $to (parked terminal wait, awaiting external human action): $window"
@@ -912,6 +936,7 @@ handle_push_transition() {  # <backend> <session> <record>
   fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
   mark_surfaced "$STATE/$task.status"
   wake "$reason"
+  return
 }
 
 # --- Main entry: the runtime below runs only when this file is executed as a
@@ -988,14 +1013,20 @@ WATCHER_PID=${BASHPID:-$$}
 printf '%s\n' "$FM_HOME" > "$WATCH_LOCK/fm-home" || true
 printf '%s\n' "$WATCH_PATH" > "$WATCH_LOCK/watcher-path" || true
 fm_pid_identity "$WATCHER_PID" > "$WATCH_LOCK/pid-identity" 2>/dev/null || true
+printf '%s\n' "${FM_WATCH_MANAGER:-session}" > "$WATCH_LOCK/manager" || true
+printf '%s\n' "${FM_WATCH_SOURCE_VERSION:-unknown}" > "$WATCH_LOCK/source-version" || true
+printf '%s\n' "${FM_WATCH_X_MODE_VERSION:-absent}" > "$WATCH_LOCK/x-mode-version" || true
+printf '%s\n' "$WATCH_DAEMON" > "$WATCH_LOCK/daemon" || true
 
 [ -e "$STATE/.last-heartbeat" ] || touch "$STATE/.last-heartbeat"
 
 while :; do
-  # A child whose arm wrapper was killed cannot rely on the wrapper's traps.
-  # Re-check the direct parent once per bounded poll cycle and release the lock
-  # through the normal EXIT cleanup as soon as ownership is gone.
-  watch_arm_owner_is_parent || exit 0
+  WAKE_PENDING=0
+  # A legacy one-shot child whose explicit owner died cannot rely on that
+  # owner's traps. The externally kept daemon deliberately ignores this check.
+  if [ "$WATCH_DAEMON" -eq 0 ]; then
+    watch_arm_owner_is_parent || exit 0
+  fi
 
   # Self-eviction: if the singleton lock no longer names this process, a second
   # watcher has taken over (e.g. a transient duplicate from a racy arm). Stand
@@ -1056,13 +1087,16 @@ while :; do
         fm_wake_append check "$c" "$reason" || exit 1
         touch "$STATE/.last-check"
         wake "$reason"
+        [ "$WAKE_PENDING" -eq 0 ] || break
       fi
     done
+    [ "$WAKE_PENDING" -eq 0 ] || continue
     if [ -n "$rejected_checks" ]; then
       reason="check: rejected unauthenticated state checks:$rejected_checks"
       fm_wake_append check unauthenticated-state-checks "$reason" || exit 1
       touch "$STATE/.last-check"
       wake "$reason"
+      [ "$WAKE_PENDING" -eq 0 ] || continue
     fi
     touch "$STATE/.last-check"
   fi
@@ -1094,6 +1128,7 @@ while :; do
       fm_wake_append check bridge-inbox "$reason" || exit 1
       printf '%s' "$bridge_sig" > "$STATE/.bridge-surfaced" 2>/dev/null || true
       wake "$reason"
+      [ "$WAKE_PENDING" -eq 0 ] || continue
     fi
   fi
 
@@ -1149,6 +1184,7 @@ EOF
 $pending
 EOF
       wake "$reason"
+      [ "$WAKE_PENDING" -eq 0 ] || continue
     else
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
@@ -1203,7 +1239,7 @@ EOF
             *)      clear_pause_tracking "$w" ;;
           esac
         elif afk_present; then
-          # Daemon owns triage: one-shot per distinct stale hash, as before.
+          # Away mode owns triage: enqueue once per distinct stale hash.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
             fm_wake_append stale "$w" "stale: $w" || exit 1
             printf '%s' "$h" > "$sf"
@@ -1323,7 +1359,9 @@ EOF
         [ -e "$pf" ] && clear_pause_tracking "$w"
       fi
     fi
+    [ "$WAKE_PENDING" -eq 0 ] || break
   done < <(recorded_windows)
+  [ "$WAKE_PENDING" -eq 0 ] || continue
 
   # Heartbeat: the watcher runs a cheap fleet-scan at a regular cadence no matter
   # what. Time-based via .last-heartbeat mtime; interval doubles per consecutive
@@ -1343,6 +1381,7 @@ EOF
       fm_wake_append heartbeat heartbeat heartbeat || exit 1
       touch "$STATE/.last-heartbeat"
       wake "heartbeat"
+      [ "$WAKE_PENDING" -eq 0 ] || continue
     elif heartbeat_scan_finds_actionable; then
       # Backstop: a captain-relevant status the per-wake path absorbed by mistake.
       # Enqueue first, then mark every captain-relevant status surfaced so the next
@@ -1351,6 +1390,7 @@ EOF
       touch "$STATE/.last-heartbeat"
       mark_all_captain_relevant_surfaced
       wake "heartbeat"
+      [ "$WAKE_PENDING" -eq 0 ] || continue
     else
       touch "$STATE/.last-heartbeat"
       echo $(( $(cat "$STATE/.heartbeat-streak" 2>/dev/null || echo 0) + 1 )) > "$STATE/.heartbeat-streak"

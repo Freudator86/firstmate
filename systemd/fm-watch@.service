@@ -1,0 +1,15 @@
+[Unit]
+Description=Firstmate watcher for %I
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=FM_WATCH_DAEMON=1
+EnvironmentFile=/%I/state/.watch-service.env
+EnvironmentFile=-/%I/config/x-mode.env
+ExecStart=/usr/bin/env bash ${FM_WATCH_EXEC}
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

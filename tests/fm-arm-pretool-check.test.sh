@@ -46,6 +46,8 @@ matrix_case A17 allow $'source "config/x-mode.env"\nbin/fm-watch-checkpoint.sh -
 matrix_case A18 allow 'bin/fm-tg-recv-arm.sh'
 matrix_case A19 allow 'exec bin/fm-tg-recv-arm.sh'
 matrix_case A20 allow 'bin/fm-mark-parked.sh default:test'
+matrix_case A21 allow 'bin/fm-wake-wait.sh'
+matrix_case A22 allow 'exec bin/fm-wake-wait.sh'
 
 matrix_case R01 allow "pgrep -fl '/bin/fm-watch.sh' || true"
 matrix_case R02 allow "ps aux | rg '/bin/fm-watch.sh'"
@@ -130,6 +132,8 @@ matrix_case D59 deny 'bin/fm-tg-recv-arm.sh &'
 matrix_case D60 deny 'bin/fm-tg-recv-arm.sh | cat'
 matrix_case D61 deny 'echo before; bin/fm-tg-recv-arm.sh'
 matrix_case D62 deny "bash -lc 'bin/fm-tg-recv-arm.sh &'"
+matrix_case D63 deny 'bin/fm-wake-wait.sh &'
+matrix_case D64 deny 'bin/fm-wake-wait.sh | cat'
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"

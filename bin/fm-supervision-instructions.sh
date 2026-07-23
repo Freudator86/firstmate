@@ -91,14 +91,6 @@ pi_ext="$FM_ROOT/.pi/extensions/fm-primary-pi-watch.ts"
 pi_turnend_ext="$FM_ROOT/.pi/extensions/fm-primary-turnend-guard.ts"
 x_mode_env="$CONFIG/x-mode.env"
 
-shell_quote() {
-  printf "'"
-  printf '%s' "$1" | sed "s/'/'\\\\''/g"
-  printf "'"
-}
-
-x_mode_env_sh=$(shell_quote "$x_mode_env")
-
 if [ "$X_MODE" -eq 0 ] && [ -f "$x_mode_env" ]; then
   X_MODE=1
 fi
@@ -108,8 +100,6 @@ render_snippet() {
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line//__FM_PI_EXT__/$pi_ext}
     line=${line//__FM_PI_TURNEND_EXT__/$pi_turnend_ext}
-    line=${line//__FM_X_MODE_ENV_SH__/$x_mode_env_sh}
-    line=${line//__FM_X_MODE_ENV__/$x_mode_env}
     printf '%s\n' "$line"
   done < "$SNIPPET"
 }
@@ -120,7 +110,7 @@ repair_line() {
     return 0
   fi
   if [ "$AFK" -eq 1 ]; then
-    printf '%s\n' 'Away mode owns watcher supervision; load /afk and ensure the daemon is running instead of starting normal supervision directly.'
+    printf '%s\n' 'Away mode owns wake delivery; load /afk and ensure the daemon is reading the durable queue instead of arming a session delivery wait.'
     return 0
   fi
 
@@ -128,25 +118,21 @@ repair_line() {
   if [ "$QUEUE_PENDING" -eq 1 ]; then
     prefix='After draining queued wakes, '
   fi
-  if [ "$X_MODE" -eq 1 ]; then
-    prefix="${prefix}source ${x_mode_env_sh} first, then "
-  fi
-
   case "$HARNESS" in
     claude)
-      printf '%s%s\n' "$prefix" 'resume supervision with bin/fm-watch-arm.sh as its own Claude Code background task, never shell &, then end this forced continuation silently unless a queued wake reaches AGENTS.md section 9.'
+      printf '%s%s\n' "$prefix" 're-arm wake delivery with bin/fm-watch-arm.sh as its own Claude Code background task, never shell &, then end this forced continuation silently unless a queued wake reaches AGENTS.md section 9.'
       ;;
     codex)
-      printf '%s%s%s%s\n' "$prefix" 'resume supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds ' "$checkpoint_seconds" '.'
+      printf '%s%s%s%s\n' "$prefix" 're-arm wake delivery with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds ' "$checkpoint_seconds" '.'
       ;;
     pi)
-      printf '%s%s%s%s%s%s\n' "$prefix" 'resume supervision with the Pi tool fm_watch_arm_pi or restart Pi with -e ' "$pi_turnend_ext" ' -e ' "$pi_ext" ' if the extension is not loaded.'
+      printf '%s%s%s%s%s%s\n' "$prefix" 're-arm wake delivery with the Pi tool fm_watch_arm_pi or restart Pi with -e ' "$pi_turnend_ext" ' -e ' "$pi_ext" ' if the extension is not loaded.'
       ;;
     opencode)
-      printf '%s%s\n' "$prefix" 'resume supervision by letting the OpenCode TUI plugin arm after idle; use bin/fm-watch-arm.sh only as a manual recovery probe if the plugin reports failure.'
+      printf '%s%s\n' "$prefix" 're-arm wake delivery by letting the OpenCode TUI plugin arm after idle; use bin/fm-watch-arm.sh only as a manual recovery probe if the plugin reports failure.'
       ;;
     grok)
-      printf '%s%s\n' "$prefix" 'resume supervision with bin/fm-watch-arm.sh as its own Grok tracked background task, never shell &, then end this forced continuation silently unless a queued wake reaches AGENTS.md section 9.'
+      printf '%s%s\n' "$prefix" 're-arm wake delivery with bin/fm-watch-arm.sh as its own Grok tracked background task, never shell &, then end this forced continuation silently unless a queued wake reaches AGENTS.md section 9.'
       ;;
     *)
       printf '%s%s\n' "$prefix" 'resume supervision according to the session-start block for this harness; do not use shell &.'
@@ -170,16 +156,16 @@ else
   printf '%s\n' '- Lock: held by this session; this session owns normal supervision unless away mode says otherwise.'
 fi
 if [ "$AFK" -eq 1 ]; then
-  printf '%s\n' '- Away mode: active; load /afk and keep normal harness supervision paused while the daemon owns the watcher.'
+  printf '%s\n' '- Away mode: active; load /afk and keep the session delivery wait paused while the daemon reads the watcher service queue.'
 else
   printf '%s\n' '- Away mode: inactive.'
 fi
 if [ "$X_MODE" -eq 1 ]; then
-  printf '%s%s%s\n' '- X mode: active; source ' "$x_mode_env" ' before launching any watcher process so the 30s cadence is inherited.'
+  printf '%s%s%s\n' '- X mode: active; the watcher service loads ' "$x_mode_env" ' and bootstrap restarts it when the file changes.'
 else
   printf '%s\n' '- X mode: inactive; use the default watcher cadence.'
 fi
-printf '%s\n' '- After every handled wake, resume this emitted harness protocol instead of following a hardcoded background-arm recipe.'
+printf '%s\n' '- The watcher service owns the loop; after every handled wake, re-arm only this harness delivery wait.'
 printf '\n'
 render_snippet
 printf '\n'

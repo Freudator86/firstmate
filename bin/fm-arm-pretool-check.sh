@@ -136,7 +136,7 @@ case "$CMD" in
   *"\$'"*|*'$"'*) ;;
   *)
     case "$PREFILTER" in
-      *fm-watch*) ;;
+      *fm-watch*|*fm-wake-wait*) ;;
       *fm-tg-recv-arm*) ;;
       *) exit 0 ;;
     esac
