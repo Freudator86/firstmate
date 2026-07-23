@@ -127,7 +127,7 @@ async function sessionOwnsLock(paths) {
 
 function classifyArmClose(stdout, stderr, code, signal) {
   const combined = `${stdout}\n${stderr}`;
-  const reason = combined.split(/\r?\n/).find((line) => /^(signal:|stale:|check:|heartbeat($|:))/.test(line));
+  const reason = combined.split(/\r?\n/).find((line) => /^(wake: queued|signal:|stale:|check:|heartbeat($|:))/.test(line));
   if (reason) return { kind: "actionable", message: reason };
   const healthy = combined.split(/\r?\n/).find((line) => /^watcher: healthy\b/.test(line));
   if (healthy) {
@@ -136,7 +136,7 @@ function classifyArmClose(stdout, stderr, code, signal) {
       message: `watcher: FAILED - OpenCode arm child found an external healthy watcher instead of owning wake delivery\n${healthy}`,
     };
   }
-  const failed = combined.split(/\r?\n/).find((line) => /^watcher: FAILED/.test(line));
+  const failed = combined.split(/\r?\n/).find((line) => /^(watcher: FAILED|wake delivery: FAILED)/.test(line));
   if (failed) return { kind: "failure", message: failed };
   if (signal) {
     return {
@@ -158,7 +158,7 @@ function classifyArmClose(stdout, stderr, code, signal) {
 
 function observeArmOutput(stdout, stderr, settleReadiness) {
   const combined = `${stdout}\n${stderr}`;
-  if (combined.split(/\r?\n/).some((line) => /^(signal:|stale:|check:|heartbeat($|:))/.test(line))) {
+  if (combined.split(/\r?\n/).some((line) => /^(wake: queued|signal:|stale:|check:|heartbeat($|:))/.test(line))) {
     setArmStatus("wake");
     settleReadiness("wake");
     return;
@@ -173,7 +173,7 @@ function observeArmOutput(stdout, stderr, settleReadiness) {
     settleReadiness("external");
     return;
   }
-  if (combined.split(/\r?\n/).some((line) => /^watcher: FAILED/.test(line))) {
+  if (combined.split(/\r?\n/).some((line) => /^(watcher: FAILED|wake delivery: FAILED)/.test(line))) {
     setArmStatus("failed");
     settleReadiness("failed");
   }

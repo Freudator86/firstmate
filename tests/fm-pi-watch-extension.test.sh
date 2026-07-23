@@ -201,6 +201,89 @@ EOF
   pass "Pi extension surfaces a typed wake delivery: FAILED stub failure instead of a generic catch-all"
 }
 
+test_pi_extension_reports_external_healthy_watcher() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
+  local repo home plugin out status
+  repo="$TMP_ROOT/pi-external-healthy-root"
+  home="$TMP_ROOT/pi-external-healthy-home"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'watcher: healthy pid=1 (beacon 0s)\n'
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 FM_WATCH_REARM_RETRY_LIMIT=2 node --input-type=module 2>&1 <<'EOF'
+import { writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+let handler = null;
+let notification = "";
+let prompt = "";
+const pi = {
+  on() {},
+  registerCommand(name, options) {
+    if (name === "fm-watch-arm-pi") handler = options.handler;
+  },
+  registerTool() {},
+  sendUserMessage: async (message) => {
+    prompt = message;
+  },
+};
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+if (!handler) {
+  console.error("Pi watch command was not registered");
+  process.exit(1);
+}
+const result = await handler("", {
+  ui: {
+    notify(message) {
+      notification = message;
+    },
+  },
+});
+if (result !== undefined) {
+  console.error(`Pi command returned a value: ${String(result)}`);
+  process.exit(1);
+}
+if (!notification.includes("started Pi extension arm child")) {
+  console.error(notification);
+  process.exit(1);
+}
+for (let i = 0; i < 250 && !prompt; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+}
+if (!prompt.startsWith("\u2063FIRSTMATE_OP: v1 watcher: ")) {
+  console.error(`untyped operational follow-up: ${prompt}`);
+  process.exit(1);
+}
+if (!prompt.includes("FIRSTMATE WATCHER WAKE")) {
+  console.error(`missing follow-up prompt: ${prompt}`);
+  process.exit(1);
+}
+if (!prompt.includes("external healthy watcher")) {
+  console.error(prompt);
+  process.exit(1);
+}
+if (!prompt.includes("watcher: healthy pid=1")) {
+  console.error(prompt);
+  process.exit(1);
+}
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "Pi extension must surface an external healthy watcher as an owned-wake failure"
+  [ -z "$out" ] || fail "Pi external-healthy test printed output: $out"
+  pass "Pi extension reports external healthy watcher output"
+}
+
+
 test_pi_tool_returns_agent_tool_result() {
   if ! fm_node_supports_ts_import; then
     echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
@@ -254,7 +337,223 @@ EOF
   pass "Pi custom tool returns text content and structured details"
 }
 
+test_pi_redundant_tool_call_is_owned_noop() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
+  local repo home plugin log stop out status
+  repo="$TMP_ROOT/pi-redundant-tool-root"
+  home="$TMP_ROOT/pi-redundant-tool-home"
+  log="$TMP_ROOT/pi-redundant-tool.log"
+  stop="$TMP_ROOT/pi-redundant-tool.stop"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm\n' >> "${FM_ARM_LOG:?}"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+trap 'exit 0' TERM INT
+while [ ! -e "$FM_STOP_FILE" ]; do sleep 0.02; done
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_STOP_FILE="$stop" node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+let tool = null;
+const pi = {
+  on() {},
+  registerCommand() {},
+  registerTool(candidate) {
+    if (candidate.name === "fm_watch_arm_pi") tool = candidate;
+  },
+  sendUserMessage: async () => {},
+};
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+const initial = await tool.execute("tool-call-first", {}, undefined, undefined, {});
+if (!initial.content[0]?.text.includes("started Pi extension arm child")) {
+  throw new Error(`initial call did not start the arm child: ${initial.content[0]?.text}`);
+}
+const redundant = await tool.execute("tool-call-redundant", {}, undefined, undefined, {});
+if (!redundant.content[0]?.text.includes("Pi extension already owns an arm child; no manual re-arm needed")) {
+  throw new Error(`redundant call omitted ownership-based no-op guidance: ${redundant.content[0]?.text}`);
+}
+if (/^watcher: healthy\b/.test(redundant.content[0]?.text)) {
+  throw new Error(`redundant call overclaimed independent health: ${redundant.content[0]?.text}`);
+}
+if (!redundant.content[0]?.text.includes("only after a later notification says the cycle is missing, failed, or unhealthy")) {
+  throw new Error(`redundant call omitted the repair-only condition: ${redundant.content[0]?.text}`);
+}
+for (let i = 0; i < 100 && !existsSync(process.env.FM_ARM_LOG); i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+if (!existsSync(process.env.FM_ARM_LOG)) throw new Error("initial arm child did not start");
+await new Promise((resolve) => setTimeout(resolve, 100));
+const rows = readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n");
+if (rows.length !== 1) throw new Error(`redundant call spawned ${rows.length} arm children`);
+writeFileSync(process.env.FM_STOP_FILE, "stop\n");
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "Pi redundant tool call must remain an ownership-based no-op with repair-only guidance"
+  [ -z "$out" ] || fail "Pi redundant-call test printed output: $out"
+  pass "Pi redundant tool call returns ownership guidance and spawns no second child"
+}
+
+
+test_pi_scheduled_retry_call_is_owned_noop() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
+  local repo home plugin log out status
+  repo="$TMP_ROOT/pi-scheduled-retry-root"
+  home="$TMP_ROOT/pi-scheduled-retry-home"
+  log="$TMP_ROOT/pi-scheduled-retry.log"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm\n' >> "${FM_ARM_LOG:?}"
+exit 0
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_WATCH_REARM_RETRY_BASE_MS=10000 FM_WATCH_REARM_RETRY_MAX_MS=10000 node --input-type=module 2>&1 <<'EOF'
+import { readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+let tool = null;
+const pi = {
+  on() {},
+  registerCommand() {},
+  registerTool(candidate) {
+    if (candidate.name === "fm_watch_arm_pi") tool = candidate;
+  },
+  sendUserMessage: async () => {},
+};
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+await tool.execute("tool-call-first", {}, undefined, undefined, {});
+let redundant = null;
+for (let i = 0; i < 100; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  redundant = await tool.execute("tool-call-during-retry", {}, undefined, undefined, {});
+  if (redundant.content[0]?.text.includes("scheduled continuity retry")) break;
+}
+if (!redundant?.content[0]?.text.includes("Pi extension already owns a scheduled continuity retry; no manual re-arm needed")) {
+  throw new Error(`scheduled retry did not return ownership-based no-op guidance: ${redundant?.content[0]?.text}`);
+}
+if (/^watcher: healthy\b/.test(redundant.content[0]?.text)) {
+  throw new Error(`scheduled retry call overclaimed independent health: ${redundant.content[0]?.text}`);
+}
+if (!redundant.content[0]?.text.includes("only after a later notification says the cycle is missing, failed, or unhealthy")) {
+  throw new Error(`scheduled retry call omitted the repair-only condition: ${redundant.content[0]?.text}`);
+}
+await new Promise((resolve) => setTimeout(resolve, 100));
+const rows = readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n");
+if (rows.length !== 1) throw new Error(`scheduled retry call spawned ${rows.length} arm children`);
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "Pi scheduled-retry call must not duplicate the extension-owned retry"
+  [ -z "$out" ] || fail "Pi scheduled-retry test printed output: $out"
+  pass "Pi scheduled retry remains extension-owned after another tool call"
+}
+
+
+test_pi_actionable_close_starts_single_successor_before_delivery() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
+  local repo home plugin log stop out status
+  repo="$TMP_ROOT/pi-continuous-rearm-root"
+  home="$TMP_ROOT/pi-continuous-rearm-home"
+  log="$TMP_ROOT/pi-continuous-rearm.log"
+  stop="$TMP_ROOT/pi-continuous-rearm.stop"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm=%s predecessor=%s\n' "$$" "${FM_WATCH_PREDECESSOR_ARM_PID:-none}" >> "${FM_ARM_LOG:?}"
+count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+if [ "$count" -eq 1 ]; then
+  printf 'signal: synthetic actionable close\n'
+  exit 0
+fi
+trap 'exit 0' TERM INT
+while [ ! -e "$FM_STOP_FILE" ]; do sleep 0.02; done
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_STOP_FILE="$stop" node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+let tool = null;
+let deliveryStarted = false;
+let rowsAtDelivery = 0;
+let releaseDelivery = () => {};
+const deliveryBlocked = new Promise((resolve) => {
+  releaseDelivery = resolve;
+});
+const pi = {
+  on() {},
+  registerCommand() {},
+  registerTool(candidate) {
+    if (candidate.name === "fm_watch_arm_pi") tool = candidate;
+  },
+  sendUserMessage: async () => {
+    rowsAtDelivery = existsSync(process.env.FM_ARM_LOG)
+      ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n").length
+      : 0;
+    deliveryStarted = true;
+    await deliveryBlocked;
+  },
+};
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+await tool.execute("tool-call-continuity", {}, undefined, undefined, {});
+for (let i = 0; i < 250; i += 1) {
+  const rows = existsSync(process.env.FM_ARM_LOG)
+    ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n")
+    : [];
+  if (rows.length >= 2 && deliveryStarted) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+const rows = readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n");
+if (rows.length !== 2) throw new Error(`expected one successor arm, got ${rows.length}: ${rows.join(" | ")}`);
+if (!deliveryStarted) throw new Error("wake delivery did not begin");
+if (rowsAtDelivery !== 2) throw new Error(`wake delivery began before successor establishment (${rowsAtDelivery} arm rows)`);
+if (!/predecessor=[0-9]+/.test(rows[1])) throw new Error(`successor did not receive predecessor identity: ${rows[1]}`);
+await new Promise((resolve) => setTimeout(resolve, 100));
+const stableRows = readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n");
+if (stableRows.length !== 2) throw new Error(`single-flight violation launched ${stableRows.length} arms`);
+writeFileSync(process.env.FM_STOP_FILE, "stop\n");
+releaseDelivery();
+process.exit(0);
+EOF
+  )
+  status=$?
+  expect_code 0 "$status" "Pi actionable close must start one successor before wake delivery settles"
+  [ -z "$out" ] || fail "Pi continuous-rearm test printed output: $out"
+  pass "Pi actionable close starts one successor before wake delivery settles"
+}
+
+
 test_pi_actionable_close_waits_for_drain_before_rearm() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log stop out status
   repo="$TMP_ROOT/pi-continuous-rearm-root"
   home="$TMP_ROOT/pi-continuous-rearm-home"
@@ -308,7 +607,95 @@ EOF
   pass "Pi actionable close leaves delivery re-arm to the post-drain protocol"
 }
 
+test_pi_pre_ready_actionable_close_preserves_its_successor() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
+  local repo home plugin log release retired stop out status
+  repo="$TMP_ROOT/pi-pre-ready-actionable-root"
+  home="$TMP_ROOT/pi-pre-ready-actionable-home"
+  log="$TMP_ROOT/pi-pre-ready-actionable.log"
+  release="$TMP_ROOT/pi-pre-ready-actionable.release"
+  retired="$TMP_ROOT/pi-pre-ready-actionable.retired"
+  stop="$TMP_ROOT/pi-pre-ready-actionable.stop"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
+count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
+if [ "$count" -eq 1 ]; then
+  printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+  printf 'signal: original wake\n'
+  exit 0
+fi
+if [ "$count" -eq 2 ]; then
+  printf 'signal: pre-ready successor wake\n'
+  trap 'printf "retired\\n" > "${FM_PRE_READY_RETIRED_FILE:?}"; exit 0' TERM INT
+  while [ ! -e "$FM_PRE_READY_RELEASE_FILE" ]; do sleep 0.02; done
+  exit 0
+fi
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+trap 'exit 0' TERM INT
+while [ ! -e "$FM_STOP_FILE" ]; do sleep 0.02; done
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_PRE_READY_RELEASE_FILE="$release" FM_PRE_READY_RETIRED_FILE="$retired" FM_STOP_FILE="$stop" FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 FM_WATCH_REARM_RETRY_LIMIT=2 node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+let tool = null;
+const prompts = [];
+const pi = {
+  on() {},
+  registerCommand() {},
+  registerTool(candidate) {
+    if (candidate.name === "fm_watch_arm_pi") tool = candidate;
+  },
+  sendUserMessage: async (message) => {
+    prompts.push(message);
+  },
+};
+const rows = () => existsSync(process.env.FM_ARM_LOG)
+  ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n")
+  : [];
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+await tool.execute("tool-call-pre-ready", {}, undefined, undefined, {});
+for (let i = 0; i < 500; i += 1) {
+  if (rows().length >= 2 && prompts.some((message) => message.includes("original wake"))) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+if (rows().length !== 2) throw new Error(`pre-ready successor was replaced before its close: ${rows().join(" | ")}`);
+if (!prompts.some((message) => message.includes("original wake"))) throw new Error(`original actionable wake was not delivered: ${prompts.join(" | ")}`);
+await new Promise((resolve) => setTimeout(resolve, 150));
+if (existsSync(process.env.FM_PRE_READY_RETIRED_FILE)) throw new Error("pre-ready actionable successor was retired before its close");
+writeFileSync(process.env.FM_PRE_READY_RELEASE_FILE, "release\n");
+for (let i = 0; i < 500; i += 1) {
+  if (rows().length >= 3 && prompts.some((message) => message.includes("pre-ready successor wake"))) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+if (rows().length !== 3) throw new Error(`pre-ready close did not create exactly one successor: ${rows().join(" | ")}`);
+const preReadyDeliveries = prompts.filter((message) => message.includes("pre-ready successor wake"));
+if (preReadyDeliveries.length !== 1) throw new Error(`pre-ready actionable wake was not delivered exactly once: ${prompts.join(" | ")}`);
+writeFileSync(process.env.FM_STOP_FILE, "stop\n");
+process.exit(0);
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "Pi must retire the pre-ready arm, not its actionable successor"
+  [ -z "$out" ] || fail "Pi pre-ready actionable test printed output: $out"
+  pass "Pi pre-ready actionable close preserves its successor"
+}
+
 test_pi_hung_successor_falls_back_to_typed_wake() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log out status
   repo="$TMP_ROOT/pi-hung-successor-root"
   home="$TMP_ROOT/pi-hung-successor-home"
@@ -375,6 +762,10 @@ EOF
 }
 
 test_pi_unretired_successor_falls_back_without_retry() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log release out status
   repo="$TMP_ROOT/pi-unretired-successor-root"
   home="$TMP_ROOT/pi-unretired-successor-home"
@@ -446,6 +837,10 @@ EOF
 }
 
 test_pi_late_unretired_close_resumes_supervision() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local kind repo home plugin log ready retired release stop out status
   for kind in actionable non-actionable; do
     repo="$TMP_ROOT/pi-late-$kind-root"
@@ -543,6 +938,10 @@ EOF
 }
 
 test_pi_empty_close_retries_instead_of_disappearing() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log stop out status
   repo="$TMP_ROOT/pi-empty-close-root"
   home="$TMP_ROOT/pi-empty-close-home"
@@ -602,6 +1001,10 @@ EOF
 }
 
 test_pi_established_empty_close_honors_retry_limit() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log out status
   repo="$TMP_ROOT/pi-established-empty-close-root"
   home="$TMP_ROOT/pi-established-empty-close-home"
@@ -653,6 +1056,10 @@ EOF
 }
 
 test_pi_actionable_close_rechecks_session_lock() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log release out status
   repo="$TMP_ROOT/pi-close-lock-root"
   home="$TMP_ROOT/pi-close-lock-home"
@@ -1349,18 +1756,23 @@ EOF
 
 test_tracked_extension_present_and_self_hashing
 test_spawn_template_mentions_pi_watch_placeholder
-if fm_node_supports_ts_import; then
-  test_pi_extension_surfaces_typed_wake_delivery_failure
-  test_pi_tool_returns_agent_tool_result
-  test_pi_actionable_close_waits_for_drain_before_rearm
-  test_pi_empty_close_retries_instead_of_disappearing
-  test_pi_established_empty_close_honors_retry_limit
-  test_pi_arm_distinguishes_session_lock_ownership
-  test_pi_process_exit_cleanup_listener_lifecycle
-  test_pi_process_exit_cleanup_stops_arm_child
-else
-  echo "skip: Pi dynamic lifecycle tests need native .ts import support"
-fi
+test_pi_extension_surfaces_typed_wake_delivery_failure
+test_pi_extension_reports_external_healthy_watcher
+test_pi_tool_returns_agent_tool_result
+test_pi_redundant_tool_call_is_owned_noop
+test_pi_scheduled_retry_call_is_owned_noop
+test_pi_actionable_close_starts_single_successor_before_delivery
+test_pi_actionable_close_waits_for_drain_before_rearm
+test_pi_pre_ready_actionable_close_preserves_its_successor
+test_pi_hung_successor_falls_back_to_typed_wake
+test_pi_unretired_successor_falls_back_without_retry
+test_pi_late_unretired_close_resumes_supervision
+test_pi_empty_close_retries_instead_of_disappearing
+test_pi_established_empty_close_honors_retry_limit
+test_pi_actionable_close_rechecks_session_lock
+test_pi_arm_distinguishes_session_lock_ownership
+test_pi_process_exit_cleanup_listener_lifecycle
+test_pi_process_exit_cleanup_stops_arm_child
 test_opencode_primary_watch_plugin_static_wiring
 test_opencode_plugin_package_boundary_is_explicit_esm
 test_opencode_primary_watch_plugin_uses_effective_state_home
