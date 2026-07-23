@@ -7,7 +7,7 @@ set -u
 
 CHECK="$ROOT/bin/fm-continuity-pretool-check.sh"
 WATCH="$ROOT/bin/fm-watch.sh"
-TMP_ROOT=$(fm_test_tmproot fm-continuity-pretool-tests)
+fm_test_tmproot TMP_ROOT fm-continuity-pretool-tests
 PRIMARY="$TMP_ROOT/primary"
 STATE="$PRIMARY/state"
 OUT="$TMP_ROOT/out"

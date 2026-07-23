@@ -84,7 +84,7 @@ test_ci_installs_and_logs_the_pinned_version() {
 
 test_installer_retries_transient_download_failure() {
   local tmp fakebin destination out
-  tmp=$(fm_test_tmproot fm-shellcheck-download)
+  fm_test_tmproot tmp fm-shellcheck-download
   fakebin=$(fm_fakebin "$tmp")
   destination="$tmp/bin"
 
