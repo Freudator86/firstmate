@@ -1,5 +1,6 @@
 [Unit]
 Description=Firstmate watcher for %I
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

@@ -9,8 +9,6 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/wake-helpers.sh"
 
 WATCH="$ROOT/bin/fm-watch.sh"
-WATCH_ARM="$ROOT/bin/fm-watch-arm.sh"
-DRAIN="$ROOT/bin/fm-wake-drain.sh"
 LIB="$ROOT/bin/fm-wake-lib.sh"
 
 fm_test_tmproot TMP_ROOT fm-watcher-lock-tests
@@ -115,6 +113,8 @@ test_guard_warnings() {
   #       warning follows it, and the guidance is re-arm-after-drain (never the
   #       old conflicting "restart NOW first").
   #   (2) a fresh watcher and an empty queue: total silence.
+  #   (3) a fresh watcher but no identity-matched delivery stub armed: a
+  #       targeted wake-delivery warning, without the daemon-down banner.
   local dir state err first banner_line queue_line live identity
   dir=$(make_case guard)
   state="$dir/state"
@@ -179,7 +179,31 @@ test_guard_warnings() {
   kill "$live" 2>/dev/null || true
   wait "$live" 2>/dev/null || true
   [ ! -s "$err" ] || fail "guard warned with a fresh watcher and no queued wakes: $(cat "$err")"
-  pass "guard banner leads when down with pending wakes (re-arm-after-drain) and stays silent when fresh"
+
+  # (3) fresh watcher, in-flight task, but no delivery stub armed -> a targeted
+  # wake-delivery warning, not the daemon-down banner.
+  dir=$(make_case guard-stub-missing)
+  state="$dir/state"
+  err="$dir/guard.err"
+  printf 'project=x\n' > "$state/task.meta"
+  sleep 60 &
+  live=$!
+  identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$live")
+  mkdir -p "$state/.watch.lock"
+  printf '%s\n' "$live" > "$state/.watch.lock/pid"
+  printf '%s\n' "$dir" > "$state/.watch.lock/fm-home"
+  printf '%s\n' "$ROOT/bin/fm-watch.sh" > "$state/.watch.lock/watcher-path"
+  printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
+  touch "$state/.last-watcher-beat"
+  FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=300 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
+  kill "$live" 2>/dev/null || true
+  wait "$live" 2>/dev/null || true
+  grep -F 'wake delivery stub missing' "$err" >/dev/null \
+    || fail "guard did not warn about a missing delivery stub with a healthy daemon: $(cat "$err")"
+  ! grep -F 'WATCHER DAEMON DOWN' "$err" >/dev/null \
+    || fail "guard printed the daemon-down banner despite a healthy watcher: $(cat "$err")"
+
+  pass "guard banner leads when down with pending wakes (re-arm-after-drain), stays silent when fresh, and warns on a missing delivery stub with a healthy daemon"
 }
 
 test_lock_create_filesystem_failure_returns_without_steal_recursion() {
@@ -483,73 +507,6 @@ test_lock_paused_mid_acquire_claim_fails_during_steal() {
   pass "paused mid-acquire claimant backs off to active stealer"
 }
 
-test_watch_restart_rejects_reused_pid() {
-  local dir state fakebin out live pid i lock_pid
-  dir=$(make_case restart-reused-pid)
-  state="$dir/state"
-  fakebin="$dir/fakebin"
-  out="$dir/restart.out"
-  mark_pr_check_migration_complete "$state"
-  sleep 300 &
-  live=$!
-  mkdir "$state/.watch.lock"
-  printf '%s\n' "$live" > "$state/.watch.lock/pid"
-  printf '%s\n' "$dir" > "$state/.watch.lock/fm-home"
-  printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
-  printf '%s\n' "stale watcher identity" > "$state/.watch.lock/pid-identity"
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" --restart > "$out" &
-  pid=$!
-  # The honest arm forks the fresh watcher as a tracked child and waits on it, so
-  # the lock now names that child, not the arm invocation. The property is the
-  # same: the stale reused-pid lock is replaced by a genuinely live watcher, which
-  # the arm confirms before reporting it. Wait for that confirmation, not just for
-  # the lock pid to appear (identity and beacon land a beat later).
-  i=0
-  while [ "$i" -lt 80 ]; do
-    grep -qF 'watcher: started pid=' "$out" 2>/dev/null && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
-  { [ -n "$lock_pid" ] && [ "$lock_pid" != "$live" ] && kill -0 "$lock_pid" 2>/dev/null; } \
-    || fail "restart did not replace stale reused-pid lock with a live watcher (got '$lock_pid')"
-  grep -F "watcher: started pid=$lock_pid" "$out" >/dev/null || fail "restart did not report the fresh watcher it confirmed"
-  is_live_non_zombie "$live" || fail "restart killed a reused unrelated pid"
-  kill "$pid" "$lock_pid" "$live" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
-  wait "$live" 2>/dev/null || true
-  pass "watch restart refuses to signal a reused pid"
-}
-
-test_watch_restart_reports_healthy_peer_without_attaching() {
-  local dir state fakebin out peer identity armpid status
-  dir=$(make_case restart-healthy-peer)
-  state="$dir/state"
-  fakebin="$dir/fakebin"
-  out="$dir/restart.out"
-  mark_pr_check_migration_complete "$state"
-  node -e 'process.on("SIGTERM", () => {}); setTimeout(() => {}, 300000)' &
-  peer=$!
-  identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$peer") || fail "could not identify peer pid"
-  mkdir "$state/.watch.lock"
-  printf '%s\n' "$peer" > "$state/.watch.lock/pid"
-  printf '%s\n' "$dir" > "$state/.watch.lock/fm-home"
-  printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
-  printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
-  touch "$state/.last-watcher-beat"
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_ATTACH_POLL=0.1 "$WATCH_ARM" --restart > "$out" &
-  armpid=$!
-  wait_for_exit "$armpid" 80
-  status=$?
-  [ "$status" -eq 0 ] || fail "restart did not exit zero after reporting healthy peer (status $status): $(cat "$out")"
-  grep -qF "watcher: healthy pid=$peer" "$out" || fail "restart did not report the healthy peer: $(cat "$out")"
-  ! grep -qF 'watcher: attached' "$out" || fail "restart attached to a peer watcher instead of preserving restart ownership contract"
-  is_live_non_zombie "$peer" || fail "restart killed a TERM-resistant peer unexpectedly"
-  kill -KILL "$peer" 2>/dev/null || true
-  wait "$peer" 2>/dev/null || true
-  pass "watch restart reports a healthy peer without attaching to it"
-}
-
 test_watcher_self_evicts_on_lock_takeover() {
   local dir state fakebin out pid i lock_pid
   dir=$(make_case self-evict)
@@ -574,171 +531,18 @@ test_watcher_self_evicts_on_lock_takeover() {
   pass "watcher self-evicts when the lock pid no longer names it"
 }
 
-test_arm_attaches_and_waits_for_live_fresh_watcher() {
-  local dir state fakebin out armout i wpid armpid status
-  dir=$(make_case arm-attach)
+test_watcher_survives_failed_ps_parent_read() {
+  # watch_arm_owner_is_parent() is still live production code for the legacy
+  # one-shot path (FM_WATCH_DAEMON=0, the default), exercised whenever a caller
+  # sets FM_WATCH_ARM_OWNER_PID and forks fm-watch.sh directly rather than going
+  # through the daemon-owned systemd/tmux service. Exercise fm-watch.sh directly
+  # here (fm-watch-arm.sh itself no longer forks a watcher child at all).
+  local dir state fakebin out pid i fail_hits
+  dir=$(make_case watcher-ps-fail-guard)
   state="$dir/state"
   fakebin="$dir/fakebin"
   out="$dir/watch.out"
-  armout="$dir/arm.out"
-  # A genuinely live watcher with a fresh beacon already holds the singleton.
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
-  wpid=$!
-  i=0
-  while [ "$i" -lt 60 ]; do
-    [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] && [ -e "$state/.last-watcher-beat" ] && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] || fail "seed watcher did not take the lock"
-  # Arming must attach to the existing watcher, NOT start a second one, and NOT
-  # exit while the seed still holds the healthy lock.
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 "$WATCH_ARM" > "$armout" &
-  armpid=$!
-  i=0
-  while [ "$i" -lt 80 ]; do
-    grep -qF "watcher: attached pid=$wpid" "$armout" 2>/dev/null && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  grep -qF "watcher: attached pid=$wpid" "$armout" || fail "arm did not report attach to the live watcher"
-  ! grep -qF 'watcher: started' "$armout" || fail "arm started a second watcher behind a healthy one"
-  ! grep -qF 'watcher: FAILED' "$armout" || fail "arm reported FAILED for a healthy watcher"
-  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] || fail "arm disturbed the healthy watcher's lock"
-  is_live_non_zombie "$armpid" || fail "arm exited while the seed watcher was still healthy"
-  # After the seed dies, the attached arm must exit 0 (cycle ended).
-  kill "$wpid" 2>/dev/null || true
-  wait "$wpid" 2>/dev/null || true
-  wait_for_exit "$armpid" 80
-  status=$?
-  [ "$status" -eq 0 ] || fail "attached arm did not exit zero after seed died (status $status)"
-  pass "arm attaches to a live fresh watcher and exits only when that cycle ends"
-}
-
-test_arm_starts_and_self_heals() {
-  # Arming with no confirmable watcher must FORK one and confirm it live + fresh
-  # before reporting 'started' - whether the lock is empty (clean start) or held
-  # by a dead pid with a fresh-looking leftover beacon (self-heal). It must never
-  # report 'healthy' off a dead pid. One row per pre-state, one assertion block.
-  local row dir state fakebin armout armpid i lock_pid dead_pid
-  for row in clean dead-pid; do
-    dir=$(make_case "arm-$row")
-    state="$dir/state"
-    fakebin="$dir/fakebin"
-    armout="$dir/arm.out"
-    dead_pid=
-    if [ "$row" = dead-pid ]; then
-      dead_pid=999999
-      while kill -0 "$dead_pid" 2>/dev/null; do dead_pid=$((dead_pid + 1)); done
-      mkdir "$state/.watch.lock"
-      printf '%s\n' "$dead_pid" > "$state/.watch.lock/pid"
-      printf '%s\n' "$dir" > "$state/.watch.lock/fm-home"
-      printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
-      printf '%s\n' "dead watcher identity" > "$state/.watch.lock/pid-identity"
-      touch "$state/.last-watcher-beat"
-    fi
-    PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
-    armpid=$!
-    i=0
-    while [ "$i" -lt 80 ]; do
-      grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
-      sleep 0.1; i=$((i + 1))
-    done
-    grep -qF 'watcher: started pid=' "$armout" || fail "arm ($row) did not report a started watcher"
-    ! grep -qE 'watcher: (healthy|attached)' "$armout" || fail "arm ($row) wrongly reported attached/healthy instead of starting a fresh watcher"
-    lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
-    # The 'started' line prints only after the fresh watcher passed (live pid +
-    # fresh beacon), so it doubles as proof the beacon was confirmed fresh.
-    grep -F "watcher: started pid=$lock_pid (beacon fresh)" "$armout" >/dev/null \
-      || fail "arm ($row) started line did not name the confirmed live watcher (lock '$lock_pid')"
-    kill -0 "$lock_pid" 2>/dev/null || fail "arm ($row) confirmed-started watcher is not actually alive"
-    [ -z "$dead_pid" ] || [ "$lock_pid" != "$dead_pid" ] || fail "arm ($row) did not replace the dead-pid lock with a live watcher"
-    kill "$armpid" "$lock_pid" 2>/dev/null || true
-    wait "$armpid" 2>/dev/null || true
-  done
-  pass "arm starts+confirms a fresh watcher on a clean lock and self-heals a dead-pid lock (never healthy off a dead pid)"
-}
-
-test_arm_hup_cleans_child_and_temp_output() {
-  local dir state fakebin armout i armpid lock_pid status
-  dir=$(make_case arm-hup-cleanup)
-  state="$dir/state"
-  fakebin="$dir/fakebin"
-  armout="$dir/arm.out"
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
-  armpid=$!
-  i=0
-  while [ "$i" -lt 80 ]; do
-    grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  grep -qF 'watcher: started pid=' "$armout" || fail "arm did not start before HUP cleanup check"
-  lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
-  kill -HUP "$armpid" 2>/dev/null || fail "could not send HUP to arm"
-  wait_for_exit "$armpid" 80
-  status=$?
-  [ "$status" -eq 129 ] || fail "arm did not exit with HUP status (got $status)"
-  i=0
-  while [ "$i" -lt 80 ] && is_live_non_zombie "$lock_pid"; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-  ! is_live_non_zombie "$lock_pid" || fail "HUP cleanup left watcher child running"
-  ! ls "$state"/.watch-arm-output.* >/dev/null 2>&1 || fail "HUP cleanup left temp output behind"
-  pass "arm cleans child watcher and temp output on HUP"
-}
-
-test_arm_sigkill_from_validation_worktree_reaps_child() {
-  local dir home state fakebin validation armout armpid lock_pid lock_path i
-  dir=$(make_case arm-sigkill-validation-worktree)
-  home="$dir/home"
-  state="$home/state"
-  fakebin="$dir/fakebin"
-  validation="$dir/.no-mistakes/issue-321/worktrees/validation"
-  armout="$dir/arm.out"
-  mkdir -p "$state" "$validation"
-  cp -R "$ROOT/bin" "$validation/"
-  mark_pr_check_migration_complete "$state"
-
-  PATH="$fakebin:$PATH" FM_HOME="$home" FM_POLL=0.1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$validation/bin/fm-watch-arm.sh" > "$armout" &
-  armpid=$!
-  i=0
-  while [ "$i" -lt 80 ]; do
-    grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  grep -qF 'watcher: started pid=' "$armout" || fail "validation-worktree arm did not start a watcher"
-  lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
-  lock_path=$(cat "$state/.watch.lock/watcher-path" 2>/dev/null || true)
-  [ "$lock_path" = "$validation/bin/fm-watch.sh" ] \
-    || fail "repro watcher did not start from the validation worktree (got '$lock_path')"
-
-  kill -KILL "$armpid" 2>/dev/null || fail "could not SIGKILL validation-worktree arm"
-  wait "$armpid" 2>/dev/null || true
-  i=0
-  while [ "$i" -lt 80 ] && is_live_non_zombie "$lock_pid"; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-  ! is_live_non_zombie "$lock_pid" \
-    || fail "SIGKILL left validation-worktree watcher child running (pid $lock_pid)"
-  [ ! -e "$state/.watch.lock" ] || fail "self-reaped watcher left its singleton lock behind"
-  pass "validation-worktree watcher self-reaps when its arm wrapper is SIGKILLed"
-}
-
-test_watcher_survives_failed_ps_parent_read() {
-  local dir home state fakebin armout armpid lock_pid i fail_hits
-  dir=$(make_case watcher-ps-fail-guard)
-  home="$dir/home"
-  state="$home/state"
-  fakebin="$dir/fakebin"
-  armout="$dir/arm.out"
   fail_hits="$dir/ps-fail-hits"
-  mkdir -p "$state"
   : > "$fail_hits"
   mark_pr_check_migration_complete "$state"
   # Fail only fm-watch.sh's own arm-owner ppid lookup each poll; other ps
@@ -763,20 +567,21 @@ command -p ps "$@"
 SH
   chmod +x "$fakebin/ps"
 
-  PATH="$fakebin:$PATH" FM_HOME="$home" FM_TEST_PS_FAIL_HITS="$fail_hits" \
-    FM_POLL=0.1 FM_SIGNAL_GRACE=1 \
+  # FM_WATCH_ARM_OWNER_PID=$$ names this test process as the arm owner, which is
+  # this watcher's real parent since it is forked directly below - matching the
+  # legacy one-shot invocation contract.
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_TEST_PS_FAIL_HITS="$fail_hits" \
+    FM_WATCH_ARM_OWNER_PID=$$ FM_POLL=0.1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$WATCH_ARM" > "$armout" &
-  armpid=$!
+    "$WATCH" > "$out" &
+  pid=$!
   i=0
   while [ "$i" -lt 80 ]; do
-    grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
+    [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$pid" ] && break
     sleep 0.1
     i=$((i + 1))
   done
-  grep -qF 'watcher: started pid=' "$armout" || fail "arm did not start a watcher under a failing ps"
-  lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
-  [ -n "$lock_pid" ] || fail "no watcher pid recorded in the lock"
+  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$pid" ] || fail "watcher did not record its own pid in the lock"
 
   i=0
   while [ "$i" -lt 80 ] && [ ! -s "$fail_hits" ]; do
@@ -786,113 +591,14 @@ SH
   [ -s "$fail_hits" ] || fail "fault injection never fired; test proves nothing"
 
   sleep 1
-  is_live_non_zombie "$lock_pid" \
+  is_live_non_zombie "$pid" \
     || fail "watcher self-terminated on an inconclusive (failed) ps parent read"
-  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$lock_pid" ] \
+  [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$pid" ] \
     || fail "singleton lock changed hands despite the same watcher staying alive"
 
-  kill "$armpid" "$lock_pid" 2>/dev/null || true
-  wait "$armpid" 2>/dev/null || true
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
   pass "watcher stays owned across a failed/empty ps parent-pid read"
-}
-
-test_arm_propagates_immediate_wake_before_confirmation() {
-  local dir state fakebin armout drain_out check_file rc
-  dir=$(make_case arm-immediate-wake)
-  state="$dir/state"
-  fakebin="$dir/fakebin"
-  armout="$dir/arm.out"
-  drain_out="$dir/drain.out"
-  check_file="$state/task.check.sh"
-  printf '%s\n' fm-pr-check-migration-scan-v1 > "$state/.pr-check-migration-scan-v1"
-  printf '%s\n' fm-pr-check-migration-v1 > "$state/.pr-check-migration-v1"
-  chmod 0600 "$state/.pr-check-migration-scan-v1" "$state/.pr-check-migration-v1"
-  cat > "$check_file" <<'SH'
-#!/usr/bin/env bash
-printf 'merged: https://example.test/pr/7\n'
-SH
-  chmod 0700 "$check_file"
-  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" task >/dev/null \
-    || fail "could not register immediate-wake custom check"
-  rc=0
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=0 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" || rc=$?
-  [ "$rc" -eq 0 ] || fail "arm returned non-zero for an immediate wake (status $rc): $(cat "$armout")"
-  grep -F "check: $check_file: merged: https://example.test/pr/7" "$armout" >/dev/null || fail "arm did not propagate the immediate check wake"
-  ! grep -qF 'watcher: FAILED' "$armout" || fail "arm printed FAILED after a valid immediate wake"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after immediate arm wake failed"
-  grep "$(printf '\tcheck\t')" "$drain_out" | grep -F "$check_file" | grep -F 'merged: https://example.test/pr/7' >/dev/null || fail "immediate check wake was not queued"
-  pass "arm propagates an immediate watcher wake before confirmation"
-}
-
-test_arm_waits_for_peer_beacon_after_child_stands_down() {
-  local dir state fakebin armout peer beater identity armpid status i
-  dir=$(make_case arm-peer-startup-race)
-  state="$dir/state"
-  fakebin="$dir/fakebin"
-  armout="$dir/arm.out"
-  mark_pr_check_migration_complete "$state"
-  sleep 300 &
-  peer=$!
-  identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$peer") || fail "could not identify peer pid"
-  mkdir "$state/.watch.lock"
-  printf '%s\n' "$peer" > "$state/.watch.lock/pid"
-  printf '%s\n' "$dir" > "$state/.watch.lock/fm-home"
-  printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
-  printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
-  (
-    sleep 1
-    touch "$state/.last-watcher-beat"
-  ) &
-  beater=$!
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=4 FM_ARM_ATTACH_POLL=0.1 "$WATCH_ARM" > "$armout" &
-  armpid=$!
-  i=0
-  while [ "$i" -lt 80 ]; do
-    grep -qF "watcher: attached pid=$peer" "$armout" 2>/dev/null && break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  wait "$beater" 2>/dev/null || true
-  grep -qF "watcher: attached pid=$peer" "$armout" || fail "arm did not wait for and attach to the peer watcher: $(cat "$armout")"
-  ! grep -qF 'watcher: FAILED' "$armout" || fail "arm falsely reported FAILED during peer startup race"
-  is_live_non_zombie "$armpid" || fail "arm exited while the peer was still healthy"
-  # After the peer dies, the attached arm must exit 0 (same as pre-fork attach).
-  kill "$peer" 2>/dev/null || true
-  wait "$peer" 2>/dev/null || true
-  wait_for_exit "$armpid" 80
-  status=$?
-  [ "$status" -eq 0 ] || fail "attached arm did not exit zero after peer died (status $status): $(cat "$armout")"
-  pass "arm attaches to a peer watcher after child stands down and exits when peer dies"
-}
-
-test_arm_fails_loud_when_no_fresh_watcher_confirmable() {
-  local dir state fakebin armout live armpid status
-  dir=$(make_case arm-failed-stale)
-  state="$dir/state"
-  fakebin="$dir/fakebin"
-  armout="$dir/arm.out"
-  mark_pr_check_migration_complete "$state"
-  sleep 300 &
-  live=$!
-  # A live process holds the lock but is NOT a confirmable watcher (no identity),
-  # and the beacon is stale. The fresh child cannot steal a LIVE lock, so no
-  # watcher can ever be confirmed - the honest answer is FAILED, not healthy.
-  mkdir "$state/.watch.lock"
-  printf '%s\n' "$live" > "$state/.watch.lock/pid"
-  touch -t 200001010000 "$state/.last-watcher-beat"
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=3 "$WATCH_ARM" > "$armout" &
-  armpid=$!
-  wait_for_exit "$armpid" 120
-  status=$?
-  [ "$status" -ne 124 ] || fail "arm never returned for an unconfirmable watcher"
-  [ "$status" -ne 0 ] || fail "arm exited zero when no fresh watcher could be confirmed"
-  grep -F 'watcher: FAILED - no live watcher with a fresh beacon' "$armout" >/dev/null || fail "arm did not print the FAILED line"
-  ! grep -qE 'watcher: (healthy|attached)' "$armout" || fail "arm reported attached/healthy off a stale beacon"
-  ! grep -qF 'watcher: started' "$armout" || fail "arm falsely reported started"
-  is_live_non_zombie "$live" || fail "arm killed the unrelated live lock holder"
-  kill "$live" 2>/dev/null || true
-  wait "$live" 2>/dev/null || true
-  pass "arm reports FAILED and exits non-zero when no fresh watcher can be confirmed"
 }
 
 test_pid_identity_is_locale_invariant() {
@@ -935,3 +641,4 @@ test_lock_empty_pid_uses_minimum_grace
 test_lock_late_claim_loses_after_recreate
 test_lock_paused_mid_acquire_claim_fails_during_steal
 test_watcher_self_evicts_on_lock_takeover
+test_watcher_survives_failed_ps_parent_read

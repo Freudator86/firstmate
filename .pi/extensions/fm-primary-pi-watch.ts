@@ -92,14 +92,7 @@ function classifyClose(stdout: string, stderr: string, code: number | null, sign
   const combined = `${stdout}\n${stderr}`.trim();
   const reason = actionableLine(combined);
   if (reason) return { kind: "actionable", message: reason };
-  const healthy = combined.split(/\r?\n/).find((line) => /^watcher: healthy\b/.test(line));
-  if (healthy) {
-    return {
-      kind: "failure",
-      message: `watcher: FAILED - Pi extension delivery child ended without owning the session wait\n${healthy}`,
-    };
-  }
-  const failed = combined.split(/\r?\n/).find((line) => /^watcher: FAILED/.test(line));
+  const failed = combined.split(/\r?\n/).find((line) => /^(watcher: FAILED|wake delivery: FAILED)/.test(line));
   if (failed) return { kind: "failure", message: failed };
   if (signal) {
     return {

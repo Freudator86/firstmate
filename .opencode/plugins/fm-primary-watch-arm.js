@@ -125,8 +125,7 @@ function firstWakeOrFailure(stdout, stderr, code) {
   const combined = `${stdout}\n${stderr}`;
   const reason = combined.split(/\r?\n/).find((line) => /^(wake: queued|signal:|stale:|check:|heartbeat($|:))/.test(line));
   if (reason) return reason;
-  if (/^watcher: healthy/m.test(combined)) return "";
-  const failed = combined.split(/\r?\n/).find((line) => /^watcher: FAILED/.test(line));
+  const failed = combined.split(/\r?\n/).find((line) => /^(watcher: FAILED|wake delivery: FAILED)/.test(line));
   if (failed) return failed;
   if (code && code !== 0) return `watcher: FAILED - fm-watch-arm.sh exited ${code}${combined.trim() ? `\n${combined.trim()}` : ""}`;
   return "";
@@ -138,11 +137,7 @@ function observeArmOutput(stdout, stderr) {
     setArmStatus("armed");
     return;
   }
-  if (combined.split(/\r?\n/).some((line) => /^watcher: healthy\b/.test(line))) {
-    setArmStatus("external");
-    return;
-  }
-  if (combined.split(/\r?\n/).some((line) => /^watcher: FAILED/.test(line))) {
+  if (combined.split(/\r?\n/).some((line) => /^(watcher: FAILED|wake delivery: FAILED)/.test(line))) {
     setArmStatus("failed");
   }
 }
@@ -186,7 +181,7 @@ function spawnArm(paths, sessionID, client) {
   child.on("close", async (code) => {
     child = null;
     const reason = firstWakeOrFailure(stdout, stderr, code);
-    if (reason) setArmStatus(reason.startsWith("watcher: FAILED") ? "failed" : "wake");
+    if (reason) setArmStatus(/^(watcher: FAILED|wake delivery: FAILED)/.test(reason) ? "failed" : "wake");
     else if (!readyStatus()) setArmStatus("idle");
     if (!reason) return;
     try {

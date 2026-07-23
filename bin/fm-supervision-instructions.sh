@@ -91,14 +91,6 @@ pi_ext="$FM_ROOT/.pi/extensions/fm-primary-pi-watch.ts"
 pi_turnend_ext="$FM_ROOT/.pi/extensions/fm-primary-turnend-guard.ts"
 x_mode_env="$CONFIG/x-mode.env"
 
-shell_quote() {
-  printf "'"
-  printf '%s' "$1" | sed "s/'/'\\\\''/g"
-  printf "'"
-}
-
-x_mode_env_sh=$(shell_quote "$x_mode_env")
-
 if [ "$X_MODE" -eq 0 ] && [ -f "$x_mode_env" ]; then
   X_MODE=1
 fi
@@ -108,8 +100,6 @@ render_snippet() {
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line//__FM_PI_EXT__/$pi_ext}
     line=${line//__FM_PI_TURNEND_EXT__/$pi_turnend_ext}
-    line=${line//__FM_X_MODE_ENV_SH__/$x_mode_env_sh}
-    line=${line//__FM_X_MODE_ENV__/$x_mode_env}
     printf '%s\n' "$line"
   done < "$SNIPPET"
 }
