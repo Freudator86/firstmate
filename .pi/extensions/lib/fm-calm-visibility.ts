@@ -3,10 +3,7 @@ import {
   type ExtensionAPI,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import {
-  classifyFirstmateOperationalText,
-  encodeFirstmateOperationalInput,
-} from "./fm-operational-input.ts";
+import { encodeFirstmateOperationalInput } from "./fm-operational-input.ts";
 
 export { encodeFirstmateOperationalInput } from "./fm-operational-input.ts";
 
@@ -76,6 +73,7 @@ type FirstmateSyntheticPresentation = {
 
 let calm = false;
 let mountingSyntheticPresentation = false;
+let syntheticPresentationRedraw: (() => void) | undefined;
 let stockExportRendering = false;
 
 export function calmTranscriptClassIsVisible(itemClass: CalmTranscriptClass): boolean {
@@ -90,6 +88,12 @@ export function setCalmStockExportRendering(active: boolean): void {
   stockExportRendering = active;
 }
 
+export function setFirstmateSyntheticPresentationRedraw(
+  redraw: (() => void) | undefined,
+): void {
+  syntheticPresentationRedraw = redraw;
+}
+
 export function calmPresentationIsActive(): boolean {
   return calm;
 }
@@ -98,24 +102,17 @@ export function calmPresentationHides(itemClass: CalmTranscriptClass): boolean {
   return calm && !stockExportRendering && !calmTranscriptClassIsVisible(itemClass);
 }
 
-function isFirstmateSyntheticKind(value: string): value is FirstmateSyntheticKind {
-  return (FIRSTMATE_SYNTHETIC_KINDS as readonly string[]).includes(value);
-}
-
-export function classifyFirstmateSyntheticInput(
+// Live visibility trusts only the exact process-bound positional launch value.
+// Public marker syntax is intentionally absent from this provenance gate.
+export function classifyFirstmateLaunchInput(
   content: string,
   source: FirstmateInputSource,
-  launchBriefContent?: string,
-): FirstmateSyntheticKind | undefined {
-  const classified = classifyFirstmateOperationalText(content);
-  if (classified !== undefined && isFirstmateSyntheticKind(classified)) return classified;
-
-  // Keep the exact per-process origin fallback only for positional launch
-  // commands created before the typed protocol.
+  expectedEncodedLaunchBrief?: string,
+): "launch-brief" | undefined {
   if (
     source === "interactive" &&
-    launchBriefContent !== undefined &&
-    content === launchBriefContent
+    expectedEncodedLaunchBrief !== undefined &&
+    content === expectedEncodedLaunchBrief
   ) {
     return "launch-brief";
   }
@@ -145,9 +142,11 @@ export function deliverFirstmateSyntheticInput(
   kind: FirstmateSyntheticKind,
   options: SyntheticDeliveryOptions = {},
 ): void {
+  const redrawPresentation =
+    options.redrawPresentation ?? syntheticPresentationRedraw;
   const mountForRedraw =
     calmPresentationHides("synthetic-user") &&
-    options.redrawPresentation !== undefined;
+    redrawPresentation !== undefined;
   mountingSyntheticPresentation = mountForRedraw;
   try {
     pi.appendEntry<FirstmateSyntheticPresentation>(FIRSTMATE_SYNTHETIC_PRESENTATION_TYPE, {
@@ -157,7 +156,7 @@ export function deliverFirstmateSyntheticInput(
   } finally {
     mountingSyntheticPresentation = false;
   }
-  if (mountForRedraw) options.redrawPresentation?.();
+  if (mountForRedraw) redrawPresentation?.();
   pi.sendMessage(
     {
       customType: FIRSTMATE_SYNTHETIC_CONTEXT_TYPE,

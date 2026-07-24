@@ -173,9 +173,7 @@ test_tracked_harness_registration() {
   pi_plugin=$(cat "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts")
   assert_contains "$pi_plugin" '["startup", "new", "resume"]' "Pi SessionStart handler has the wrong reason allowlist"
   assert_contains "$pi_plugin" 'fm-sessionstart-nudge.sh' "Pi SessionStart handler does not invoke the wrapper"
-  assert_contains "$pi_plugin" 'firstmate-sessionstart-nudge' "Pi SessionStart handler does not inject a custom context message"
-  assert_contains "$pi_plugin" 'details: { kind: "session-start" }' "Pi SessionStart context does not retain its exact structured kind"
-  assert_contains "$pi_plugin" 'pi.sendMessage' "Pi SessionStart handler does not use the context-safe message API"
+  assert_contains "$pi_plugin" 'deliverFirstmateSyntheticInput(pi, nudge, "session-start")' "Pi SessionStart handler does not inject through trusted structured delivery"
 
   opencode_plugin=$(cat "$ROOT/.opencode/plugins/fm-primary-sessionstart-nudge.js")
   assert_contains "$opencode_plugin" 'session.created' "OpenCode plugin does not listen for session.created"

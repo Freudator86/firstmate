@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { deliverFirstmateSyntheticInput } from "./lib/fm-calm-visibility.ts";
 import { encodeFirstmateOperationalInput } from "./lib/fm-operational-input.ts";
 
 let guardFollowupActive = false;
@@ -112,12 +113,7 @@ export default function (pi: ExtensionAPI) {
     markLoaded();
     if (!nudge) return;
     try {
-      pi.sendMessage({
-        customType: "firstmate-sessionstart-nudge",
-        content: nudge,
-        display: false,
-        details: { kind: "session-start" },
-      });
+      deliverFirstmateSyntheticInput(pi, nudge, "session-start");
     } catch {
     }
   });
@@ -152,7 +148,10 @@ export default function (pi: ExtensionAPI) {
           "The watcher cycle is missing, failed, or unhealthy. Resume supervision according to the session-start operating block before ending the turn.\n\n" +
           result.stderr,
       );
-      await pi.sendUserMessage(content, { deliverAs: "followUp" });
+      deliverFirstmateSyntheticInput(pi, content, "turn-end-guard", {
+        deliverAs: "followUp",
+        triggerTurn: true,
+      });
     } catch {
       guardFollowupActive = false;
     }

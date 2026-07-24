@@ -4,15 +4,18 @@
 # This file is both a source-safe shell library and the cross-language CLI used
 # by JavaScript and TypeScript integrations. It is the single owner of current
 # construction, current parsing, and narrow pre-protocol transcript parsing.
+# Parsing is syntactic only. A successful parse does not prove sender identity
+# or authorize a live consumer to hide, trust, or otherwise privilege content.
 #
 # Current generic wire form:
 #   U+2063 FIRSTMATE_OP: v1 <kind>: <body>
 #
 # The landed U+2063 + "FIRSTMATE_OP: " prefix is permanent compatibility.
 # The version and kind header make current inputs structurally typed without
-# deriving provenance from body prose. The established from-firstmate routing
-# marker remains a current compatibility carrier because already-running
-# secondmates have its leading label in their charter context.
+# deriving provenance from body prose. The public marker is copyable and does
+# not authenticate its sender. The established from-firstmate routing marker
+# remains a current compatibility carrier because already-running secondmates
+# have its leading label in their charter context.
 #
 # CLI:
 #   fm-operational-input.sh encode <kind>  # body on stdin, encoded input stdout
@@ -199,13 +202,14 @@ fm_operational_usage() {
 Usage:
   bin/fm-operational-input.sh encode <kind>  # body on stdin
   bin/fm-operational-input.sh kind           # current input on stdin
-  bin/fm-operational-input.sh classify       # current or legacy input on stdin
+  bin/fm-operational-input.sh classify       # syntactically parse current or legacy input on stdin
   bin/fm-operational-input.sh body           # current input on stdin
 
 Current construction kinds:
   session-start watcher turn-end-guard away-supervisor from-firstmate launch-brief
 
 The from-firstmate kind uses its established live-charter-compatible carrier.
+Parsing and classification do not authenticate the message or its sender.
 EOF
 }
 

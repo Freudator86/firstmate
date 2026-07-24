@@ -23,8 +23,9 @@
 #
 # IN-BAND OPERATIONAL INPUT. bin/fm-operational-input.sh constructs every
 # current daemon injection as the typed away-supervisor kind after the stable
-# FM_OPERATIONAL_PREFIX. A human cannot type its leading U+2063 from a normal
-# keyboard at the start of a message, and Herdr transports it as text.
+# FM_OPERATIONAL_PREFIX. U+2063 has no normal keyboard keystroke and Herdr
+# transports it as text, but the public bytes are copyable and do not prove
+# sender identity.
 # Firstmate's contract: a message that starts with the current prefix, or a
 # legacy bare-marker daemon escalation, is internal (stay afk); an unmarked
 # message means the captain is back (exit afk, flush catch-up, resume per-wake

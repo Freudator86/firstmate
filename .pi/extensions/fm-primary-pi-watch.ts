@@ -10,6 +10,7 @@ import { Type } from "typebox";
 import {
   type CalmPresentationState,
   calmTranscriptClassIsVisible,
+  deliverFirstmateSyntheticInput,
   FIRSTMATE_CALM_PRESENTATION_EVENT,
 } from "./lib/fm-calm-visibility.ts";
 import { encodeFirstmateOperationalInput } from "./lib/fm-operational-input.ts";
@@ -192,7 +193,10 @@ export default function (pi: ExtensionAPI) {
       "watcher",
       `FIRSTMATE WATCHER WAKE: ${message}\n\nRun bin/fm-wake-drain.sh first and handle the queued wake. The watcher service owns loop continuity; this extension owns only delivery re-arming.`,
     );
-    await pi.sendUserMessage(content, { deliverAs: "followUp" });
+    deliverFirstmateSyntheticInput(pi, content, "watcher", {
+      deliverAs: "followUp",
+      triggerTurn: true,
+    });
   }
 
   function surfaceFailure(message: string): void {

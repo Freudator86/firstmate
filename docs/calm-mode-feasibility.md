@@ -30,7 +30,7 @@ The observed causal separation was:
 | --- | --- | --- | --- |
 | Collapsed thinking | A model assistant turn contained non-empty `thinking` content. | Pi's thinking setting was collapsed, so `AssistantMessageComponent` rendered its configured hidden-thinking label instead of full reasoning; Calm previously touched only tool definitions. | One italic `Thinking...` row remained for each reasoning-bearing assistant turn. |
 | Firstmate watcher tool | The model called the tracked `fm_watch_arm_pi` custom tool. | Calm overrode only Pi's seven built-ins, while this tool followed Pi's custom-tool fallback renderer. | The full custom call and result shell remained. |
-| Synthetic watcher input | The live watcher closed on an actionable signal and `fm-primary-pi-watch.ts` called `sendUserMessage`. | Pi stored and rendered the injected content as an ordinary `user` role with no origin renderer hook. | The wake prefix and stable drain instruction looked like a captain-authored prompt. |
+| Synthetic watcher input | The live watcher closed on an actionable signal and `fm-primary-pi-watch.ts` delivered a structured Firstmate message. | Pi retained hidden model context plus a separately controlled presentation entry. | The wake prefix and stable drain instruction remain hidden only because the trusted extension call site supplies the kind out of band. |
 
 The proven comparison path was a built-in text tool.
 Calm already owned both of that tool's supported renderer slots and switched its shell to `renderShell: "self"`, so returning empty components removed the complete row and `setToolsExpanded` redrew existing tool components.
@@ -55,7 +55,7 @@ The smallest counterfactuals produced these results:
 The disconfirming checks deliberately retained contradictory evidence.
 An arbitrary third-party custom tool and a built-in read image remain visible because Pi exposes neither a global tool renderer nor image-row control.
 An expanded thinking fixture remains visible, and an empty collapsed-thinking label leaves blank spacing, so this implementation does not claim complete reasoning-row removal.
-An ordinary user prompt may quote or reuse watcher, guard, startup, or supervisor wording and remains visible unless it carries a structurally valid operational envelope.
+An ordinary live user prompt remains visible even when it exactly reproduces a current or legacy operational envelope.
 
 ## Central visibility and injection policy
 
@@ -64,19 +64,24 @@ An ordinary user prompt may quote or reuse watcher, guard, startup, or superviso
 Only `genuine-user-prompt` and `genuine-agent-response` are policy-visible.
 Every other audited class is policy-hidden even when Pi currently lacks a supported renderer for enforcing that result.
 
-Current session-start, watcher, turn-end guard, away supervisor, and launch-brief inputs use the versioned kind carried after the landed U+2063 `FIRSTMATE_OP: ` prefix.
+Current session-start, watcher, turn-end guard, away supervisor, and launch-brief text can use the versioned kind carried after the landed U+2063 `FIRSTMATE_OP: ` prefix.
 The established leading `[fm-from-firstmate]` plus U+2063 routing carrier remains current and is parsed as `from-firstmate` through the same owner so running secondmate charters remain compatible.
-Pi persists the resulting exact kind in both the presentation entry and the non-displayed context message.
+These public, copyable marker bytes provide syntax only and do not authenticate a sender or authorize Calm to hide a live message.
+Pi persists an exact kind in both the presentation entry and the non-displayed context message only when a trusted extension call site supplies that kind directly.
 A landed untyped `FIRSTMATE_OP` input is retained as `legacy-operational` rather than having a subtype inferred from its body.
 Narrow pre-protocol parsing for the exact startup line, watcher and guard shapes, and bare-marker away escalation is isolated from the current parser.
-The per-process `FM_FIRSTMATE_PI_LAUNCH_BRIEF` binding remains only as compatibility for a raw launch created before typed launch instructions.
+That parsing remains available for construction, body recovery, transcript migration, diagnostics, and historical export, but no Pi live visibility caller treats parse success as provenance.
+The per-process `FM_FIRSTMATE_PI_LAUNCH_BRIEF` path derives one exact encoded launch envelope and accepts only the matching interactive positional prompt once.
 
-Positive fixtures cover every current kind and a separate legacy matrix.
-Near-miss fixtures cover quoted operational content, ASCII-only labels, arbitrary U+2063-prefixed text, altered legacy text, visible routing labels without U+2063, and launch-brief text without its source binding.
+Fail-visible fixtures cover current typed markers from interactive and RPC input, the untyped prefix, every legacy prose form, away and routed composer messages, arbitrary U+2063-prefixed text, and a repeated launch brief.
+Direct-delivery fixtures cover session-start, watcher, and turn-end kinds, while the shell-parser suite retains the construction and migration matrix.
 
-Synthetic inputs that would otherwise render as user rows are rerouted only at Pi input presentation time.
+Trusted Pi extension inputs that would otherwise render as user rows are delivered directly through the shared structured helper.
 Their full text is persisted in a non-displayed custom message that Pi converts back to an ordinary user message for provider context, and a TUI-only custom entry restores stock user styling while Calm is off.
-The session-start nudge already uses a non-displayed custom message at its authoritative source, so it remains on that existing hidden presentation path while retaining model context and session persistence.
+The session-start, watcher, and turn-end extensions provide their kind at the injection call site instead of asking the input hook to recover provenance from content.
+Marker-only interactive and RPC input continues through Pi's ordinary input path exactly once and remains a genuine visible prompt.
+Away-mode and `from-firstmate` composer injections also remain visible until a later out-of-band origin channel is implemented.
+The session-start nudge uses the same non-displayed structured message path without starting a competing turn, so it retains model context and session persistence.
 The custom-entry host omits the complete row when the renderer returns undefined under Calm, including its normally conditional leading spacer.
 Cycling tool expansion and restoring its original value rebuilds those custom entries and leaves final `Ctrl+O` state unchanged.
 Exported and shared HTML retain genuine user prompts, genuine assistant responses, and ordinary tool rendering, while omitting the synthetic presentation entry and hidden context message at the documented Pi 0.81.1 exporter boundary.
@@ -105,7 +110,7 @@ The test fixture enumerates every class below through the centralized policy, an
 | `system-notice` | `showStatus`, `showError`, compaction, retry, and startup warning rows | Unsupported boundary; remains visible. |
 | `cache-notice` | Non-persisted cache-miss `Text` row | Unsupported boundary; remains visible. |
 | `project-trust-warning` | Non-persisted startup `Text` row | Unsupported boundary; remains visible. |
-| `synthetic-user` | Firstmate extension `sendUserMessage`, terminal-injected input, Firstmate-generated Pi positional brief, or the already non-displayed session-start nudge | Forms that ordinarily render as user rows are rerouted to hidden context plus a gapless controllable presentation entry; the session-start nudge retains its existing non-displayed custom-message path. |
+| `synthetic-user` | Trusted Firstmate extension delivery or the one-shot process-bound Pi positional brief | Trusted session-start, watcher, turn-end, and launch inputs use hidden context plus a gapless controllable presentation entry; marker-only terminal and RPC input remains a visible genuine prompt. |
 | `synthetic-assistant` | No authoritative Firstmate source found | Policy-hidden, but Pi exposes no generic assistant-role renderer. |
 | `unknown` | Future or unclassified transcript component | Policy-hidden, but no generic renderer exists; never claimed as covered. |
 
@@ -142,7 +147,7 @@ They do not claim that a harness can never add the missing renderer API.
 
 ## Regression coverage
 
-`tests/fm-calm-pi-extension.test.sh` compares wrapped and stock renderers, verifies all seven built-ins plus `fm_watch_arm_pi`, exercises redraw of already-rendered tool and synthetic rows, checks the gapless mounted custom-entry lifecycle, preserves a transient diagnostic while restoring an entry received under Calm, covers every policy class and synthetic fixture, covers session reset reasons, asserts the rendered export DOM, and drives a genuine 180 by 44 interactive terminal fixture.
+`tests/fm-calm-pi-extension.test.sh` compares wrapped and stock renderers, verifies all seven built-ins plus `fm_watch_arm_pi`, exercises redraw of already-rendered tool and structured synthetic rows, checks the gapless mounted custom-entry lifecycle, preserves a transient diagnostic while restoring an entry received under Calm, covers fail-visible live marker fixtures and the one-shot launch binding, covers session reset reasons, asserts the rendered export DOM, and drives a genuine 180 by 44 interactive terminal fixture.
 `tests/fm-pi-primary-types.test.sh` performs strict no-emit TypeScript checking against the installed Pi 0.81.1 declarations.
 
 The relevant commands are:

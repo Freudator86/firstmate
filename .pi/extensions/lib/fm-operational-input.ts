@@ -45,5 +45,6 @@ export function encodeFirstmateOperationalInput(
 }
 
 export function classifyFirstmateOperationalText(content: string): string | undefined {
+  // This is a syntax and migration parser, not a live sender-provenance check.
   return runOperationalInputCommand("classify", content);
 }

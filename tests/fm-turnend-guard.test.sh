@@ -126,6 +126,24 @@ export async function loadPiTurnendExtension(plugin) {
   let source = readFileSync(plugin, "utf8");
   source = source
     .replace(/^import type .*;\n/gm, "")
+    .replace(
+      'import { deliverFirstmateSyntheticInput } from "./lib/fm-calm-visibility.ts";',
+      `function deliverFirstmateSyntheticInput(pi, content, kind, options = {}) {
+        pi.appendEntry("firstmate-synthetic-input-presentation", { content, kind });
+        pi.sendMessage({
+          customType: "firstmate-synthetic-input",
+          content,
+          display: false,
+          details: { kind },
+        }, options);
+      }`,
+    )
+    .replace(
+      'import { encodeFirstmateOperationalInput } from "./lib/fm-operational-input.ts";',
+      `function encodeFirstmateOperationalInput(kind, content) {
+        return "\\u2063FIRSTMATE_OP: v1 " + kind + ": " + content;
+      }`,
+    )
     .replace("const extensionFile = fileURLToPath(import.meta.url);", `const extensionFile = ${JSON.stringify(plugin)};`)
     .replace(/type LockOwnership = [^\n]+\n\n/, "")
     .replace(/export default function \(pi: ExtensionAPI\)/, "export default function (pi)")
@@ -849,7 +867,7 @@ test_pi_extension_forces_followup() {
   content=$(cat "$ext")
   assert_contains "$content" 'agent_settled' "pi extension must run after one logical agent run settles"
   assert_contains "$content" 'fm-turnend-guard.sh' "pi extension must invoke the shared guard"
-  assert_contains "$content" 'sendUserMessage' "pi extension must force a follow-up turn"
+  assert_contains "$content" 'deliverFirstmateSyntheticInput' "pi extension must use trusted structured delivery"
   assert_contains "$content" 'encodeFirstmateOperationalInput' "pi extension must use the typed operational-input constructor"
   assert_contains "$content" 'deliverAs: "followUp"' "pi extension must queue the follow-up safely"
   assert_contains "$content" 'guardFollowupActive' "pi extension must carry a logical-run loop guard"
@@ -891,7 +909,14 @@ SH
 #!/usr/bin/env bash
 exit 0
 SH
-  chmod +x "$repo/bin/fm-turnend-guard.sh" "$repo/bin/fm-arm-pretool-check.sh"
+  cat > "$repo/bin/fm-sessionstart-nudge.sh" <<'SH'
+#!/usr/bin/env bash
+printf '\342\201\243FIRSTMATE_OP: v1 session-start: SESSION_START_DIRECT_DELIVERY'
+SH
+  chmod +x \
+    "$repo/bin/fm-turnend-guard.sh" \
+    "$repo/bin/fm-arm-pretool-check.sh" \
+    "$repo/bin/fm-sessionstart-nudge.sh"
   out=$(PLUGIN="$ext" LOADER="$loader" FM_HOME="$home" FM_GUARD_LOG="$log" node --input-type=module 2>&1 <<'EOF'
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -900,20 +925,42 @@ const { loadPiTurnendExtension } = await import(pathToFileURL(process.env.LOADER
 
 const handlers = new Map();
 let prompts = 0;
+let sessionStarts = 0;
 const pi = {
   on(event, handler) {
     handlers.set(event, handler);
   },
-  async sendUserMessage(message, options) {
+  appendEntry(customType, data) {
+    if (customType !== "firstmate-synthetic-input-presentation") throw new Error(`unexpected entry type: ${customType}`);
+    if (!["session-start", "turn-end-guard"].includes(data?.kind)) throw new Error(`unexpected entry kind: ${data?.kind}`);
+  },
+  sendMessage(message, options) {
+    if (message.details?.kind === "session-start") {
+      sessionStarts += 1;
+      if (
+        message.customType !== "firstmate-synthetic-input" ||
+        message.display !== false ||
+        !message.content.includes("SESSION_START_DIRECT_DELIVERY")
+      ) {
+        throw new Error(`unstructured session-start delivery: ${JSON.stringify(message)}`);
+      }
+      return;
+    }
     prompts += 1;
-    if (!message.startsWith("\u2063FIRSTMATE_OP: v1 turn-end-guard: ")) throw new Error(`untyped operational prompt: ${message}`);
-    if (!message.includes("TURN WOULD END BLIND")) throw new Error(`unexpected prompt: ${message}`);
+    if (!message.content.startsWith("\u2063FIRSTMATE_OP: v1 turn-end-guard: ")) throw new Error(`untyped operational prompt: ${message.content}`);
+    if (!message.content.includes("TURN WOULD END BLIND")) throw new Error(`unexpected prompt: ${message.content}`);
+    if (message.customType !== "firstmate-synthetic-input" || message.display !== false || message.details?.kind !== "turn-end-guard") {
+      throw new Error(`unstructured operational prompt: ${JSON.stringify(message)}`);
+    }
     if (options?.deliverAs !== "followUp") throw new Error("guard prompt was not a follow-up");
-    await handlers.get("agent_settled")?.({ type: "agent_settled" }, {});
+    if (options?.triggerTurn !== true) throw new Error("guard prompt did not trigger a follow-up turn");
+    void handlers.get("agent_settled")?.({ type: "agent_settled" }, {});
   },
 };
 const mod = await loadPiTurnendExtension(process.env.PLUGIN);
 mod.default(pi);
+await handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, {});
+if (sessionStarts !== 1) throw new Error(`session start used ${sessionStarts} structured deliveries`);
 if (handlers.has("turn_end")) throw new Error("guard still treats internal Pi turns as logical runs");
 const settled = handlers.get("agent_settled");
 if (!settled) throw new Error("agent_settled handler was not registered");
@@ -974,10 +1021,11 @@ const pi = {
   on(event, handler) {
     handlers.set(event, handler);
   },
-  async sendUserMessage() {
+  appendEntry() {},
+  sendMessage() {
     attempts += 1;
     if (attempts === 1) throw new Error("synthetic delivery failure");
-    await handlers.get("agent_settled")?.({ type: "agent_settled" }, {});
+    void handlers.get("agent_settled")?.({ type: "agent_settled" }, {});
   },
 };
 const mod = await loadPiTurnendExtension(process.env.PLUGIN);

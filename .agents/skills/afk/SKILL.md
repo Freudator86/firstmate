@@ -83,8 +83,8 @@ explicit word - the daemon just batches the notification.
 
 The daemon constructs every current injection as the `away-supervisor` kind owned by `bin/fm-operational-input.sh`, beginning with `FM_OPERATIONAL_PREFIX`: `FM_INJECT_MARK` (U+2063 INVISIBLE SEPARATOR) followed by the stable `FIRSTMATE_OP: ` label.
 The bare `FM_INJECT_MARK` form remains accepted for legacy daemon escalations during rollout.
-U+2063 has no normal keyboard keystroke and survives terminal transport as UTF-8 text.
-This is how firstmate tells a daemon escalation apart from a real message in the same pane.
+U+2063 has no normal keyboard keystroke and survives terminal transport as UTF-8 text, but its bytes are public and copyable.
+The current away predicate uses this in-band compatibility convention to separate a daemon escalation from a real message in the same pane; it does not authenticate the sender.
 The operational prefix travels with the message text; it does not rely on harness-level typed-vs-injected detection, which is not portable across claude, codex, opencode, pi, and grok.
 
 ## Busy-guard and composer guard
@@ -174,7 +174,7 @@ Escalations are buffered up to `FM_ESCALATE_BATCH_SECS` (default 90s; 0 =
 immediate) and flushed as one single-line digest prefixed with the current
 operational prefix, carrying pre-read status summaries and a recommended action.
 The single-line format makes the submission unambiguous across harnesses, and
-the operational prefix lets firstmate distinguish it from a real captain message.
+the operational prefix supplies the current compatibility signal for firstmate's away predicate.
 
 ## Injection hardening
 

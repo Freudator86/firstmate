@@ -25,13 +25,15 @@ import type { TSchema } from "typebox";
 import {
   calmPresentationHides,
   calmPresentationIsActive,
-  classifyFirstmateSyntheticInput,
+  classifyFirstmateLaunchInput,
   deliverFirstmateSyntheticInput,
+  encodeFirstmateOperationalInput,
   FIRSTMATE_CALM_PRESENTATION_EVENT,
   FIRSTMATE_PI_LAUNCH_BRIEF_ENV,
   registerFirstmateSyntheticPresentation,
   setCalmPresentation,
   setCalmStockExportRendering,
+  setFirstmateSyntheticPresentationRedraw,
 } from "./lib/fm-calm-visibility.ts";
 
 type DefinitionFactory<TParams extends TSchema, TDetails, TState> = (
@@ -62,15 +64,19 @@ type StandardShellState = {
 
 export default function (pi: ExtensionAPI) {
   let exportRendering = false;
-  let launchBriefContent: string | undefined;
+  let expectedEncodedLaunchBrief: string | undefined;
   let removeTerminalInputHandler: (() => void) | undefined;
 
   const launchBriefPath = process.env[FIRSTMATE_PI_LAUNCH_BRIEF_ENV];
   if (launchBriefPath) {
     try {
-      launchBriefContent = readFileSync(launchBriefPath, "utf8").replace(/\n+$/, "");
+      const launchBriefBody = readFileSync(launchBriefPath, "utf8").replace(/\n+$/, "");
+      expectedEncodedLaunchBrief = encodeFirstmateOperationalInput(
+        "launch-brief",
+        launchBriefBody,
+      );
     } catch {
-      launchBriefContent = undefined;
+      expectedEncodedLaunchBrief = undefined;
     }
   }
 
@@ -193,9 +199,16 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("input", (event, ctx) => {
     if (event.images && event.images.length > 0) return { action: "continue" };
-    const kind = classifyFirstmateSyntheticInput(event.text, event.source, launchBriefContent);
+    // Only the first interactive candidate can claim the positional binding.
+    const expectedLaunchCandidate =
+      event.source === "interactive" ? expectedEncodedLaunchBrief : undefined;
+    if (event.source === "interactive") expectedEncodedLaunchBrief = undefined;
+    const kind = classifyFirstmateLaunchInput(
+      event.text,
+      event.source,
+      expectedLaunchCandidate,
+    );
     if (!kind) return { action: "continue" };
-    if (kind === "launch-brief") launchBriefContent = undefined;
 
     const redrawPresentation = (): void => {
       const expanded = ctx.ui.getToolsExpanded();
@@ -214,6 +227,11 @@ export default function (pi: ExtensionAPI) {
     exportRendering = false;
     setCalmPresentation(false);
     setCalmStockExportRendering(false);
+    setFirstmateSyntheticPresentationRedraw(() => {
+      const expanded = ctx.ui.getToolsExpanded();
+      ctx.ui.setToolsExpanded(!expanded);
+      ctx.ui.setToolsExpanded(expanded);
+    });
     publishPresentationState();
     ctx.ui.setWorkingVisible(true);
     ctx.ui.setHiddenThinkingLabel();

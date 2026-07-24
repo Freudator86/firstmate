@@ -694,6 +694,8 @@ test_marker_detection() {
     || fail "operationally-prefixed message not detected as injection"
   message_is_injection "${FM_INJECT_MARK}Supervisor escalate: done" \
     || fail "legacy marker-prefixed message not detected as injection"
+  message_is_injection "${FM_INJECT_MARK}arbitrary copied external content" \
+    || fail "broader leading-U+2063 compatibility predicate was narrowed implicitly"
   message_is_injection "how's it going?" \
     && fail "plain message misdetected as injection"
   message_is_injection "" && fail "empty message misdetected as injection"
@@ -706,7 +708,7 @@ test_marker_detection() {
     && fail "marker message should not exit afk (internal escalation)"
   should_exit_afk "$state" "status update please" \
     || fail "plain message should exit afk (captain is back)"
-  pass "marker detection: marker -> stay afk, no marker -> exit afk"
+  pass "marker detection: every leading U+2063 stays afk for compatibility, while no marker exits afk"
 }
 
 test_afk_turn_exemption() {

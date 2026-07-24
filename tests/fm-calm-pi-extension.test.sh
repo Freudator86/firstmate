@@ -73,14 +73,15 @@ test_static_contract() {
   assert_contains "$visibility" 'options.redrawPresentation' "Pi calm synthetic delivery does not retain mounted hidden entries"
   assert_contains "$text" 'ctx.ui.setWorkingVisible(!active)' "Pi calm extension does not hide the live working row"
   assert_contains "$text" 'ctx.ui.setHiddenThinkingLabel(active ? "" : undefined)' "Pi calm extension does not hide collapsed thinking labels"
-  assert_contains "$text" 'pi.on("input"' "Pi calm extension does not classify input-origin Firstmate injections"
+  assert_contains "$text" 'pi.on("input"' "Pi calm extension does not bind the process-local launch brief"
   assert_contains "$text" 'ctx.ui.onTerminalInput' "Pi calm extension does not scope export rendering to terminal submissions"
   assert_contains "$text" 'getKeybindings().matches(data, "tui.input.submit")' "Pi calm export boundary ignores the active submit keybinding"
   assert_contains "$text" 'input !== "/share"' "Pi calm export boundary does not cover /share"
   assert_contains "$text" 'FIRSTMATE_PI_LAUNCH_BRIEF_ENV' "Pi calm extension does not consume authoritative launch-brief origin"
   assert_contains "$text" 'renderShell: "self"' "Pi calm extension cannot remove complete built-in tool shells"
   assert_contains "$visibility" 'CALM_VISIBLE_CLASSES' "Pi calm policy does not centralize its visibility allowlist"
-  assert_contains "$visibility" 'classifyFirstmateSyntheticInput' "Pi calm policy does not centralize synthetic-input classification"
+  assert_contains "$visibility" 'classifyFirstmateLaunchInput' "Pi calm policy does not centralize the one-shot launch binding"
+  assert_not_contains "$visibility" 'classifyFirstmateOperationalText' "Pi live visibility still treats content parsing as provenance"
   assert_contains "$operational" 'fm-operational-input.sh' "Pi adapter does not delegate to the canonical cross-language owner"
   assert_not_contains "$visibility" 'FIRSTMATE WATCHER WAKE:' "current Calm classification still matches watcher payload prose"
   assert_not_contains "$visibility" 'TURN WOULD END BLIND' "current Calm classification still matches turn-end payload prose"
@@ -185,7 +186,7 @@ const pi = {
 };
 const extension = await import(`${pathToFileURL(process.env.EXT).href}?test=${Date.now()}`);
 extension.default(pi);
-const visibility = await import(`${pathToFileURL(`${process.cwd()}/lib/fm-calm-visibility.ts`).href}?policy=${Date.now()}`);
+const visibility = await import(pathToFileURL(`${process.cwd()}/lib/fm-calm-visibility.ts`).href);
 
 const names = tools.map((tool) => tool.name);
 const expectedNames = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -225,36 +226,54 @@ const currentBodies = new Map([
   ["from-firstmate", "corr=0123456789abcdef CURRENT_ROUTED_BODY"],
   ["launch-brief", launchBrief],
 ]);
-const positiveSyntheticFixtures = [...currentBodies].map(([kind, body]) => [
+const currentMarkerFixtures = [...currentBodies].map(([kind, body]) => [
   kind,
   visibility.encodeFirstmateOperationalInput(kind, body),
 ]);
-for (const [kind, content] of positiveSyntheticFixtures) {
-  if (visibility.classifyFirstmateSyntheticInput(content, "extension") !== kind) {
-    throw new Error(`current Firstmate fixture was not classified as ${kind}`);
+for (const [kind, content] of currentMarkerFixtures) {
+  for (const source of ["interactive", "rpc"]) {
+    if (visibility.classifyFirstmateLaunchInput(content, source) !== undefined) {
+      throw new Error(`${source} marker-only ${kind} input was treated as trusted provenance`);
+    }
   }
 }
-const watcherMessage = positiveSyntheticFixtures.find(([kind]) => kind === "watcher")[1];
+const watcherMessage = currentMarkerFixtures.find(([kind]) => kind === "watcher")[1];
 const legacyUntyped = `\u2063FIRSTMATE_OP: ${watcherBody}`;
-if (visibility.classifyFirstmateSyntheticInput(legacyUntyped, "interactive") !== "legacy-operational") {
-  throw new Error("landed untyped FIRSTMATE_OP input was falsely assigned a current subtype");
-}
 const legacyFixtures = [
-  ["session-start", "Run `bin/fm-session-start.sh` now, exactly once, before executing any other instructions."],
-  ["watcher", watcherBody],
-  ["turn-end-guard", turnEndBody],
-  ["away-supervisor", "\u2063Supervisor escalate (1 event(s)): done"],
+  legacyUntyped,
+  "Run `bin/fm-session-start.sh` now, exactly once, before executing any other instructions.",
+  watcherBody,
+  turnEndBody,
+  "\u2063Supervisor escalate (1 event(s)): done",
 ];
-for (const [kind, content] of legacyFixtures) {
-  if (visibility.classifyFirstmateSyntheticInput(content, "interactive") !== kind) {
-    throw new Error(`isolated legacy fixture was not classified as ${kind}`);
+for (const content of legacyFixtures) {
+  for (const source of ["interactive", "rpc"]) {
+    if (visibility.classifyFirstmateLaunchInput(content, source) !== undefined) {
+      throw new Error(`${source} legacy marker or prose was treated as trusted provenance`);
+    }
   }
 }
-if (visibility.classifyFirstmateSyntheticInput(launchBrief, "interactive", launchBrief) !== "launch-brief") {
-  throw new Error("legacy env-identified Pi launch brief was not classified");
+const expectedEncodedLaunchBrief = visibility.encodeFirstmateOperationalInput(
+  "launch-brief",
+  launchBrief,
+);
+if (
+  visibility.classifyFirstmateLaunchInput(
+    expectedEncodedLaunchBrief,
+    "interactive",
+    expectedEncodedLaunchBrief,
+  ) !== "launch-brief"
+) {
+  throw new Error("exact process-bound Pi launch brief was not classified");
 }
-if (visibility.classifyFirstmateSyntheticInput(launchBrief, "interactive") !== undefined) {
-  throw new Error("unmarked genuine text matching a brief was hidden without its source binding");
+if (
+  visibility.classifyFirstmateLaunchInput(
+    expectedEncodedLaunchBrief,
+    "rpc",
+    expectedEncodedLaunchBrief,
+  ) !== undefined
+) {
+  throw new Error("RPC input reused the positional launch binding");
 }
 const nearMissGenuineFixtures = [
   "Run bin/fm-session-start.sh now, exactly once, before executing any other instructions.",
@@ -265,11 +284,11 @@ const nearMissGenuineFixtures = [
   "[fm-from-firstmate] inspect this visible label",
   "FIRSTMATE_OP: v1 watcher",
   "\u2063Captain-authored arbitrary invisible-separator text",
-  `Captain quote: ${positiveSyntheticFixtures[0][1]}`,
+  `Captain quote: ${currentMarkerFixtures[0][1]}`,
   "Captain quote: Run `bin/fm-session-start.sh` now, exactly once, before executing any other instructions.",
 ];
 for (const content of nearMissGenuineFixtures) {
-  if (visibility.classifyFirstmateSyntheticInput(content, "interactive") !== undefined) {
+  if (visibility.classifyFirstmateLaunchInput(content, "interactive") !== undefined) {
     throw new Error(`genuine near-miss input was hidden: ${content}`);
   }
 }
@@ -462,8 +481,21 @@ if (workingVisible !== true || hiddenThinkingLabel !== undefined) {
   throw new Error("session start did not restore Pi's stock working and thinking presentation");
 }
 const inputHandler = handlers.get("input")[0];
+const rpcLaunchResult = await inputHandler({
+  text: expectedEncodedLaunchBrief,
+  images: undefined,
+  source: "rpc",
+  streamingBehavior: undefined,
+}, commandContext);
+if (
+  rpcLaunchResult?.action !== "continue" ||
+  appendedEntries.length !== 0 ||
+  sentMessages.length !== 0
+) {
+  throw new Error("RPC input claimed the process-local positional launch binding");
+}
 const launchBriefResult = await inputHandler({
-  text: launchBrief,
+  text: expectedEncodedLaunchBrief,
   images: undefined,
   source: "interactive",
   streamingBehavior: undefined,
@@ -473,12 +505,12 @@ if (
   appendedEntries.length !== 1 ||
   sentMessages.length !== 1 ||
   sentMessages[0].message.details.kind !== "launch-brief" ||
-  sentMessages[0].message.content !== launchBrief
+  sentMessages[0].message.content !== expectedEncodedLaunchBrief
 ) {
   throw new Error("Pi positional launch brief was not consumed through its exact origin path");
 }
 const repeatedBriefResult = await inputHandler({
-  text: launchBrief,
+  text: expectedEncodedLaunchBrief,
   images: undefined,
   source: "interactive",
   streamingBehavior: undefined,
@@ -493,23 +525,57 @@ if (
 const syntheticResult = await inputHandler({
   text: watcherMessage,
   images: undefined,
-  source: "extension",
+  source: "interactive",
   streamingBehavior: "followUp",
 }, commandContext);
 if (
-  syntheticResult?.action !== "handled" ||
-  appendedEntries.length !== 2 ||
-  sentMessages.length !== 2
+  syntheticResult?.action !== "continue" ||
+  appendedEntries.length !== 1 ||
+  sentMessages.length !== 1
 ) {
-  throw new Error("known Firstmate synthetic input was not rerouted through controllable delivery");
+  throw new Error("marker-only live input was hidden or duplicated instead of reaching context once");
 }
+const failVisibleLiveInputs = [
+  ["typed RPC marker", watcherMessage, "rpc"],
+  ["untyped legacy marker", legacyUntyped, "interactive"],
+  ["legacy prose", legacyFixtures[1], "rpc"],
+  [
+    "away composer marker",
+    currentMarkerFixtures.find(([kind]) => kind === "away-supervisor")[1],
+    "interactive",
+  ],
+  [
+    "from-firstmate composer marker",
+    currentMarkerFixtures.find(([kind]) => kind === "from-firstmate")[1],
+    "interactive",
+  ],
+];
+for (const [label, text, source] of failVisibleLiveInputs) {
+  const result = await inputHandler({
+    text,
+    images: undefined,
+    source,
+    streamingBehavior: undefined,
+  }, commandContext);
+  if (
+    result?.action !== "continue" ||
+    appendedEntries.length !== 1 ||
+    sentMessages.length !== 1
+  ) {
+    throw new Error(`${label} was hidden or duplicated instead of remaining visible`);
+  }
+}
+visibility.deliverFirstmateSyntheticInput(pi, watcherMessage, "watcher", {
+  deliverAs: "followUp",
+  triggerTurn: true,
+});
 if (
   sentMessages[1].message.content !== watcherMessage ||
   sentMessages[1].message.display !== false ||
   sentMessages[1].options.triggerTurn !== true ||
   sentMessages[1].options.deliverAs !== "followUp"
 ) {
-  throw new Error("synthetic input delivery or context semantics changed");
+  throw new Error("trusted structured synthetic delivery or context semantics changed");
 }
 const presentationRenderer = entryRenderers.get("firstmate-synthetic-input-presentation");
 if (!presentationRenderer) throw new Error("synthetic presentation renderer was not registered");
@@ -619,23 +685,38 @@ if (JSON.stringify(sessionEntries) !== entriesBefore) {
   throw new Error("calm mode changed session entries or model context");
 }
 
+for (const [label, text, source] of failVisibleLiveInputs) {
+  const result = await inputHandler({
+    text,
+    images: undefined,
+    source,
+    streamingBehavior: undefined,
+  }, commandContext);
+  if (
+    result?.action !== "continue" ||
+    appendedEntries.length !== 2 ||
+    sentMessages.length !== 2
+  ) {
+    throw new Error(`${label} was hidden or duplicated while Calm was active`);
+  }
+}
+
 const activeWatcherMessage = visibility.encodeFirstmateOperationalInput(
   "watcher",
   "FIRSTMATE WATCHER WAKE: signal: /tmp/active-probe.status\n\n" +
     "Run bin/fm-wake-drain.sh first and handle the queued wake. Watcher continuity is extension-owned.",
 );
-const activeSyntheticResult = await inputHandler({
-  text: activeWatcherMessage,
-  images: undefined,
-  source: "extension",
-  streamingBehavior: "followUp",
-}, commandContext);
+visibility.deliverFirstmateSyntheticInput(
+  pi,
+  activeWatcherMessage,
+  "watcher",
+  { deliverAs: "followUp", triggerTurn: true },
+);
 if (
-  activeSyntheticResult?.action !== "handled" ||
   appendedEntries.length !== 3 ||
   sentMessages.length !== 3
 ) {
-  throw new Error("synthetic input received while Calm was active was not delivered");
+  throw new Error("trusted structured input received while Calm was active was not delivered");
 }
 const activePresentationComponent = new CustomEntryComponent(
   appendedEntries[2],
@@ -753,7 +834,10 @@ test_interactive_terminal_e2e() {
   chmod +x "$project/bin/"*.sh
   cat >"$project/.pi/extensions/fm-calm-e2e-inject.ts" <<'TS'
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { encodeFirstmateOperationalInput } from "./lib/fm-calm-visibility.ts";
+import {
+  deliverFirstmateSyntheticInput,
+  encodeFirstmateOperationalInput,
+} from "./lib/fm-calm-visibility.ts";
 
 export default function (pi: ExtensionAPI): void {
   pi.registerCommand("calm-diagnostic-e2e", {
@@ -768,16 +852,19 @@ export default function (pi: ExtensionAPI): void {
       const fixtures = new Map([
         ["watcher", "CURRENT_WATCHER_E2E /tmp/active-probe.status"],
         ["turn-end-guard", "CURRENT_TURN_END_E2E"],
-        ["away-supervisor", "CURRENT_AWAY_E2E"],
-        ["from-firstmate", "corr=0123456789abcdef CURRENT_FROM_FIRSTMATE_E2E"],
-        ["launch-brief", "CURRENT_LAUNCH_BRIEF_E2E"],
       ] as const);
       const kind = args.trim() as Parameters<typeof encodeFirstmateOperationalInput>[0];
       const body = fixtures.get(kind);
       if (!body) throw new Error(`unknown current operational kind: ${kind}`);
-      await pi.sendUserMessage(encodeFirstmateOperationalInput(kind, body), {
-        deliverAs: "followUp",
-      });
+      deliverFirstmateSyntheticInput(
+        pi,
+        encodeFirstmateOperationalInput(kind, body),
+        kind,
+        {
+          deliverAs: "followUp",
+          triggerTurn: true,
+        },
+      );
     },
   });
 }
@@ -811,8 +898,8 @@ JSON
   assert_contains "$(cat "$default_snapshot")" "Thinking..." "reasoning fixture did not render Pi's collapsed thinking label"
   assert_contains "$(cat "$default_snapshot")" "fm-calm.ts" "project-local Pi calm extension did not auto-load"
   # shellcheck disable=SC2016 # Backticks are literal prompt markup.
-  assert_not_contains "$(cat "$default_snapshot")" 'Run `bin/fm-session-start.sh` now' \
-    "native session-start context unexpectedly rendered while Calm was off"
+  assert_contains "$(cat "$default_snapshot")" 'Run `bin/fm-session-start.sh` now' \
+    "Calm-off transcript did not show the structured session-start presentation"
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" C-o
   wait_for_text "$expanded_snapshot" "escape to interrupt" \
     || fail "Ctrl+O did not retain Pi's ordinary startup and tool expansion behavior"
@@ -853,10 +940,7 @@ JSON
 
   for fixture in \
     "watcher|CURRENT_WATCHER_E2E" \
-    "turn-end-guard|CURRENT_TURN_END_E2E" \
-    "away-supervisor|CURRENT_AWAY_E2E" \
-    "from-firstmate|CURRENT_FROM_FIRSTMATE_E2E" \
-    "launch-brief|CURRENT_LAUNCH_BRIEF_E2E"
+    "turn-end-guard|CURRENT_TURN_END_E2E"
   do
     kind=${fixture%%|*}
     needle=${fixture#*|}
@@ -876,7 +960,8 @@ const fs = require("node:fs");
 const entries = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").map(JSON.parse);
 const nativeSessionStart = entries.find((entry) =>
   entry.type === "custom_message" &&
-  entry.customType === "firstmate-sessionstart-nudge"
+  entry.customType === "firstmate-synthetic-input" &&
+  entry.details?.kind === "session-start"
 );
 if (
   !nativeSessionStart ||
@@ -889,9 +974,6 @@ if (
 const expected = new Map([
   ["CURRENT_WATCHER_E2E", "watcher"],
   ["CURRENT_TURN_END_E2E", "turn-end-guard"],
-  ["CURRENT_AWAY_E2E", "away-supervisor"],
-  ["CURRENT_FROM_FIRSTMATE_E2E", "from-firstmate"],
-  ["CURRENT_LAUNCH_BRIEF_E2E", "launch-brief"],
 ]);
 const current = entries.filter((entry) =>
   entry.type === "custom_message" &&
@@ -924,10 +1006,7 @@ JS
     "Calm showed the native session-start operational input"
   for hidden in \
     CURRENT_WATCHER_E2E \
-    CURRENT_TURN_END_E2E \
-    CURRENT_AWAY_E2E \
-    CURRENT_FROM_FIRSTMATE_E2E \
-    CURRENT_LAUNCH_BRIEF_E2E
+    CURRENT_TURN_END_E2E
   do
     assert_not_contains "$(cat "$active_hidden_snapshot")" "$hidden" "Calm showed current operational kind $hidden"
   done

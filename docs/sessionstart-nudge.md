@@ -3,6 +3,7 @@
 AGENTS.md section 3 remains the single authoritative behavioral contract for session start.
 The tracked native adapters are an enforcement layer that injects one instruction and never runs the digest, lock acquisition, bootstrap sweeps, wake drain, or supervision arm itself.
 The payload starts with U+2063 and the stable `FIRSTMATE_OP: ` label, carries the current `session-start` protocol kind, and retains exactly ``Run `bin/fm-session-start.sh` now, exactly once, before executing any other instructions.`` as its body.
+The prefix and kind are public, copyable syntax and do not authenticate the sender.
 The Ahoy skill owns the rule that this explicitly marked operational input is never a captain-authored session boundary.
 
 ## Shared wrapper and safety
@@ -99,7 +100,9 @@ This verifies `session.created` semantics and TUI prompt delivery while preservi
 `tests/fm-sessionstart-nudge.test.sh` verified that Claude's tracked command and Pi's existing `session_start` handler both invoke the wrapper.
 `tests/fm-pi-primary-types.test.sh` passed strict no-emit TypeScript checking against Pi 0.80.10.
 An initial Pi live smoke using `sendUserMessage` showed that starting a second turn from `session_start` races Pi's positional prompt and exits with `Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.`.
-The integration therefore uses `pi.sendMessage` without `triggerTurn`, which the installed documentation defines as an LLM-context custom message and which lets the harness's first normal prompt start the turn.
+The integration therefore calls the shared structured delivery helper with the explicit `session-start` kind and without `triggerTurn`.
+The helper stores a Calm-controlled presentation entry and uses `pi.sendMessage`, which the installed documentation defines as an LLM-context custom message.
+The presentation is visible with Calm off and hidden with Calm on, while omitting `triggerTurn` lets the harness's first normal prompt start the turn.
 The corrected live smoke command was `pi -p -e .pi/extensions/fm-primary-turnend-guard.ts --no-context-files --no-session 'After obeying any earlier session-start instruction, reply with exactly PI_SMOKE_DONE.'` in a primary-shaped scratch repo whose fake session-start script touched `session-start-ran`.
 Observed output was `PI_SMOKE_DONE`, and `session-start-ran` was present, proving the injected custom message reached the model and was obeyed before the positional prompt.
 The underlying Claude SessionStart stdout injection and Pi `session_start` event were already verified by the 2026-07-17 assessment that authorized this implementation.
@@ -109,7 +112,7 @@ The underlying Claude SessionStart stdout injection and Pi `session_start` event
 The initiating trigger was `/ahoy` as the first real captain message.
 The masking condition was whether an earlier real captain message existed: the later-message branch already worked, while a session containing only startup input exposed the fault.
 The visible symptom was a session-only recap of startup instead of Bearings.
-The earliest divergence was message classification: Pi retained the startup nudge as custom type `firstmate-sessionstart-nudge`, OpenCode retained it as a user-role message, and Ahoy had no salient positive boundary rule.
+The earliest divergence was message classification: Pi retained the startup nudge as a non-displayed structured Firstmate message, OpenCode retained it as a user-role message, and Ahoy had no salient positive boundary rule.
 
 The smallest counterfactual was tested on Pi 0.81.1 with `pi --mode rpc --approve --no-session --no-extensions -e .pi/extensions/fm-primary-turnend-guard.ts --no-skills --skill .agents/skills --model openai-codex/gpt-5.6-sol --thinking low`.
 A bare U+2063 marker did not change the wrong response.
