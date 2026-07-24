@@ -250,15 +250,18 @@ else
   # Type once, submit, verify. Lenient: only a positively-confirmed swallow
   # (text still in the composer) is an error; an unreadable pane is assumed sent.
   if ! verdict=$(fm_backend_send_text_submit "$TARGET_BACKEND" "$T" "$MESSAGE" "$retries" "$sleep_s" "$settle" "$EXPECTED_LABEL"); then
+    [ -z "$PENDING_CORR" ] || fm_pending_reply_discard_undelivered "$STATE" "$PENDING_CORR"
     echo "error: text not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
     exit 1
   fi
   case "$verdict" in
     pending)
+      [ -z "$PENDING_CORR" ] || fm_pending_reply_discard_undelivered "$STATE" "$PENDING_CORR"
       echo "error: text not submitted to $T (Enter swallowed; text left in composer; tried $RESOLUTION_TRIED)" >&2
       exit 1
       ;;
     send-failed)
+      [ -z "$PENDING_CORR" ] || fm_pending_reply_discard_undelivered "$STATE" "$PENDING_CORR"
       echo "error: text not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
       exit 1
       ;;
