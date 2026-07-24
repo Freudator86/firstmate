@@ -357,8 +357,18 @@ test_lock_stale_steal_single_winner_under_concurrency() {
       # stealer its one shot. Retry briefly (well under the time the winner
       # stays alive below) rather than giving up on the first miss, matching
       # how real callers use fm_lock_acquire_wait instead of a single try.
+      #
+      # The 25*0.02s retry budget is a wall-clock nicety, not a hard bound: a
+      # loaded box can stretch each iteration'"'"'s real scheduling delay far
+      # past 20ms. Re-checking the marker before every attempt (including the
+      # first) closes the resulting gap - a straggler that only gets CPU time
+      # after the winner'"'"'s 3s hold has already elapsed and exited would
+      # otherwise legitimately steal that now-truly-dead lock and register as
+      # a second, spurious winner. Once any winner has published, every other
+      # contender must stop trying rather than race the winner'"'"'s lifetime.
       tries=0
       while [ "$tries" -lt 25 ]; do
+        [ -s "$3" ] && break
         if fm_lock_try_acquire "$2"; then
           printf "%s\n" "${BASHPID:-$$}" >> "$3"
           # Held well past every other contender'"'"'s bounded retry budget
