@@ -1,5 +1,7 @@
 Mode: Claude background-notify wake delivery.
 
+- Ordinary wake: after handling each wake, re-arm wake delivery with `bin/fm-watch-arm.sh` as a fresh Claude Code background task before composing any reply or beginning long work.
+
 When this session owns supervision and away mode is not active:
 
 1. Drain first with `bin/fm-wake-drain.sh`.

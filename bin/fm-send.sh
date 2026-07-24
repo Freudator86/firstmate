@@ -22,11 +22,12 @@
 # meta, get a longer pre-Enter settle so completion popups do not swallow Enter.
 #
 # From-firstmate marker: when the resolved target is a task selector whose meta
-# records kind=secondmate, the text is prefixed with the from-firstmate marker
-# (bin/fm-marker-lib.sh) so the secondmate routes its reply via its status file
-# or a status-pointed doc instead of stranding it in chat the main firstmate
-# never reads. That marked text path first changes a resting secondmate's parent
-# metadata to state=active so routed work is supervision-relevant before delivery.
+# records kind=secondmate, the text uses the live-charter-compatible
+# from-firstmate carrier owned by bin/fm-operational-input.sh so the secondmate
+# routes its reply via its status file or a status-pointed doc instead of
+# stranding it in chat the main firstmate never reads. That marked text path
+# first changes a resting secondmate's parent metadata to state=active so
+# routed work is supervision-relevant before delivery.
 # A crewmate/scout target, an explicit backend-target escape-hatch target, and the
 # --key path are never marked - their behavior is unchanged.
 # After a successful text submit fm-send pauses FM_SEND_SETTLE seconds (default 1,
@@ -65,6 +66,8 @@ fi
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-marker-lib.sh
 . "$SCRIPT_DIR/fm-marker-lib.sh"
+# shellcheck source=bin/fm-pending-reply-lib.sh
+. "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 
 FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' "$SCRIPT_DIR/fm-guard.sh" || true
 
@@ -212,12 +215,20 @@ if [ "${1:-}" = "--key" ]; then
   fi
 else
   MESSAGE=$*
+  PENDING_CORR=""
   if [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
     # A resting secondmate does not count as supervision-relevant work. Switch
     # it back to active before delivering newly routed text so a successful send
     # can never race ahead of the Stop-hook predicate.
     "$SCRIPT_DIR/fm-secondmate-state.sh" active "$TARGET_META"
-    fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
+    EXISTING_CORR=$(fm_pending_reply_extract_corr "$MESSAGE")
+    if [ -n "$EXISTING_CORR" ] && fm_pending_reply_corr_reusable "$STATE" "$EXISTING_CORR" "$RAW_TARGET"; then
+      PENDING_CORR=$EXISTING_CORR
+      fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
+    else
+      PENDING_CORR=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$RAW_TARGET" "$MESSAGE")
+      fm_pending_reply_embed_corr "$MESSAGE" "$PENDING_CORR" MESSAGE
+    fi
   fi
   # Slash commands open a completion popup in some TUIs (verified on codex);
   # submitting too fast selects nothing, so give the popup time to settle before
@@ -239,19 +250,23 @@ else
   # Type once, submit, verify. Lenient: only a positively-confirmed swallow
   # (text still in the composer) is an error; an unreadable pane is assumed sent.
   if ! verdict=$(fm_backend_send_text_submit "$TARGET_BACKEND" "$T" "$MESSAGE" "$retries" "$sleep_s" "$settle" "$EXPECTED_LABEL"); then
+    [ -z "$PENDING_CORR" ] || fm_pending_reply_discard_undelivered "$STATE" "$PENDING_CORR"
     echo "error: text not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
     exit 1
   fi
   case "$verdict" in
     pending)
+      [ -z "$PENDING_CORR" ] || fm_pending_reply_discard_undelivered "$STATE" "$PENDING_CORR"
       echo "error: text not submitted to $T (Enter swallowed; text left in composer; tried $RESOLUTION_TRIED)" >&2
       exit 1
       ;;
     send-failed)
+      [ -z "$PENDING_CORR" ] || fm_pending_reply_discard_undelivered "$STATE" "$PENDING_CORR"
       echo "error: text not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
       exit 1
       ;;
   esac
+  [ -z "$PENDING_CORR" ] || fm_pending_reply_mark_delivered "$STATE" "$PENDING_CORR"
   # Submit landed (verdict was not pending/send-failed). Confirmation only proves
   # the text was accepted; the harness still needs a beat to spin up the
   # turn before its busy footer shows. Pause so an immediate peek catches the

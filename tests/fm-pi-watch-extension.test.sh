@@ -15,8 +15,39 @@ export NODE_NO_WARNINGS=1
 
 install_pi_watch_extension_fixture() {
   local repo=$1
-  mkdir -p "$repo/.pi/extensions" "$repo/node_modules/typebox"
+  mkdir -p \
+    "$repo/.pi/extensions/lib" \
+    "$repo/node_modules/@earendil-works/pi-coding-agent" \
+    "$repo/node_modules/@earendil-works/pi-tui" \
+    "$repo/node_modules/typebox"
   cp "$EXT" "$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cp "$ROOT/.pi/extensions/lib/fm-calm-visibility.ts" "$repo/.pi/extensions/lib/fm-calm-visibility.ts"
+  cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$repo/.pi/extensions/lib/fm-operational-input.ts"
+  mkdir -p "$repo/bin"
+  cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/fm-operational-input.sh"
+  chmod +x "$repo/bin/fm-operational-input.sh"
+  cat > "$repo/node_modules/@earendil-works/pi-coding-agent/package.json" <<'JSON'
+{"name":"@earendil-works/pi-coding-agent","type":"module","exports":"./index.js"}
+JSON
+  cat > "$repo/node_modules/@earendil-works/pi-coding-agent/index.js" <<'JS'
+export function getMarkdownTheme() { return {}; }
+export class UserMessageComponent {
+  render() { return []; }
+  invalidate() {}
+}
+JS
+  cat > "$repo/node_modules/@earendil-works/pi-tui/package.json" <<'JSON'
+{"name":"@earendil-works/pi-tui","type":"module","exports":"./index.js"}
+JSON
+  cat > "$repo/node_modules/@earendil-works/pi-tui/index.js" <<'JS'
+export class Box {
+  addChild() {}
+  clear() {}
+  setBgFn() {}
+}
+export class Container {}
+export class Text {}
+JS
   cat > "$repo/node_modules/typebox/package.json" <<'JSON'
 {"name":"typebox","type":"module","exports":"./index.js"}
 JSON
@@ -37,7 +68,8 @@ test_tracked_extension_present_and_self_hashing() {
   assert_contains "$text" "fm_watch_arm_pi" "tracked extension missing tool name"
   assert_contains "$text" "fm-watch-arm-pi" "tracked extension missing command name"
   assert_contains "$text" "fm-watch-arm.sh" "tracked extension missing watcher arm"
-  assert_contains "$text" "sendUserMessage" "tracked extension missing Pi wake API"
+  assert_contains "$text" "deliverFirstmateSyntheticInput" "tracked extension missing trusted structured wake delivery"
+  assert_contains "$text" 'encodeFirstmateOperationalInput' "tracked extension does not construct typed synthetic user-role wakes"
   assert_contains "$text" "deliverAs: \"followUp\"" "tracked extension missing followUp delivery"
   assert_contains "$text" ".pi-watch-extension-loaded" "tracked extension missing loaded marker"
   assert_contains "$text" 'createHash("sha256").update(readFileSync(extensionFile)).digest("hex")' "tracked extension does not self-hash its own content for extensionVersion"
@@ -112,8 +144,15 @@ const pi = {
     if (name === "fm-watch-arm-pi") handler = options.handler;
   },
   registerTool() {},
-  sendUserMessage: async (message) => {
-    prompt = message;
+  appendEntry() {},
+  sendMessage(message, options) {
+    if (message.customType !== "firstmate-synthetic-input" || message.details?.kind !== "watcher" || message.display !== false) {
+      throw new Error(`unstructured watcher delivery: ${JSON.stringify(message)}`);
+    }
+    if (options?.deliverAs !== "followUp" || options?.triggerTurn !== true) {
+      throw new Error(`unexpected watcher delivery options: ${JSON.stringify(options)}`);
+    }
+    prompt = message.content;
   },
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
@@ -140,6 +179,10 @@ if (!notification.includes("started Pi extension arm child")) {
 }
 for (let i = 0; i < 250 && !prompt; i += 1) {
   await new Promise((resolve) => setTimeout(resolve, 20));
+}
+if (!prompt.startsWith("\u2063FIRSTMATE_OP: v1 watcher: ")) {
+  console.error(`untyped operational follow-up: ${prompt}`);
+  process.exit(1);
 }
 if (!prompt.includes("FIRSTMATE WATCHER WAKE")) {
   console.error(`missing follow-up prompt: ${prompt}`);
@@ -192,7 +235,8 @@ const pi = {
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async () => {},
+  appendEntry() {},
+  sendMessage() {},
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
@@ -218,11 +262,224 @@ EOF
   pass "Pi custom tool returns text content and structured details"
 }
 
-test_pi_actionable_close_waits_for_drain_before_rearm() {
+test_pi_redundant_tool_call_is_owned_noop() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
+  local repo home plugin log stop out status
+  repo="$TMP_ROOT/pi-redundant-tool-root"
+  home="$TMP_ROOT/pi-redundant-tool-home"
+  log="$TMP_ROOT/pi-redundant-tool.log"
+  stop="$TMP_ROOT/pi-redundant-tool.stop"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm\n' >> "${FM_ARM_LOG:?}"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+trap 'exit 0' TERM INT
+while [ ! -e "$FM_STOP_FILE" ]; do sleep 0.02; done
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_STOP_FILE="$stop" node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+let tool = null;
+const pi = {
+  on() {},
+  registerCommand() {},
+  registerTool(candidate) {
+    if (candidate.name === "fm_watch_arm_pi") tool = candidate;
+  },
+  appendEntry() {},
+  sendMessage() {},
+};
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+const initial = await tool.execute("tool-call-first", {}, undefined, undefined, {});
+if (!initial.content[0]?.text.includes("started Pi extension arm child")) {
+  throw new Error(`initial call did not start the arm child: ${initial.content[0]?.text}`);
+}
+const redundant = await tool.execute("tool-call-redundant", {}, undefined, undefined, {});
+if (!redundant.content[0]?.text.includes("Pi extension already owns an arm child; no manual re-arm needed")) {
+  throw new Error(`redundant call omitted ownership-based no-op guidance: ${redundant.content[0]?.text}`);
+}
+if (/^watcher: healthy\b/.test(redundant.content[0]?.text)) {
+  throw new Error(`redundant call overclaimed independent health: ${redundant.content[0]?.text}`);
+}
+if (!redundant.content[0]?.text.includes("only after a later notification says the cycle is missing, failed, or unhealthy")) {
+  throw new Error(`redundant call omitted the repair-only condition: ${redundant.content[0]?.text}`);
+}
+for (let i = 0; i < 100 && !existsSync(process.env.FM_ARM_LOG); i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+if (!existsSync(process.env.FM_ARM_LOG)) throw new Error("initial arm child did not start");
+await new Promise((resolve) => setTimeout(resolve, 100));
+const rows = readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n");
+if (rows.length !== 1) throw new Error(`redundant call spawned ${rows.length} arm children`);
+writeFileSync(process.env.FM_STOP_FILE, "stop\n");
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "Pi redundant tool call must remain an ownership-based no-op with repair-only guidance"
+  [ -z "$out" ] || fail "Pi redundant-call test printed output: $out"
+  pass "Pi redundant tool call returns ownership guidance and spawns no second child"
+}
+
+
+test_pi_scheduled_retry_call_is_owned_noop() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
+  local repo home plugin log out status
+  repo="$TMP_ROOT/pi-scheduled-retry-root"
+  home="$TMP_ROOT/pi-scheduled-retry-home"
+  log="$TMP_ROOT/pi-scheduled-retry.log"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm\n' >> "${FM_ARM_LOG:?}"
+exit 0
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_WATCH_REARM_RETRY_BASE_MS=10000 FM_WATCH_REARM_RETRY_MAX_MS=10000 node --input-type=module 2>&1 <<'EOF'
+import { readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+let tool = null;
+const pi = {
+  on() {},
+  registerCommand() {},
+  registerTool(candidate) {
+    if (candidate.name === "fm_watch_arm_pi") tool = candidate;
+  },
+  appendEntry() {},
+  sendMessage() {},
+};
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+await tool.execute("tool-call-first", {}, undefined, undefined, {});
+let redundant = null;
+for (let i = 0; i < 100; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  redundant = await tool.execute("tool-call-during-retry", {}, undefined, undefined, {});
+  if (redundant.content[0]?.text.includes("scheduled continuity retry")) break;
+}
+if (!redundant?.content[0]?.text.includes("Pi extension already owns a scheduled continuity retry; no manual re-arm needed")) {
+  throw new Error(`scheduled retry did not return ownership-based no-op guidance: ${redundant?.content[0]?.text}`);
+}
+if (/^watcher: healthy\b/.test(redundant.content[0]?.text)) {
+  throw new Error(`scheduled retry call overclaimed independent health: ${redundant.content[0]?.text}`);
+}
+if (!redundant.content[0]?.text.includes("only after a later notification says the cycle is missing, failed, or unhealthy")) {
+  throw new Error(`scheduled retry call omitted the repair-only condition: ${redundant.content[0]?.text}`);
+}
+await new Promise((resolve) => setTimeout(resolve, 100));
+const rows = readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n");
+if (rows.length !== 1) throw new Error(`scheduled retry call spawned ${rows.length} arm children`);
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "Pi scheduled-retry call must not duplicate the extension-owned retry"
+  [ -z "$out" ] || fail "Pi scheduled-retry test printed output: $out"
+  pass "Pi scheduled retry remains extension-owned after another tool call"
+}
+
+
+test_pi_actionable_close_starts_single_successor_before_delivery() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log stop out status
   repo="$TMP_ROOT/pi-continuous-rearm-root"
   home="$TMP_ROOT/pi-continuous-rearm-home"
   log="$TMP_ROOT/pi-continuous-rearm.log"
+  stop="$TMP_ROOT/pi-continuous-rearm.stop"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm=%s predecessor=%s\n' "$$" "${FM_WATCH_PREDECESSOR_ARM_PID:-none}" >> "${FM_ARM_LOG:?}"
+count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+if [ "$count" -eq 1 ]; then
+  printf 'signal: synthetic actionable close\n'
+  exit 0
+fi
+trap 'exit 0' TERM INT
+while [ ! -e "$FM_STOP_FILE" ]; do sleep 0.02; done
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_STOP_FILE="$stop" node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+let tool = null;
+let deliveryStarted = false;
+let rowsAtDelivery = 0;
+const pi = {
+  on() {},
+  registerCommand() {},
+  registerTool(candidate) {
+    if (candidate.name === "fm_watch_arm_pi") tool = candidate;
+  },
+  appendEntry() {},
+  sendMessage() {
+    rowsAtDelivery = existsSync(process.env.FM_ARM_LOG)
+      ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n").length
+      : 0;
+    deliveryStarted = true;
+  },
+};
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+await tool.execute("tool-call-continuity", {}, undefined, undefined, {});
+for (let i = 0; i < 250; i += 1) {
+  const rows = existsSync(process.env.FM_ARM_LOG)
+    ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n")
+    : [];
+  if (rows.length >= 2 && deliveryStarted) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+const rows = readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n");
+if (rows.length !== 2) throw new Error(`expected one successor arm, got ${rows.length}: ${rows.join(" | ")}`);
+if (!deliveryStarted) throw new Error("wake delivery did not begin");
+if (rowsAtDelivery !== 2) throw new Error(`wake delivery began before successor establishment (${rowsAtDelivery} arm rows)`);
+if (!/predecessor=[0-9]+/.test(rows[1])) throw new Error(`successor did not receive predecessor identity: ${rows[1]}`);
+await new Promise((resolve) => setTimeout(resolve, 100));
+const stableRows = readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n");
+if (stableRows.length !== 2) throw new Error(`single-flight violation launched ${stableRows.length} arms`);
+writeFileSync(process.env.FM_STOP_FILE, "stop\n");
+process.exit(0);
+EOF
+  )
+  status=$?
+  expect_code 0 "$status" "Pi actionable close must start one successor before wake delivery settles"
+  [ -z "$out" ] || fail "Pi continuous-rearm test printed output: $out"
+  pass "Pi actionable close starts one successor before wake delivery settles"
+}
+
+
+test_pi_actionable_close_waits_for_drain_before_rearm() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
+  local repo home plugin log stop out status
+  repo="$TMP_ROOT/pi-drain-wait-root"
+  home="$TMP_ROOT/pi-drain-wait-home"
+  log="$TMP_ROOT/pi-drain-wait.log"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
@@ -246,8 +503,9 @@ const pi = {
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async (message) => {
-    prompt = message;
+  appendEntry() {},
+  sendMessage(message) {
+    prompt = message.content;
   },
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
@@ -272,7 +530,96 @@ EOF
   pass "Pi actionable close leaves delivery re-arm to the post-drain protocol"
 }
 
+test_pi_pre_ready_actionable_close_preserves_its_successor() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
+  local repo home plugin log release retired stop out status
+  repo="$TMP_ROOT/pi-pre-ready-actionable-root"
+  home="$TMP_ROOT/pi-pre-ready-actionable-home"
+  log="$TMP_ROOT/pi-pre-ready-actionable.log"
+  release="$TMP_ROOT/pi-pre-ready-actionable.release"
+  retired="$TMP_ROOT/pi-pre-ready-actionable.retired"
+  stop="$TMP_ROOT/pi-pre-ready-actionable.stop"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
+count=$(wc -l < "$FM_ARM_LOG" | tr -d '[:space:]')
+if [ "$count" -eq 1 ]; then
+  printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+  printf 'signal: original wake\n'
+  exit 0
+fi
+if [ "$count" -eq 2 ]; then
+  printf 'signal: pre-ready successor wake\n'
+  trap 'printf "retired\\n" > "${FM_PRE_READY_RETIRED_FILE:?}"; exit 0' TERM INT
+  while [ ! -e "$FM_PRE_READY_RELEASE_FILE" ]; do sleep 0.02; done
+  exit 0
+fi
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+trap 'exit 0' TERM INT
+while [ ! -e "$FM_STOP_FILE" ]; do sleep 0.02; done
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_ARM_LOG="$log" FM_PRE_READY_RELEASE_FILE="$release" FM_PRE_READY_RETIRED_FILE="$retired" FM_STOP_FILE="$stop" FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 FM_WATCH_REARM_RETRY_LIMIT=2 node --input-type=module 2>&1 <<'EOF'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+let tool = null;
+const prompts = [];
+const pi = {
+  on() {},
+  registerCommand() {},
+  registerTool(candidate) {
+    if (candidate.name === "fm_watch_arm_pi") tool = candidate;
+  },
+  appendEntry() {},
+  sendMessage(message) {
+    prompts.push(message.content);
+  },
+};
+const rows = () => existsSync(process.env.FM_ARM_LOG)
+  ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n")
+  : [];
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+await tool.execute("tool-call-pre-ready", {}, undefined, undefined, {});
+for (let i = 0; i < 500; i += 1) {
+  if (rows().length >= 2 && prompts.some((message) => message.includes("original wake"))) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+if (rows().length !== 2) throw new Error(`pre-ready successor was replaced before its close: ${rows().join(" | ")}`);
+if (!prompts.some((message) => message.includes("original wake"))) throw new Error(`original actionable wake was not delivered: ${prompts.join(" | ")}`);
+await new Promise((resolve) => setTimeout(resolve, 150));
+if (existsSync(process.env.FM_PRE_READY_RETIRED_FILE)) throw new Error("pre-ready actionable successor was retired before its close");
+writeFileSync(process.env.FM_PRE_READY_RELEASE_FILE, "release\n");
+for (let i = 0; i < 500; i += 1) {
+  if (rows().length >= 3 && prompts.some((message) => message.includes("pre-ready successor wake"))) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+if (rows().length !== 3) throw new Error(`pre-ready close did not create exactly one successor: ${rows().join(" | ")}`);
+const preReadyDeliveries = prompts.filter((message) => message.includes("pre-ready successor wake"));
+if (preReadyDeliveries.length !== 1) throw new Error(`pre-ready actionable wake was not delivered exactly once: ${prompts.join(" | ")}`);
+writeFileSync(process.env.FM_STOP_FILE, "stop\n");
+process.exit(0);
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "Pi must retire the pre-ready arm, not its actionable successor"
+  [ -z "$out" ] || fail "Pi pre-ready actionable test printed output: $out"
+  pass "Pi pre-ready actionable close preserves its successor"
+}
+
 test_pi_hung_successor_falls_back_to_typed_wake() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log out status
   repo="$TMP_ROOT/pi-hung-successor-root"
   home="$TMP_ROOT/pi-hung-successor-home"
@@ -306,8 +653,9 @@ const pi = {
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async (message) => {
-    prompt += message;
+  appendEntry() {},
+  sendMessage(message) {
+    prompt += message.content;
     rowsAtPrompt = existsSync(process.env.FM_ARM_LOG)
       ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n").length
       : 0;
@@ -339,6 +687,10 @@ EOF
 }
 
 test_pi_unretired_successor_falls_back_without_retry() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log release out status
   repo="$TMP_ROOT/pi-unretired-successor-root"
   home="$TMP_ROOT/pi-unretired-successor-home"
@@ -378,8 +730,9 @@ const pi = {
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async (message) => {
-    prompt += message;
+  appendEntry() {},
+  sendMessage(message) {
+    prompt += message.content;
     rowsAtPrompt = existsSync(process.env.FM_ARM_LOG)
       ? readFileSync(process.env.FM_ARM_LOG, "utf8").trim().split("\n").length
       : 0;
@@ -410,6 +763,10 @@ EOF
 }
 
 test_pi_late_unretired_close_resumes_supervision() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local kind repo home plugin log ready retired release stop out status
   for kind in actionable non-actionable; do
     repo="$TMP_ROOT/pi-late-$kind-root"
@@ -455,8 +812,9 @@ const pi = {
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async (message) => {
-    prompts.push(message);
+  appendEntry() {},
+  sendMessage(message) {
+    prompts.push(message.content);
   },
 };
 const rows = () => existsSync(process.env.FM_ARM_LOG)
@@ -507,6 +865,10 @@ EOF
 }
 
 test_pi_empty_close_retries_instead_of_disappearing() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log stop out status
   repo="$TMP_ROOT/pi-empty-close-root"
   home="$TMP_ROOT/pi-empty-close-home"
@@ -537,7 +899,8 @@ const pi = {
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async () => {
+  appendEntry() {},
+  sendMessage() {
     prompts += 1;
   },
 };
@@ -566,6 +929,10 @@ EOF
 }
 
 test_pi_established_empty_close_honors_retry_limit() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log out status
   repo="$TMP_ROOT/pi-established-empty-close-root"
   home="$TMP_ROOT/pi-established-empty-close-home"
@@ -592,8 +959,9 @@ const pi = {
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async (message) => {
-    prompt += message;
+  appendEntry() {},
+  sendMessage(message) {
+    prompt += message.content;
   },
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
@@ -617,6 +985,10 @@ EOF
 }
 
 test_pi_actionable_close_rechecks_session_lock() {
+  if ! fm_node_supports_ts_import; then
+    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
+    return
+  fi
   local repo home plugin log release out status
   repo="$TMP_ROOT/pi-close-lock-root"
   home="$TMP_ROOT/pi-close-lock-home"
@@ -645,8 +1017,9 @@ const pi = {
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async (message) => {
-    prompt += message;
+  appendEntry() {},
+  sendMessage(message) {
+    prompt += message.content;
   },
 };
 const lock = `${process.env.FM_HOME}/state/.lock`;
@@ -704,7 +1077,8 @@ const pi = {
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async () => {},
+  appendEntry() {},
+  sendMessage() {},
 };
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 mod.default(pi);
@@ -783,7 +1157,8 @@ const pi = {
   },
   registerCommand() {},
   registerTool() {},
-  sendUserMessage: async () => {},
+  appendEntry() {},
+  sendMessage() {},
 };
 const before = process.listenerCount("exit");
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
@@ -834,7 +1209,8 @@ const pi = {
   registerTool(candidate) {
     if (candidate.name === "fm_watch_arm_pi") tool = candidate;
   },
-  sendUserMessage: async () => {},
+  appendEntry() {},
+  sendMessage() {},
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
@@ -875,6 +1251,7 @@ test_opencode_primary_watch_plugin_static_wiring() {
   assert_contains "$text" "session.idle" "OpenCode plugin does not listen for session.idle"
   assert_contains "$text" "fm-watch-arm.sh" "OpenCode plugin does not spawn the watcher arm"
   assert_contains "$text" "promptAsync" "OpenCode plugin does not wake with promptAsync"
+  assert_contains "$text" 'encodeFirstmateOperationalInput' "OpenCode plugin does not construct typed synthetic user-role wakes"
   assert_contains "$text" ".fm-secondmate-home" "OpenCode plugin does not scope out secondmate homes"
   assert_contains "$text" "rev-parse\", \"--git-dir" "OpenCode plugin does not check linked worktree scope"
   assert_contains "$text" "sessionOwnsLock" "OpenCode plugin does not gate arm attempts on the session lock"
@@ -889,10 +1266,11 @@ test_opencode_plugin_package_boundary_is_explicit_esm() {
   local fixture plugin out status
   fixture="$TMP_ROOT/opencode-esm-boundary/.opencode"
   plugin="$fixture/plugins/fm-primary-watch-arm.js"
-  mkdir -p "$fixture/plugins"
+  mkdir -p "$fixture/plugins/lib"
   printf '%s\n' '{"dependencies":{}}' > "$fixture/package.json"
   cp "$ROOT/.opencode/plugins/package.json" "$fixture/plugins/package.json"
   cp "$ROOT/.opencode/plugins/fm-primary-watch-arm.js" "$plugin"
+  cp "$ROOT/.opencode/plugins/lib/fm-operational-input.js" "$fixture/plugins/lib/fm-operational-input.js"
   out=$(PLUGIN="$plugin" node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 await import(pathToFileURL(process.env.PLUGIN).href);
@@ -1103,11 +1481,12 @@ EOF
 }
 
 test_opencode_primary_watch_plugin_rearms_after_wake() {
-  local plugin repo home log out status
+  local plugin repo home log stop out status
   plugin="$ROOT/.opencode/plugins/fm-primary-watch-arm.js"
   repo="$TMP_ROOT/opencode-rearm-root"
   home="$TMP_ROOT/opencode-rearm-home"
   log="$TMP_ROOT/opencode-rearm.log"
+  stop="$TMP_ROOT/opencode-rearm.stop"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   git init -q "$repo"
   : > "$repo/AGENTS.md"
@@ -1115,10 +1494,17 @@ test_opencode_primary_watch_plugin_rearms_after_wake() {
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm\n' >> "${FM_ARM_LOG:?}"
-printf 'signal: synthetic wake\n'
+rows=$(wc -l < "${FM_ARM_LOG}")
+if [ "$rows" -le 2 ]; then
+  printf 'signal: synthetic wake\n'
+else
+  printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+  trap 'exit 0' TERM INT
+  while [ ! -e "${FM_STOP_FILE:?}" ]; do sleep 0.02; done
+fi
 SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" WORKTREE="$repo" FM_HOME="$home" FM_ARM_LOG="$log" node 2>&1 <<'EOF'
+  out=$(PLUGIN="$plugin" WORKTREE="$repo" FM_HOME="$home" FM_ARM_LOG="$log" FM_STOP_FILE="$stop" node 2>&1 <<'EOF'
 import { writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -1150,6 +1536,8 @@ await hooks.event(event);
 await waitForPrompts(1);
 await hooks.event(event);
 await waitForPrompts(2);
+writeFileSync(process.env.FM_STOP_FILE, "stop\n");
+process.exit(0);
 EOF
 )
   status=$?
@@ -1311,18 +1699,22 @@ EOF
 
 test_tracked_extension_present_and_self_hashing
 test_spawn_template_mentions_pi_watch_placeholder
-if fm_node_supports_ts_import; then
-  test_pi_extension_surfaces_typed_wake_delivery_failure
-  test_pi_tool_returns_agent_tool_result
-  test_pi_actionable_close_waits_for_drain_before_rearm
-  test_pi_empty_close_retries_instead_of_disappearing
-  test_pi_established_empty_close_honors_retry_limit
-  test_pi_arm_distinguishes_session_lock_ownership
-  test_pi_process_exit_cleanup_listener_lifecycle
-  test_pi_process_exit_cleanup_stops_arm_child
-else
-  echo "skip: Pi dynamic lifecycle tests need native .ts import support"
-fi
+test_pi_extension_surfaces_typed_wake_delivery_failure
+test_pi_tool_returns_agent_tool_result
+test_pi_redundant_tool_call_is_owned_noop
+test_pi_scheduled_retry_call_is_owned_noop
+test_pi_actionable_close_starts_single_successor_before_delivery
+test_pi_actionable_close_waits_for_drain_before_rearm
+test_pi_pre_ready_actionable_close_preserves_its_successor
+test_pi_hung_successor_falls_back_to_typed_wake
+test_pi_unretired_successor_falls_back_without_retry
+test_pi_late_unretired_close_resumes_supervision
+test_pi_empty_close_retries_instead_of_disappearing
+test_pi_established_empty_close_honors_retry_limit
+test_pi_actionable_close_rechecks_session_lock
+test_pi_arm_distinguishes_session_lock_ownership
+test_pi_process_exit_cleanup_listener_lifecycle
+test_pi_process_exit_cleanup_stops_arm_child
 test_opencode_primary_watch_plugin_static_wiring
 test_opencode_plugin_package_boundary_is_explicit_esm
 test_opencode_primary_watch_plugin_uses_effective_state_home

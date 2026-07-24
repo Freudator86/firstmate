@@ -29,10 +29,30 @@ fm_pid_alive() {
 }
 
 fm_pid_identity() {
-  local pid=$1 out
+  local pid=$1 out proc_root stat_line starttime cmdline_hex
+  local -a stat_fields
   case "$pid" in
     ''|*[!0-9]*) return 1 ;;
   esac
+  proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}
+  # Prefer /proc on Linux: stat field 22 (starttime, clock ticks since boot) is
+  # immune to the wall-clock steps that re-render the ps lstart fallback's date
+  # (observed as WSL2 btime drift) and would evict a live watcher; combining the
+  # full NUL-separated cmdline keeps PID reuse a mismatch even on a tick collision.
+  if [ "$(uname)" = Linux ] && [ -r "$proc_root/$pid/stat" ] && [ -r "$proc_root/$pid/cmdline" ]; then
+    stat_line=$(cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
+    # After the final comm delimiter, array index 19 is proc stat field 22.
+    read -r -a stat_fields <<< "${stat_line##*)}"
+    [ "${#stat_fields[@]}" -ge 20 ] || return 1
+    starttime=${stat_fields[19]}
+    case "$starttime" in
+      ''|*[!0-9]*) return 1 ;;
+    esac
+    cmdline_hex=$(od -An -v -tx1 "$proc_root/$pid/cmdline" 2>/dev/null | tr -d '[:space:]') || return 1
+    [ -n "$cmdline_hex" ] || return 1
+    printf 'linux-starttime=%s cmdline-hex=%s\n' "$starttime" "$cmdline_hex"
+    return 0
+  fi
   # Pin LC_ALL=C so lstart's date format is locale-invariant: the identity is
   # written under one locale but re-read under the machine's ambient locale, which
   # would otherwise mismatch on a non-C locale (e.g. ko_KR) and reject a live watcher.
@@ -292,26 +312,45 @@ fm_lock_mid_acquire_is_fresh() {
   return 1
 }
 
-fm_lock_recheck_stale_owner() {
-  local lockdir=$1 expected_owner=$2 expected_pid=$3 actual_pid
-  if [ -n "$expected_owner" ]; then
-    fm_lock_points_to_owner "$lockdir" "$expected_owner" || return 1
-  elif [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
-    [ -d "$lockdir" ] && [ ! -L "$lockdir" ] || return 1
+# Steal a lockdir believed stale. A separate look-then-remove (read the owner,
+# decide it is dead, then unlink it) leaves a window between the read and the
+# unlink where a brand-new, live claimant can legitimately relink lockdir; a
+# blind unlink in that window would destroy that live claim instead of the
+# dead one it was aimed at. Detach first (rename is atomic, so whatever this
+# grabs is authoritative - no one else can be mutating the detached copy),
+# then inspect what was actually grabbed; only discard it once confirmed
+# stale, and put back anything that turns out alive.
+fm_lock_steal_detach() {  # <lockdir> -> 0 detached+discarded (genuinely stale); 1 left alone (alive, mid-acquire-fresh, or already gone)
+  local lockdir=$1 ownerdir='' pid
+  local sidecar="$lockdir.detach.${BASHPID:-$$}"
+  rm -rf "$sidecar" 2>/dev/null
+  mv "$lockdir" "$sidecar" 2>/dev/null || return 1
+  if [ -L "$sidecar" ]; then
+    ownerdir=$(fm_lock_link_owner "$sidecar" 2>/dev/null || true)
   fi
-  actual_pid=$(cat "$lockdir/pid" 2>/dev/null || true)
-  [ "$actual_pid" = "$expected_pid" ] || return 1
-  if fm_pid_alive "$actual_pid"; then
+  pid=$(cat "$sidecar/pid" 2>/dev/null || true)
+  if fm_pid_alive "$pid" || fm_lock_mid_acquire_is_fresh "$sidecar" "$pid"; then
+    if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ] && mv "$sidecar" "$lockdir" 2>/dev/null; then
+      return 1
+    fi
+    if [ -L "$sidecar" ]; then
+      rm -f "$sidecar" 2>/dev/null
+    else
+      rm -rf "$sidecar" 2>/dev/null
+    fi
     return 1
   fi
-  if fm_lock_mid_acquire_is_fresh "$lockdir" "$actual_pid"; then
-    return 1
+  if [ -L "$sidecar" ]; then
+    rm -f "$sidecar" 2>/dev/null
+    [ -n "$ownerdir" ] && fm_lock_discard_owner "$ownerdir"
+  else
+    fm_lock_discard_owner "$sidecar"
   fi
   return 0
 }
 
 fm_lock_try_acquire_inner() {
-  local lockdir=$1 depth=$2 pid steal cur rc steal_owner primary_owner max_depth create_rc
+  local lockdir=$1 depth=$2 pid steal cur rc steal_owner max_depth create_rc
   FM_LOCK_HELD_PID=
   FM_LOCK_OWNER_DIR=
 
@@ -374,19 +413,13 @@ fm_lock_try_acquire_inner() {
     return 1
   fi
 
-  primary_owner=
-  if [ -L "$lockdir" ]; then
-    primary_owner=$(fm_lock_link_owner "$lockdir" 2>/dev/null || true)
-  fi
-  cur=$(cat "$lockdir/pid" 2>/dev/null || true)
-  if ! fm_lock_recheck_stale_owner "$lockdir" "$primary_owner" "$cur"; then
+  if ! fm_lock_steal_detach "$lockdir"; then
     fm_lock_release "$steal"
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     FM_LOCK_OWNER_DIR=
     return 1
   fi
 
-  fm_lock_remove_path "$lockdir" || true
   rc=1
   if fm_lock_try_create "$lockdir" "$steal_owner"; then
     rc=0
@@ -519,4 +552,169 @@ fm_wake_print_deduped() {
       }
     }
   ' "$file"
+}
+
+# Map one structurally valid signal key to its home-local status filename.
+# Queue payload text is intentionally ignored: it is display data, not a path
+# authority. The caller still verifies the resulting regular file immediately
+# before its bounded read.
+FM_WAKE_STATUS_KEY=
+FM_WAKE_STATUS_HISTORICAL=false
+fm_wake_status_key_map() {  # <queue-key>
+  local key=$1 id
+  FM_WAKE_STATUS_KEY=
+  FM_WAKE_STATUS_HISTORICAL=false
+  case "$key" in
+    *.status)
+      id=${key%.status}
+      ;;
+    *.turn-ended)
+      id=${key%.turn-ended}
+      FM_WAKE_STATUS_HISTORICAL=true
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  case "$id" in
+    ''|.*|*[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#id}" -le 64 ] || return 1
+  FM_WAKE_STATUS_KEY="$id.status"
+}
+
+fm_wake_annotation_manifest() {  # <deduped-raw-rows>
+  local rows=$1 epoch seq kind key payload
+  while IFS=$(printf '\t') read -r epoch seq kind key payload; do
+    [ "$kind" = signal ] || continue
+    fm_wake_status_key_map "$key" || continue
+    if [ "$FM_WAKE_STATUS_HISTORICAL" = true ]; then
+      printf '%s\thistorical\n' "$FM_WAKE_STATUS_KEY"
+    else
+      printf '%s\tdirect\n' "$FM_WAKE_STATUS_KEY"
+    fi
+  done <<EOF
+$rows
+EOF
+}
+
+FM_WAKE_EVENT_LINE=
+FM_WAKE_EVENT_TRUNCATED=false
+fm_wake_latest_event() {  # <validated-status-path> <tail-byte-cap>
+  local path=$1 tail_bytes=$2 result size chunk record line_number
+  FM_WAKE_EVENT_LINE=
+  FM_WAKE_EVENT_TRUNCATED=false
+  result=$(perl -MFcntl=:DEFAULT -e '
+    my ($path, $limit) = @ARGV;
+    sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW) or exit 1;
+    my @stat = stat $file or exit 1;
+    exit 1 unless -f _;
+    my $size = $stat[7];
+    exit 1 unless $size =~ /\A\d+\z/;
+    my $start = $size > $limit ? $size - $limit : 0;
+    seek($file, $start, 0) or exit 1;
+    printf "%s\t", $size or exit 1;
+    my $remaining = $size - $start;
+    while ($remaining > 0) {
+      my $read = read($file, my $buffer, $remaining);
+      exit 1 unless defined $read;
+      last unless $read;
+      print $buffer or exit 1;
+      $remaining -= $read;
+    }
+  ' "$path" "$tail_bytes" 2>/dev/null) || return 1
+  size=${result%%$'\t'*}
+  chunk=${result#*$'\t'}
+  case "$size" in ''|*[!0-9]*) return 1 ;; esac
+  [ -n "$chunk" ] || return 1
+  record=$(printf '%s' "$chunk" | LC_ALL=C awk '
+    /[^[:space:]]/ { line = $0; line_number = NR }
+    END { if (line_number) printf "%d\t%s", line_number, line }
+  ') || return 1
+  [ -n "$record" ] || return 1
+  line_number=${record%%	*}
+  FM_WAKE_EVENT_LINE=${record#*	}
+  FM_WAKE_EVENT_LINE=$(printf '%s' "$FM_WAKE_EVENT_LINE" | LC_ALL=C tr '\t\r' '  ')
+  if [ "$size" -gt "$tail_bytes" ] && [ "$line_number" -eq 1 ]; then
+    FM_WAKE_EVENT_TRUNCATED=true
+  fi
+}
+
+# Print supplemental drain-time context only after the caller has committed the
+# raw queue consumption and released the append lock. The limits are constants,
+# so status-file volume cannot turn a drain into an unbounded context read.
+fm_wake_print_annotations() {  # <deduped-raw-rows>
+  local rows=$1 manifest status_key mode path prefix line suffix keep bytes
+  local output='' used=0 omitted=0 read_omitted=0 annotation_marker marker_reserve=192
+  local tail_bytes=8192 item_bytes=2048 global_bytes=8192 read_cap=8 reads=0
+  local LC_ALL=C
+
+  manifest=$(fm_wake_annotation_manifest "$rows" | awk -F '\t' '
+    {
+      key = $1
+      if (!(key in seen)) {
+        order[++count] = key
+        seen[key] = 1
+        mode[key] = $2
+      } else if ($2 == "direct") {
+        mode[key] = "direct"
+      }
+    }
+    END {
+      for (i = 1; i <= count; i++) print order[i] "\t" mode[order[i]]
+    }
+  ') || return 0
+
+  # Test-only latency seam for proving that queue appends remain independent of
+  # a slow best-effort annotation phase.
+  case "${FM_WAKE_ENRICH_TEST_DELAY:-0}" in
+    0) ;;
+    ''|*[!0-9]*) ;;
+    *) sleep "$FM_WAKE_ENRICH_TEST_DELAY" ;;
+  esac
+
+  while IFS=$(printf '\t') read -r status_key mode; do
+    [ -n "$status_key" ] || continue
+    if [ "$reads" -ge "$read_cap" ]; then
+      read_omitted=$((read_omitted + 1))
+      continue
+    fi
+    reads=$((reads + 1))
+    path="$STATE/$status_key"
+    fm_wake_latest_event "$path" "$tail_bytes" || continue
+    prefix="wake annotation: latest wake-EVENT observed at drain, not current state"
+    if [ "$mode" = historical ]; then
+      prefix="$prefix; historical / not necessarily the triggering event"
+    fi
+    line="$prefix: $status_key: $FM_WAKE_EVENT_LINE"
+    suffix=''
+    [ "$FM_WAKE_EVENT_TRUNCATED" = false ] || suffix=' [truncated]'
+    line="$line$suffix"
+    if [ $(( ${#line} + 1 )) -gt "$item_bytes" ]; then
+      suffix=' [truncated]'
+      keep=$((item_bytes - ${#suffix} - 1))
+      line="${line:0:$keep}$suffix"
+    fi
+    bytes=$(( ${#line} + 1 ))
+    if [ $((used + bytes + marker_reserve)) -gt "$global_bytes" ]; then
+      omitted=$((omitted + 1))
+      continue
+    fi
+    output="$output$line
+"
+    used=$((used + bytes))
+  done <<EOF
+$manifest
+EOF
+
+  printf '%s' "$output"
+  if [ "$omitted" -gt 0 ]; then
+    annotation_marker="wake annotation: $omitted annotations omitted (global enrichment byte cap)"
+    printf '%s\n' "$annotation_marker"
+  fi
+  if [ "$read_omitted" -gt 0 ]; then
+    annotation_marker="wake annotation: $read_omitted annotations omitted (enrichment read cap)"
+    printf '%s\n' "$annotation_marker"
+  fi
+  return 0
 }

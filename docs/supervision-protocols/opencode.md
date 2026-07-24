@@ -1,5 +1,7 @@
 Mode: OpenCode TUI plugin wake delivery.
 
+- Ordinary wake: the OpenCode plugin already owns watcher continuity across every routine wake in this session; no manual re-arm is needed until a repair cycle is required.
+
 When this session owns supervision and away mode is not active:
 
 1. Drain first with `bin/fm-wake-drain.sh`.
