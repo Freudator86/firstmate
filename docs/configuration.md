@@ -479,6 +479,7 @@ FM_BRIDGE_VESSEL=         # optional override for config/bridge-vessel; one or m
 FM_BRIDGE_ROOT=$FM_HOME/projects/coditan-bridge   # Bridge clone whose origin/main ref the watcher reads
 FM_BRIDGE_URGENT_CHECK_INTERVAL=30   # Bridge-only cadence while highest pending priority is high or immediate
 FM_FREQUENCY_MONITOR_INTERVAL=5   # seconds between plain-shell Bridge fetch/check cycles in the optional fast service
+FM_FREQUENCY_MONITOR_CONFIRM_TIMEOUT=10   # seconds fm-frequency-monitor-service waits to confirm a fresh unit before reporting failure
 FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh
 FM_CREW_STATE_RUNS_LIMIT=200  # recent no-mistakes run rows scanned when axi status cannot be attributed to the current code
