@@ -339,10 +339,24 @@ test_lock_stale_steal_single_winner_under_concurrency() {
   while [ "$i" -le 40 ]; do
     FM_STATE_OVERRIDE="$state" bash -c '
       . "$1"
-      if fm_lock_try_acquire "$2"; then
-        printf "%s\n" "${BASHPID:-$$}" >> "$3"
-        sleep 1
-      fi
+      # A single fm_lock_try_acquire is a non-blocking, non-retrying attempt:
+      # when 40 processes simultaneously steal the same stale lock, a losing
+      # racer can transiently occupy the just-vacated lockdir with its own
+      # (doomed, steal-unaware) publish attempt before the safety net in
+      # fm_lock_claim rolls it back a moment later. That can cost the actual
+      # stealer its one shot. Retry briefly (well under the 1s the winner
+      # stays alive below) rather than giving up on the first miss, matching
+      # how real callers use fm_lock_acquire_wait instead of a single try.
+      tries=0
+      while [ "$tries" -lt 25 ]; do
+        if fm_lock_try_acquire "$2"; then
+          printf "%s\n" "${BASHPID:-$$}" >> "$3"
+          sleep 1
+          break
+        fi
+        tries=$((tries + 1))
+        sleep 0.02
+      done
     ' _ "$LIB" "$lockdir" "$marker" &
     pids="$pids $!"
     i=$((i + 1))
