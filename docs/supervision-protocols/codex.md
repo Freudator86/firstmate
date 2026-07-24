@@ -1,5 +1,7 @@
 Mode: Codex foreground wake checkpoint.
 
+- Ordinary wake: after handling each wake, start the next foreground checkpoint with `bin/fm-watch-checkpoint.sh --seconds "${FM_CODEX_WATCH_CHECKPOINT:-180}"`.
+
 When this session owns supervision and away mode is not active:
 
 1. Drain first with `bin/fm-wake-drain.sh`.

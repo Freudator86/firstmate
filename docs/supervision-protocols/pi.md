@@ -1,5 +1,7 @@
 Mode: Pi extension wake delivery.
 
+- Ordinary wake: the Pi extension already owns watcher continuity across every routine wake in this session; no repeated arm call is needed until a repair cycle is required.
+
 When this session owns supervision and away mode is not active:
 
 1. Drain first with `bin/fm-wake-drain.sh`.
