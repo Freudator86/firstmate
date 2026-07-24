@@ -1,0 +1,13 @@
+[Unit]
+Description=Firstmate Bridge frequency monitor for %I
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=/%I/state/.frequency-monitor-service.env
+ExecStart=/usr/bin/env bash ${FM_FREQUENCY_MONITOR_EXEC}
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

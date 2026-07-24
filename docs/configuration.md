@@ -197,6 +197,26 @@ If `loginctl` reports lingering disabled, bootstrap emits a separate `WATCHER_UN
 When `systemctl --user` is unusable, the tmux keeper fallback starts automatically and needs no unit or linger installation.
 Both tiers run `bin/fm-watch.sh` with `FM_WATCH_DAEMON=1`; the queue, stub, guard, and harness contracts do not change with the selected keeper.
 
+## Bridge frequency monitor service
+
+`bin/fm-frequency-monitor.sh` is a separate plain-shell Bridge inbox loop with a default five-second cadence.
+It does not run an agent or tighten the main watcher's cadence.
+The fast path reads only the first vessel resolved from `FM_BRIDGE_VESSEL` or `config/bridge-vessel`, so one home never becomes a fleet-wide scanner.
+`bin/fm-bridge-inbox-lib.sh` is the single owner of Bridge tree signatures, priority reads, surfaced markers, and durable `fm_wake_append check bridge-inbox` publication for both this monitor and the original watcher.
+Its separate inter-process lock serializes the signature comparison through marker publication, while `fm_wake_append` independently serializes wake sequence allocation and queue append.
+A live delivery stub observes the non-empty queue immediately.
+When no session is live, the same queue record remains durable until session start drains it, so the monitor needs no second pending-mail store or repeated agent wake.
+
+The tracked template is `systemd/fm-frequency-monitor@.service`.
+The instance is `fm-frequency-monitor@$(systemd-escape --path "$FM_HOME").service`, with private per-home values in `state/.frequency-monitor-service.env`.
+Bootstrap considers the component only when the home has a non-empty Bridge vessel configuration.
+The first unit copy and `enable --now` require explicit captain consent through `FREQUENCY_MONITOR_UNIT:` and `bin/fm-bootstrap.sh install frequency-monitor-unit`.
+Bootstrap never installs, enables, or starts this new standing process silently.
+After installation, locked bootstrap converges stale template bytes, checkout paths, loaded script versions, and service state.
+The original 300-second Bridge check remains in `bin/fm-watch.sh` as a slower fallback and independent delivery backstop.
+If `systemd --user` is unavailable, bootstrap reports that fast delivery is unavailable and does not invent or auto-start another standing process.
+The watcher service's separately consented lingering setting applies to the same user manager.
+
 ## Harness support
 
 claude, codex, opencode, pi, and grok are all empirically verified; new harnesses get verified through a supervised trial task before joining the set.
@@ -412,11 +432,13 @@ These paths need `jq` to build the JSON payload, but they run before token and n
 
 ## Bridge inbox check (FM_BRIDGE_*)
 
-`bin/fm-watch.sh` optionally reads `inbox/<vessel>/new/` from a Bridge clone's fetched `origin/main`, turning pending envelopes into durable `check:` wakes without acknowledging or otherwise mutating them.
+`bin/fm-watch.sh` and the optional fast frequency monitor read `inbox/<vessel>/new/` from a Bridge clone's fetched `origin/main`, turning pending envelopes into durable `check:` wakes without acknowledging or otherwise mutating them.
 `FM_BRIDGE_VESSEL` selects one or more space-separated vessels, each watched independently, and falls through to local `config/bridge-vessel`; when neither is set the feature is silent and disabled.
 A pre-existing single-vessel value keeps working unchanged: it is simply a one-element list.
 `FM_BRIDGE_ROOT` selects the shared clone all listed vessels read from, while `FM_BRIDGE_URGENT_CHECK_INTERVAL` tightens the shared fetch-and-check cadence whenever any one vessel's highest pending priority is high or immediate.
 The watcher caches each vessel's fetched tree signature and derived priority separately and surfaces each vessel's unchanged pending tree once, so one vessel's wake never suppresses or is suppressed by another's; fetches and reads are bounded with `FM_CHECK_TIMEOUT`.
+The frequency monitor deliberately narrows that compatibility list to its first vessel and fetches it every `FM_FREQUENCY_MONITOR_INTERVAL` seconds.
+Both paths share the same signature and marker implementation, so the slow fallback and fast service cannot drift in their definition of new mail or duplicate one signature during a concurrent check.
 
 ## Environment variables
 
@@ -456,6 +478,7 @@ FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script
 FM_BRIDGE_VESSEL=         # optional override for config/bridge-vessel; one or more space-separated vessels; absent disables Bridge inbox scanning
 FM_BRIDGE_ROOT=$FM_HOME/projects/coditan-bridge   # Bridge clone whose origin/main ref the watcher reads
 FM_BRIDGE_URGENT_CHECK_INTERVAL=30   # Bridge-only cadence while highest pending priority is high or immediate
+FM_FREQUENCY_MONITOR_INTERVAL=5   # seconds between plain-shell Bridge fetch/check cycles in the optional fast service
 FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh
 FM_CREW_STATE_RUNS_LIMIT=200  # recent no-mistakes run rows scanned when axi status cannot be attributed to the current code
