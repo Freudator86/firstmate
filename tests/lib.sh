@@ -216,9 +216,13 @@ fm_write_secondmate_meta() {
 fm_test_record_supervision_healthy() {
   local home=$1 state=${2:-$1/state} pid identity session_lock
   pid=$$
-  identity=$(LC_ALL=C ps -p "$pid" -o lstart= -o command= 2>/dev/null) \
+  # Compute identity through the shared fm_pid_identity (subshell-scoped so its
+  # STATE/FM_HOME/FM_ROOT side effects from sourcing fm-wake-lib.sh never leak
+  # into this test shell), the same predicate fm_watcher_lock_matches_pid and
+  # fm_wake_stub_lock_matches_pid re-derive from the live pid, so a recorded
+  # lock always compares equal to itself.
+  identity=$(. "$ROOT/bin/fm-wake-lib.sh" >/dev/null 2>&1; fm_pid_identity "$pid") \
     || fail "could not read test-shell identity"
-  identity=$(printf '%s\n' "$identity" | sed 's/^[[:space:]]*//')
   [ -n "$identity" ] || fail "test-shell identity was empty"
   session_lock=$(cat "$state/.lock" 2>/dev/null || true)
 

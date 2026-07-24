@@ -558,22 +558,44 @@ handle_parked_stale() {  # <window> <hash>
 }
 
 pause_state_class() {  # <window> <task>
-  local win=$1 task=$2 key last recheck_file class
+  local win=$1 task=$2 key last recheck_file class agent_alive
   key=${win//:/_}
   key=${key//\//_}
   key=${key//./_}
   last=$(last_status_line "$STATE/$task.status")
   recheck_file="$STATE/.paused-rechecked-$key"
-  if ! status_is_paused "$last"; then
+  if ! status_is_paused_or_captain_held "$last"; then
     rm -f "$recheck_file"
     crew_absorb_class "$task"
     return
   fi
   if [ -e "$STATE/.paused-$key" ] && [ "$(age_of "$recheck_file")" -lt "$STALE_ESCALATE_SECS" ]; then
+    if [ "$(window_kind "$win")" != secondmate ]; then
+      agent_alive=$(fm_backend_agent_alive "$(window_backend "$win")" "$win" 2>/dev/null) || agent_alive=unknown
+      if [ "$agent_alive" != dead ]; then
+        rm -f "$recheck_file"
+        printf 'none'
+        return
+      fi
+    fi
     printf 'paused'
     return
   fi
   class=$(crew_absorb_class "$task")
+  if [ "$class" = working ]; then
+    rm -f "$recheck_file"
+    printf 'working'
+    return
+  fi
+  if [ "$(window_kind "$win")" != secondmate ]; then
+    agent_alive=$(fm_backend_agent_alive "$(window_backend "$win")" "$win" 2>/dev/null) || agent_alive=unknown
+    if [ "$agent_alive" != dead ]; then
+      rm -f "$recheck_file"
+      printf 'none'
+      return
+    fi
+  fi
+  [ "$class" = none ] && [ "${agent_alive:-unknown}" = dead ] && class=paused
   case "$class" in
     paused) date +%s > "$recheck_file" ;;
     *) rm -f "$recheck_file" ;;
@@ -1268,7 +1290,7 @@ EOF
     key=$(window_state_key "$w")
     pkf="$STATE/.parked-$key"
     last=$(last_status_line "$STATE/$task.status")
-    if ! status_is_paused "$last" && [ -e "$STATE/.paused-$key" ]; then
+    if ! status_is_paused_or_captain_held "$last" && [ -e "$STATE/.paused-$key" ]; then
       clear_pause_tracking "$w"
     fi
     if [ "$kind" = secondmate ] && ! status_is_paused "$last"; then
@@ -1347,13 +1369,13 @@ EOF
         else
           # Non-terminal stale: a crew gone quiet without a captain-relevant status.
           # Decided once per distinct stale hash (the costly run-step read runs only
-          # on first sight, never every poll) via crew_absorb_class, which returns
-          # BOTH absorb reasons from one fm-crew-state.sh read:
+          # on first sight, never every poll) via pause_state_class, which returns:
           #   - working: an actively-running pipeline legitimately sits on a static
           #     pane (e.g. waiting on CI), so absorb and start the wedge timer so a
           #     genuinely frozen run still escalates past STALE_ESCALATE_SECS;
-          #   - paused: the crew DECLARED an external wait (paused:), so absorb on the
-          #     long PAUSE_RESURFACE_SECS recheck cadence instead of wedge-escalating;
+          #   - paused: the crew declared an external wait, or a declared pause or
+          #     captain hold is paired with a confidently dead agent, so absorb on
+          #     the long PAUSE_RESURFACE_SECS recheck cadence instead of wedge-escalating;
           #   - none: no running pipeline, idle pane, no busy signature, no declared
           #     pause - the crew has STOPPED. Surface immediately so firstmate peeks
           #     (it may be done via an interactive menu that wrote no done: status,
@@ -1361,7 +1383,7 @@ EOF
           #     wait out the timer.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
             task=$(window_to_task "$w" "$STATE")
-            case "$(crew_absorb_class "$task")" in
+            case "$(pause_state_class "$w" "$task")" in
               working)
                 clear_pause_tracking "$w"
                 printf '%s' "$h" > "$sf"
@@ -1377,14 +1399,14 @@ EOF
             esac
           else
             task=$(window_to_task "$w" "$STATE")
-            if [ -e "$pf" ] || status_is_paused "$(last_status_line "$STATE/$task.status")"; then
+            if [ -e "$pf" ] || status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")"; then
               case "$(pause_state_class "$w" "$task")" in
                 paused)  handle_paused_stale "$w" "$task" "$h" ;;
                 working) clear_pause_state "$w"
                          printf '%s' "$h" > "$sf"
                          wedge_timer_check "$w" "$ssf" "non-terminal stale (provably working after a declared pause)" "$ewf"
                          triage_log "absorbed non-terminal stale (provably working): $w" ;;
-                *)       surface_nonterminal_stale "$w" "$h" ;;
+                *)       handle_paused_stale "$w" "$task" "$h" ;;
               esac
             else
               wedge_timer_check "$w" "$ssf" "non-terminal stale" "$ewf"
@@ -1394,7 +1416,7 @@ EOF
       else
         # Pane busy or not yet stably stale: reset pending escalation bookkeeping.
         rm -f "$ssf" "$ewf"
-        if [ -e "$pf" ] && { [ "$n" -ge 2 ] || ! status_is_paused "$(last_status_line "$STATE/$(window_to_task "$w" "$STATE").status")"; }; then
+        if [ -e "$pf" ] && { [ "$n" -ge 2 ] || ! status_is_paused_or_captain_held "$(last_status_line "$STATE/$(window_to_task "$w" "$STATE").status")"; }; then
           clear_pause_tracking "$w"
         fi
       fi
@@ -1410,7 +1432,7 @@ EOF
         esac
       elif ! afk_present && [ -e "$pkf" ] && ! window_is_busy "$w" "$tail40"; then
         handle_parked_stale "$w" "$h"
-      elif ! afk_present && status_is_paused "$(last_status_line "$STATE/$task.status")" && ! window_is_busy "$w" "$tail40"; then
+      elif ! afk_present && status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")" && ! window_is_busy "$w" "$tail40"; then
         case "$(pause_state_class "$w" "$task")" in
           paused) handle_paused_stale "$w" "$task" "$h" ;;
           *)      clear_pause_tracking "$w" ;;

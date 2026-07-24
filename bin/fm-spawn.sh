@@ -129,6 +129,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 SUB_HOME_MARKER=".fm-secondmate-home"
 # shellcheck source=bin/fm-ff-lib.sh
 . "$SCRIPT_DIR/fm-ff-lib.sh"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-config-inherit-lib.sh
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 # shellcheck source=bin/fm-backend.sh
@@ -228,6 +230,7 @@ HERDR_PROJECTION_ABORT_SEEDED_PANE=
 HERDR_PRESENTATION_ORDER_LOCK=
 HERDR_PRESENTATION_ORDER_LOCK_HELD=0
 SPAWN_TASK_LOCK=
+SPAWN_TASK_LOCK_HELD=0
 CONFIG_INHERIT_LOCK=
 CONFIG_INHERIT_LOCK_HELD=0
 
@@ -248,11 +251,11 @@ parse_orca_worktree_result() {
   fi
 }
 
-orca_spawn_abort_cleanup() {
+spawn_abort_cleanup() {
   local status=$?
-  if [ -n "$SPAWN_TASK_LOCK" ]; then
+  if [ "$SPAWN_TASK_LOCK_HELD" = 1 ]; then
+    SPAWN_TASK_LOCK_HELD=0
     fm_lock_release "$SPAWN_TASK_LOCK"
-    SPAWN_TASK_LOCK=
   fi
   if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ] \
      && [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" != 1 ]; then
@@ -306,7 +309,7 @@ orca_spawn_abort_cleanup() {
   fi
   return "$status"
 }
-trap orca_spawn_abort_cleanup EXIT
+trap spawn_abort_cleanup EXIT
 
 # One bounded lock per live Herdr session/socket, shared across all homes.
 # <session> is required so secondmate and primary spawns serialize against the
@@ -372,6 +375,10 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
+SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
+if [ "$KIND" = secondmate ] && fm_lock_try_acquire "$SPAWN_TASK_LOCK"; then
+  SPAWN_TASK_LOCK_HELD=1
+fi
 PROJ=
 ARG3=
 FIRSTMATE_HOME=
@@ -1189,11 +1196,9 @@ EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
 CODEXCONFIG=$(codex_config_flags_for_harness "$HARNESS")
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
-if [ "$KIND" = secondmate ]; then
-  # shellcheck source=bin/fm-wake-lib.sh
-  . "$SCRIPT_DIR/fm-wake-lib.sh"
-  SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
+if [ "$KIND" = secondmate ] && [ "$SPAWN_TASK_LOCK_HELD" != 1 ]; then
   fm_lock_acquire_wait "$SPAWN_TASK_LOCK"
+  SPAWN_TASK_LOCK_HELD=1
 fi
 {
   echo "window=$META_WINDOW"
@@ -1235,9 +1240,9 @@ fi
     echo "projects=$SECONDMATE_PROJECTS"
   fi
 } > "$STATE/$ID.meta"
-if [ -n "$SPAWN_TASK_LOCK" ]; then
+if [ "$SPAWN_TASK_LOCK_HELD" = 1 ]; then
+  SPAWN_TASK_LOCK_HELD=0
   fm_lock_release "$SPAWN_TASK_LOCK"
-  SPAWN_TASK_LOCK=
 fi
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
