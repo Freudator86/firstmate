@@ -32,8 +32,8 @@ They remain the final backstop rather than the normal continuity mechanism.
 
 `bin/fm-watch-arm.sh` never returns a clean empty success.
 An actionable child output returns that reason normally.
-A zero/empty child return rechecks the home lock and beacon, attaches to a verified healthy successor when one exists, or emits `watcher: FAILED - cycle ended without an actionable reason` and exits nonzero.
-An attached arm follows verified identity-matched successors and reports the same typed failure if that chain ends without one.
+A `watcher: FAILED` or `wake delivery: FAILED` line, an unexpected signal, or a nonzero exit is a typed failure that drives the bounded retry described above.
+A clean child close with no actionable or failure marker recognized is classified as idle and absorbed silently: it is neither retried nor reported, since that cycle simply did not establish supervision.
 
 The arm layer appends one tab-separated record per observed cycle to `state/.watch-cycle-exits.log`.
 Each record includes arm and watcher PIDs, start and end timestamps, exit code and signal, classified reason, beacon age, lock identity before and after close, and successor disposition.
