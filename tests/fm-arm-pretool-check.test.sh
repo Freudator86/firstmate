@@ -391,9 +391,9 @@ test_failopen_garbage_stdin() {
 # subshell locals named "dir" (reached via lib.sh's fm_pid_identity call) never
 # touch this scope's dir.
 test_failopen_missing_jq() {
-  local dir fakebin rc real
-  fm_test_tmproot dir fm-arm-pretool-check
-  fakebin="$dir/fakebin"
+  local jq_tmp_dir fakebin rc real
+  fm_test_tmproot jq_tmp_dir fm-arm-pretool-check
+  fakebin="$jq_tmp_dir/fakebin"
   mkdir -p "$fakebin"
   local tool
   for tool in bash grep sed tr; do
@@ -410,9 +410,9 @@ test_failopen_missing_jq() {
 # subshell locals named "dir" (reached via lib.sh's fm_pid_identity call) never
 # touch this scope's dir.
 test_failopen_missing_node() {
-  local dir fakebin rc real tool
-  fm_test_tmproot dir fm-arm-pretool-node
-  fakebin="$dir/fakebin"
+  local node_tmp_dir fakebin rc real tool
+  fm_test_tmproot node_tmp_dir fm-arm-pretool-node
+  fakebin="$node_tmp_dir/fakebin"
   mkdir -p "$fakebin"
   for tool in bash dirname; do
     real=$(command -v "$tool")

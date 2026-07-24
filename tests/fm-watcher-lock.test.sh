@@ -325,49 +325,81 @@ test_lock_steals_dead_pid_lock() {
 }
 
 test_lock_stale_steal_single_winner_under_concurrency() {
-  local dir state lockdir dead marker i pids pid wins
+  local dir state lockdir dead marker gate done_file i pids pid wins dones
   dir=$(make_case lock-stale-concurrency)
   state="$dir/state"
   lockdir="$state/.contend.lock"
   marker="$dir/wins"
+  gate="$dir/go"
+  done_file="$dir/done"
   dead=$(dead_pid)
   mkdir "$lockdir"
   printf '%s\n' "$dead" > "$lockdir/pid"
   : > "$marker"
+  : > "$done_file"
   pids=
   i=1
   while [ "$i" -le 40 ]; do
     FM_STATE_OVERRIDE="$state" bash -c '
       . "$1"
+      gate=$4
+      donef=$5
+      # Wait for every contender to be spawned and start racing at once,
+      # rather than trickling in over however long 40 forks take on a loaded
+      # box: without this gate, a straggler still spawning could begin its
+      # very first attempt after an early winner already exited, see that
+      # winner'"'"'s now-dead-pid lock as stale, and legitimately steal it
+      # again - a real second winner, not a race bug.
+      while [ ! -e "$gate" ]; do sleep 0.01; done
       # A single fm_lock_try_acquire is a non-blocking, non-retrying attempt:
       # when 40 processes simultaneously steal the same stale lock, a losing
       # racer can transiently occupy the just-vacated lockdir with its own
       # (doomed, steal-unaware) publish attempt before the safety net in
       # fm_lock_claim rolls it back a moment later. That can cost the actual
-      # stealer its one shot. Retry briefly rather than giving up on the
-      # first miss, matching how real callers use fm_lock_acquire_wait
-      # instead of a single try. The retry budget is wall-clock bounded
-      # (not a fixed try count): under CI contention a fixed count of tries
-      # can take longer in real time than the 1s the winner holds the lock
-      # below, letting a retrying loser legitimately observe the winner die
-      # and steal the now-genuinely-stale lock itself - a second, later,
-      # but not concurrent winner that would still fail this test.
-      deadline_ns=$(($(date +%s%N) + 400000000))
-      while [ "$(date +%s%N)" -lt "$deadline_ns" ]; do
+      # stealer its one shot. Retry (bounded, generously, to survive a loaded
+      # CI box) rather than giving up on the first miss, matching how real
+      # callers use fm_lock_acquire_wait instead of a single try. Re-checking
+      # the marker before every attempt (including the first) means a loser
+      # gives up the moment a winner publishes, without needing to guess how
+      # long that takes on a slow box.
+      tries=0
+      won=0
+      while [ "$tries" -lt 1000 ]; do
+        [ -s "$3" ] && break
         if fm_lock_try_acquire "$2"; then
           printf "%s\n" "${BASHPID:-$$}" >> "$3"
-          sleep 1
+          won=1
           break
         fi
+        tries=$((tries + 1))
         sleep 0.02
       done
-    ' _ "$LIB" "$lockdir" "$marker" &
+      if [ "$won" -eq 1 ]; then
+        # Hold the lock until every other contender has reported giving up
+        # or having seen this win, rather than a fixed sleep: a fixed hold
+        # racing a fixed retry budget is exactly the flake this replaces -
+        # on a slow enough box either bound can be blown independently of
+        # the other. Waiting on an actual rendezvous removes the guesswork.
+        # The 60s cap is only a safety valve against a genuine hang - well
+        # past every loser'"'"'s own 1000-try (~20s+) give-up budget above.
+        wait_i=0
+        while [ "$wait_i" -lt 3000 ]; do
+          [ "$(awk "END{print NR+0}" "$donef" 2>/dev/null || echo 0)" -ge 39 ] && break
+          sleep 0.02
+          wait_i=$((wait_i + 1))
+        done
+      fi
+      printf "%s\n" "${BASHPID:-$$}" >> "$donef"
+    ' _ "$LIB" "$lockdir" "$marker" "$gate" "$done_file" &
     pids="$pids $!"
     i=$((i + 1))
   done
+  : > "$gate"
   for pid in $pids; do
     wait "$pid" 2>/dev/null || true
   done
+  dones=$(awk 'NF { c++ } END { print c + 0 }' "$done_file")
+  [ "$dones" -eq 40 ] || fail "expected all 40 contenders to report done, got $dones"
   wins=$(awk 'NF { c++ } END { print c + 0 }' "$marker")
   [ "$wins" -eq 1 ] || fail "expected exactly one stale-lock stealer, got $wins"
   pass "concurrent stale-lock steal yields exactly one winner"
