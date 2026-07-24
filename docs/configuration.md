@@ -401,9 +401,10 @@ These paths need `jq` to build the JSON payload, but they run before token and n
 ## Bridge inbox check (FM_BRIDGE_*)
 
 `bin/fm-watch.sh` optionally reads `inbox/<vessel>/new/` from a Bridge clone's fetched `origin/main`, turning pending envelopes into durable `check:` wakes without acknowledging or otherwise mutating them.
-`FM_BRIDGE_VESSEL` selects the vessel and falls through to local `config/bridge-vessel`; when neither is set the feature is silent and disabled.
-`FM_BRIDGE_ROOT` selects the clone, while `FM_BRIDGE_URGENT_CHECK_INTERVAL` tightens only this check for high or immediate priority.
-The watcher caches the fetched tree signature and derived priority, surfaces each unchanged pending tree once, and bounds fetches and reads with `FM_CHECK_TIMEOUT`.
+`FM_BRIDGE_VESSEL` selects one or more space-separated vessels, each watched independently, and falls through to local `config/bridge-vessel`; when neither is set the feature is silent and disabled.
+A pre-existing single-vessel value keeps working unchanged: it is simply a one-element list.
+`FM_BRIDGE_ROOT` selects the shared clone all listed vessels read from, while `FM_BRIDGE_URGENT_CHECK_INTERVAL` tightens the shared fetch-and-check cadence whenever any one vessel's highest pending priority is high or immediate.
+The watcher caches each vessel's fetched tree signature and derived priority separately and surfaces each vessel's unchanged pending tree once, so one vessel's wake never suppresses or is suppressed by another's; fetches and reads are bounded with `FM_CHECK_TIMEOUT`.
 
 ## Environment variables
 
@@ -439,7 +440,7 @@ FM_HEARTBEAT=600        # base seconds between heartbeat scans; no-change heartb
 FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls, custom checks, or X-mode dispatch)
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script
-FM_BRIDGE_VESSEL=         # optional override for config/bridge-vessel; absent disables Bridge inbox scanning
+FM_BRIDGE_VESSEL=         # optional override for config/bridge-vessel; one or more space-separated vessels; absent disables Bridge inbox scanning
 FM_BRIDGE_ROOT=$FM_HOME/projects/coditan-bridge   # Bridge clone whose origin/main ref the watcher reads
 FM_BRIDGE_URGENT_CHECK_INTERVAL=30   # Bridge-only cadence while highest pending priority is high or immediate
 FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision

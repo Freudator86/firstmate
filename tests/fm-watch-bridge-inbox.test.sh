@@ -9,16 +9,23 @@ WATCH="$ROOT/bin/fm-watch.sh"
 fm_test_tmproot TMP_ROOT fm-watch-bridge-inbox
 
 make_home() {
-  local name=$1 home bridge origin
+  local name=$1 home bridge origin vessel
+  shift
   home="$TMP_ROOT/$name"
   bridge="$home/projects/coditan-bridge"
   origin="$home/bridge-origin.git"
   mkdir -p "$home/state" "$bridge/inbox/coditan/new"
+  for vessel in "$@"; do
+    mkdir -p "$bridge/inbox/$vessel/new"
+  done
   git init -q --bare "$origin"
   git -C "$bridge" init -q -b main
   git -C "$bridge" config user.name test
   git -C "$bridge" config user.email test@example.com
   touch "$bridge/inbox/coditan/new/.gitkeep"
+  for vessel in "$@"; do
+    touch "$bridge/inbox/$vessel/new/.gitkeep"
+  done
   git -C "$bridge" add inbox
   git -C "$bridge" commit -qm init
   git -C "$bridge" remote add origin "$origin"
@@ -28,10 +35,10 @@ make_home() {
 }
 
 write_envelope() {
-  local home=$1 name=$2 priority=$3
+  local home=$1 name=$2 priority=$3 vessel=${4:-coditan}
   printf '{"schema":"bridge-envelope.v1","id":"%s","priority":"%s","state":"new"}\n' \
-    "$name" "$priority" > "$home/projects/coditan-bridge/inbox/coditan/new/$name.json"
-  git -C "$home/projects/coditan-bridge" add "inbox/coditan/new/$name.json"
+    "$name" "$priority" > "$home/projects/coditan-bridge/inbox/$vessel/new/$name.json"
+  git -C "$home/projects/coditan-bridge" add "inbox/$vessel/new/$name.json"
   git -C "$home/projects/coditan-bridge" commit -qm "add $name"
   git -C "$home/projects/coditan-bridge" push -qu origin main
 }
@@ -72,6 +79,36 @@ test_vessel_resolution_precedence() {
   )
   [ "$resolved" = tugboat ] || fail "an empty FM_BRIDGE_VESSEL shadowed config/bridge-vessel: $resolved"
   pass "Bridge vessel resolution prefers a non-empty env value and falls back to per-home config"
+}
+
+test_multi_vessel_list_resolves_into_array() {
+  local home resolved
+  home=$(make_home multi-vessel-list)
+
+  resolved=$(
+    FM_HOME="$home" FM_BRIDGE_VESSEL="coditan captain" \
+      bash -c '. "$1"; printf "%s" "$BRIDGE_VESSEL"' _ "$WATCH"
+  )
+  [ "$resolved" = coditan ] || fail "BRIDGE_VESSEL did not keep the first vessel for legacy inspection: $resolved"
+
+  resolved=$(
+    FM_HOME="$home" FM_BRIDGE_VESSEL="coditan captain" \
+      bash -c '. "$1"; printf "%s" "${#BRIDGE_VESSELS[@]}"' _ "$WATCH"
+  )
+  [ "$resolved" = 2 ] || fail "a space-separated FM_BRIDGE_VESSEL did not resolve to two watched vessels: $resolved"
+
+  resolved=$(
+    FM_HOME="$home" FM_BRIDGE_VESSEL="coditan captain" \
+      bash -c '. "$1"; printf "%s %s" "${BRIDGE_VESSELS[0]}" "${BRIDGE_VESSELS[1]}"' _ "$WATCH"
+  )
+  [ "$resolved" = "coditan captain" ] || fail "space-separated vessels did not resolve in order: $resolved"
+
+  resolved=$(
+    FM_HOME="$home" FM_BRIDGE_VESSEL=coditan \
+      bash -c '. "$1"; printf "%s" "${#BRIDGE_VESSELS[@]}"' _ "$WATCH"
+  )
+  [ "$resolved" = 1 ] || fail "a pre-existing single-vessel value did not resolve to exactly one watched vessel: $resolved"
+  pass "a space-separated FM_BRIDGE_VESSEL resolves into an ordered vessel list, with BRIDGE_VESSEL as the first"
 }
 
 test_unconfigured_home_skips_bridge_scan() {
@@ -173,6 +210,51 @@ test_bridge_inbox_surfaces_each_signature_once() {
   pass "Bridge inbox wakes once per pending signature, clears on ack, and re-fires on re-delivery"
 }
 
+test_multi_vessel_each_surfaces_independently() {
+  local home out pid
+  home=$(make_home multi-independent captain)
+  out="$home/watch.out"
+
+  write_envelope "$home" urgent high coditan
+  FM_HOME="$home" FM_BRIDGE_VESSEL="coditan captain" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
+    FM_BRIDGE_URGENT_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait "$pid" || fail "watcher failed while checking the primary vessel's pending envelope"
+  assert_contains "$(cat "$out")" "check: bridge-inbox: bridge-inbox coditan pending=1 highest=high" \
+    "primary vessel envelope did not produce a wake"
+  assert_not_contains "$(cat "$out")" "captain pending" \
+    "the secondary vessel with no mail was reported as pending"
+  [ -f "$home/state/.bridge-surfaced" ] || \
+    fail "the primary vessel did not keep its historical unsuffixed surfaced marker"
+  [ ! -e "$home/state/.bridge-surfaced-captain" ] || \
+    fail "the secondary vessel surfaced a marker despite having no mail"
+
+  : > "$out"
+  rm -f "$home/state/.wake-queue"
+  FM_HOME="$home" FM_BRIDGE_VESSEL="coditan captain" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 \
+    FM_BRIDGE_URGENT_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  sleep 2
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ ! -s "$out" ] || fail "an unchanged primary vessel inbox re-fired a wake: $(cat "$out")"
+  assert_absent "$home/state/.wake-queue" "an unchanged primary vessel inbox created a wake"
+
+  write_envelope "$home" second normal captain
+  : > "$out"
+  FM_HOME="$home" FM_BRIDGE_VESSEL="coditan captain" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 \
+    FM_BRIDGE_URGENT_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait "$pid" || fail "watcher failed while checking the secondary vessel's pending envelope"
+  assert_contains "$(cat "$out")" "check: bridge-inbox: bridge-inbox captain pending=1 highest=normal" \
+    "secondary vessel envelope did not produce its own wake"
+  assert_not_contains "$(cat "$out")" "coditan pending" \
+    "an unchanged primary vessel was re-surfaced alongside the secondary vessel's new mail"
+  [ -f "$home/state/.bridge-surfaced-captain" ] || \
+    fail "the secondary vessel's surfaced marker was not recorded"
+  pass "each configured vessel surfaces its own pending mail independently of the others"
+}
+
 test_empty_inbox_is_silent() {
   local home out pid
   home=$(make_home empty)
@@ -209,6 +291,27 @@ test_priority_tightens_only_bridge_cadence() {
   )
   [ "$urgent_interval" = 30 ] || fail "immediate envelope cadence was $urgent_interval, expected 30"
   pass "high-priority Bridge traffic tightens only its poll interval"
+}
+
+test_multi_vessel_cadence_reflects_any_vessel() {
+  local home normal_interval urgent_interval
+  home=$(make_home multi-cadence captain)
+  write_envelope "$home" routine normal coditan
+  normal_interval=$(
+    FM_HOME="$home" FM_BRIDGE_VESSEL="coditan captain" FM_CHECK_INTERVAL=300 FM_BRIDGE_URGENT_CHECK_INTERVAL=30 \
+      bash -c '. "$1"; bridge_check_interval' _ "$WATCH"
+  )
+  [ "$normal_interval" = 300 ] || \
+    fail "cadence with only normal-priority mail was $normal_interval, expected 300"
+
+  write_envelope "$home" flash immediate captain
+  urgent_interval=$(
+    FM_HOME="$home" FM_BRIDGE_VESSEL="coditan captain" FM_CHECK_INTERVAL=300 FM_BRIDGE_URGENT_CHECK_INTERVAL=30 \
+      bash -c '. "$1"; bridge_check_interval' _ "$WATCH"
+  )
+  [ "$urgent_interval" = 30 ] || \
+    fail "cadence with the secondary vessel at immediate priority was $urgent_interval, expected 30"
+  pass "the shared Bridge cadence tightens when any watched vessel is high or immediate priority, not only the primary"
 }
 
 test_cache_skips_rescan_when_unchanged() {
@@ -368,10 +471,13 @@ test_acked_on_origin_ignores_stale_working_tree() {
 }
 
 test_vessel_resolution_precedence
+test_multi_vessel_list_resolves_into_array
 test_unconfigured_home_skips_bridge_scan
 test_bridge_inbox_surfaces_each_signature_once
+test_multi_vessel_each_surfaces_independently
 test_empty_inbox_is_silent
 test_priority_tightens_only_bridge_cadence
+test_multi_vessel_cadence_reflects_any_vessel
 test_cache_skips_rescan_when_unchanged
 test_inplace_edit_invalidates_cache
 test_missing_inbox_short_circuits_without_scan
