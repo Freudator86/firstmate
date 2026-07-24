@@ -213,6 +213,8 @@ fm_write_secondmate_meta() {
 # daemon and delivery-stub locks owned by the long-lived test shell. This is for
 # fixtures whose subject merely passes through fm-guard.sh; tests of watcher
 # health itself should construct each state explicitly.
+# shellcheck disable=SC2031 # false positive: fm-wake-lib.sh's *sourced-in-a-
+# subshell* locals of the same names (state/pid/home) never touch this scope.
 fm_test_record_supervision_healthy() {
   local home=$1 state=${2:-$1/state} pid identity session_lock
   pid=$$

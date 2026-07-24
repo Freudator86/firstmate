@@ -387,6 +387,9 @@ test_failopen_garbage_stdin() {
   pass "fail-open: unparseable JSON on stdin"
 }
 
+# shellcheck disable=SC2031 # false positive: fm-wake-lib.sh's sourced-in-a-
+# subshell locals named "dir" (reached via lib.sh's fm_pid_identity call) never
+# touch this scope's dir.
 test_failopen_missing_jq() {
   local dir fakebin rc real
   fm_test_tmproot dir fm-arm-pretool-check
@@ -403,6 +406,9 @@ test_failopen_missing_jq() {
   pass "fail-open: missing jq on stdin path"
 }
 
+# shellcheck disable=SC2031 # false positive: fm-wake-lib.sh's sourced-in-a-
+# subshell locals named "dir" (reached via lib.sh's fm_pid_identity call) never
+# touch this scope's dir.
 test_failopen_missing_node() {
   local dir fakebin rc real tool
   fm_test_tmproot dir fm-arm-pretool-node
