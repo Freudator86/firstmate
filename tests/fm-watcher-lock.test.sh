@@ -325,62 +325,72 @@ test_lock_steals_dead_pid_lock() {
 }
 
 test_lock_stale_steal_single_winner_under_concurrency() {
-  local dir state lockdir dead marker gate i pids pid wins
+  local dir state lockdir dead marker gate done_file i pids pid wins dones
   dir=$(make_case lock-stale-concurrency)
   state="$dir/state"
   lockdir="$state/.contend.lock"
   marker="$dir/wins"
   gate="$dir/go"
+  done_file="$dir/done"
   dead=$(dead_pid)
   mkdir "$lockdir"
   printf '%s\n' "$dead" > "$lockdir/pid"
   : > "$marker"
+  : > "$done_file"
   pids=
   i=1
   while [ "$i" -le 40 ]; do
     FM_STATE_OVERRIDE="$state" bash -c '
       . "$1"
       gate=$4
+      donef=$5
       # Wait for every contender to be spawned and start racing at once,
       # rather than trickling in over however long 40 forks take on a loaded
       # box: without this gate, a straggler still spawning could begin its
-      # very first attempt after an early winner already exited (see the
-      # "stay alive" note above), see that winner'"'"'s now-dead-pid lock as
-      # stale, and legitimately steal it again - a real second winner, not a
-      # race bug.
+      # very first attempt after an early winner already exited, see that
+      # winner'"'"'s now-dead-pid lock as stale, and legitimately steal it
+      # again - a real second winner, not a race bug.
       while [ ! -e "$gate" ]; do sleep 0.01; done
       # A single fm_lock_try_acquire is a non-blocking, non-retrying attempt:
       # when 40 processes simultaneously steal the same stale lock, a losing
       # racer can transiently occupy the just-vacated lockdir with its own
       # (doomed, steal-unaware) publish attempt before the safety net in
       # fm_lock_claim rolls it back a moment later. That can cost the actual
-      # stealer its one shot. Retry briefly (well under the time the winner
-      # stays alive below) rather than giving up on the first miss, matching
-      # how real callers use fm_lock_acquire_wait instead of a single try.
-      #
-      # The 25*0.02s retry budget is a wall-clock nicety, not a hard bound: a
-      # loaded box can stretch each iteration'"'"'s real scheduling delay far
-      # past 20ms. Re-checking the marker before every attempt (including the
-      # first) closes the resulting gap - a straggler that only gets CPU time
-      # after the winner'"'"'s 3s hold has already elapsed and exited would
-      # otherwise legitimately steal that now-truly-dead lock and register as
-      # a second, spurious winner. Once any winner has published, every other
-      # contender must stop trying rather than race the winner'"'"'s lifetime.
+      # stealer its one shot. Retry (bounded, generously, to survive a loaded
+      # CI box) rather than giving up on the first miss, matching how real
+      # callers use fm_lock_acquire_wait instead of a single try. Re-checking
+      # the marker before every attempt (including the first) means a loser
+      # gives up the moment a winner publishes, without needing to guess how
+      # long that takes on a slow box.
       tries=0
-      while [ "$tries" -lt 25 ]; do
+      won=0
+      while [ "$tries" -lt 1000 ]; do
         [ -s "$3" ] && break
         if fm_lock_try_acquire "$2"; then
           printf "%s\n" "${BASHPID:-$$}" >> "$3"
-          # Held well past every other contender'"'"'s bounded retry budget
-          # (25 * 0.02s = 0.5s) so a straggler can never see this winner
-          # exit and legitimately reclaim the lock as newly stale.
-          sleep 3
+          won=1
           break
         fi
         tries=$((tries + 1))
         sleep 0.02
       done
-    ' _ "$LIB" "$lockdir" "$marker" "$gate" &
+      if [ "$won" -eq 1 ]; then
+        # Hold the lock until every other contender has reported giving up
+        # or having seen this win, rather than a fixed sleep: a fixed hold
+        # racing a fixed retry budget is exactly the flake this replaces -
+        # on a slow enough box either bound can be blown independently of
+        # the other. Waiting on an actual rendezvous removes the guesswork.
+        # The 60s cap is only a safety valve against a genuine hang - well
+        # past every loser'"'"'s own 1000-try (~20s+) give-up budget above.
+        wait_i=0
+        while [ "$wait_i" -lt 3000 ]; do
+          [ "$(awk "END{print NR+0}" "$donef" 2>/dev/null || echo 0)" -ge 39 ] && break
+          sleep 0.02
+          wait_i=$((wait_i + 1))
+        done
+      fi
+      printf "%s\n" "${BASHPID:-$$}" >> "$donef"
+    ' _ "$LIB" "$lockdir" "$marker" "$gate" "$done_file" &
     pids="$pids $!"
     i=$((i + 1))
   done
@@ -388,6 +398,8 @@ test_lock_stale_steal_single_winner_under_concurrency() {
   for pid in $pids; do
     wait "$pid" 2>/dev/null || true
   done
+  dones=$(awk 'NF { c++ } END { print c + 0 }' "$done_file")
+  [ "$dones" -eq 40 ] || fail "expected all 40 contenders to report done, got $dones"
   wins=$(awk 'NF { c++ } END { print c + 0 }' "$marker")
   [ "$wins" -eq 1 ] || fail "expected exactly one stale-lock stealer, got $wins"
   pass "concurrent stale-lock steal yields exactly one winner"
