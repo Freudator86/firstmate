@@ -312,26 +312,45 @@ fm_lock_mid_acquire_is_fresh() {
   return 1
 }
 
-fm_lock_recheck_stale_owner() {
-  local lockdir=$1 expected_owner=$2 expected_pid=$3 actual_pid
-  if [ -n "$expected_owner" ]; then
-    fm_lock_points_to_owner "$lockdir" "$expected_owner" || return 1
-  elif [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
-    [ -d "$lockdir" ] && [ ! -L "$lockdir" ] || return 1
+# Steal a lockdir believed stale. A separate look-then-remove (read the owner,
+# decide it is dead, then unlink it) leaves a window between the read and the
+# unlink where a brand-new, live claimant can legitimately relink lockdir; a
+# blind unlink in that window would destroy that live claim instead of the
+# dead one it was aimed at. Detach first (rename is atomic, so whatever this
+# grabs is authoritative - no one else can be mutating the detached copy),
+# then inspect what was actually grabbed; only discard it once confirmed
+# stale, and put back anything that turns out alive.
+fm_lock_steal_detach() {  # <lockdir> -> 0 detached+discarded (genuinely stale); 1 left alone (alive, mid-acquire-fresh, or already gone)
+  local lockdir=$1 ownerdir='' pid
+  local sidecar="$lockdir.detach.${BASHPID:-$$}"
+  rm -rf "$sidecar" 2>/dev/null
+  mv "$lockdir" "$sidecar" 2>/dev/null || return 1
+  if [ -L "$sidecar" ]; then
+    ownerdir=$(fm_lock_link_owner "$sidecar" 2>/dev/null || true)
   fi
-  actual_pid=$(cat "$lockdir/pid" 2>/dev/null || true)
-  [ "$actual_pid" = "$expected_pid" ] || return 1
-  if fm_pid_alive "$actual_pid"; then
+  pid=$(cat "$sidecar/pid" 2>/dev/null || true)
+  if fm_pid_alive "$pid" || fm_lock_mid_acquire_is_fresh "$sidecar" "$pid"; then
+    if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ] && mv "$sidecar" "$lockdir" 2>/dev/null; then
+      return 1
+    fi
+    if [ -L "$sidecar" ]; then
+      rm -f "$sidecar" 2>/dev/null
+    else
+      rm -rf "$sidecar" 2>/dev/null
+    fi
     return 1
   fi
-  if fm_lock_mid_acquire_is_fresh "$lockdir" "$actual_pid"; then
-    return 1
+  if [ -L "$sidecar" ]; then
+    rm -f "$sidecar" 2>/dev/null
+    [ -n "$ownerdir" ] && fm_lock_discard_owner "$ownerdir"
+  else
+    fm_lock_discard_owner "$sidecar"
   fi
   return 0
 }
 
 fm_lock_try_acquire_inner() {
-  local lockdir=$1 depth=$2 pid steal cur rc steal_owner primary_owner max_depth create_rc
+  local lockdir=$1 depth=$2 pid steal cur rc steal_owner max_depth create_rc
   FM_LOCK_HELD_PID=
   FM_LOCK_OWNER_DIR=
 
@@ -394,19 +413,13 @@ fm_lock_try_acquire_inner() {
     return 1
   fi
 
-  primary_owner=
-  if [ -L "$lockdir" ]; then
-    primary_owner=$(fm_lock_link_owner "$lockdir" 2>/dev/null || true)
-  fi
-  cur=$(cat "$lockdir/pid" 2>/dev/null || true)
-  if ! fm_lock_recheck_stale_owner "$lockdir" "$primary_owner" "$cur"; then
+  if ! fm_lock_steal_detach "$lockdir"; then
     fm_lock_release "$steal"
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     FM_LOCK_OWNER_DIR=
     return 1
   fi
 
-  fm_lock_remove_path "$lockdir" || true
   rc=1
   if fm_lock_try_create "$lockdir" "$steal_owner"; then
     rc=0
