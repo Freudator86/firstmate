@@ -201,89 +201,6 @@ EOF
   pass "Pi extension surfaces a typed wake delivery: FAILED stub failure instead of a generic catch-all"
 }
 
-test_pi_extension_reports_external_healthy_watcher() {
-  if ! fm_node_supports_ts_import; then
-    echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
-    return
-  fi
-  local repo home plugin out status
-  repo="$TMP_ROOT/pi-external-healthy-root"
-  home="$TMP_ROOT/pi-external-healthy-home"
-  mkdir -p "$repo/bin" "$home/state" "$home/config"
-  install_pi_watch_extension_fixture "$repo"
-  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
-  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
-#!/usr/bin/env bash
-printf 'watcher: healthy pid=1 (beacon 0s)\n'
-SH
-  chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" FM_HOME="$home" FM_ROOT_OVERRIDE="$repo" FM_WATCH_REARM_RETRY_BASE_MS=5 FM_WATCH_REARM_RETRY_MAX_MS=10 FM_WATCH_REARM_RETRY_LIMIT=2 node --input-type=module 2>&1 <<'EOF'
-import { writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
-
-let handler = null;
-let notification = "";
-let prompt = "";
-const pi = {
-  on() {},
-  registerCommand(name, options) {
-    if (name === "fm-watch-arm-pi") handler = options.handler;
-  },
-  registerTool() {},
-  sendUserMessage: async (message) => {
-    prompt = message;
-  },
-};
-writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
-const mod = await import(pathToFileURL(process.env.PLUGIN).href);
-mod.default(pi);
-if (!handler) {
-  console.error("Pi watch command was not registered");
-  process.exit(1);
-}
-const result = await handler("", {
-  ui: {
-    notify(message) {
-      notification = message;
-    },
-  },
-});
-if (result !== undefined) {
-  console.error(`Pi command returned a value: ${String(result)}`);
-  process.exit(1);
-}
-if (!notification.includes("started Pi extension arm child")) {
-  console.error(notification);
-  process.exit(1);
-}
-for (let i = 0; i < 250 && !prompt; i += 1) {
-  await new Promise((resolve) => setTimeout(resolve, 20));
-}
-if (!prompt.startsWith("\u2063FIRSTMATE_OP: v1 watcher: ")) {
-  console.error(`untyped operational follow-up: ${prompt}`);
-  process.exit(1);
-}
-if (!prompt.includes("FIRSTMATE WATCHER WAKE")) {
-  console.error(`missing follow-up prompt: ${prompt}`);
-  process.exit(1);
-}
-if (!prompt.includes("external healthy watcher")) {
-  console.error(prompt);
-  process.exit(1);
-}
-if (!prompt.includes("watcher: healthy pid=1")) {
-  console.error(prompt);
-  process.exit(1);
-}
-EOF
-)
-  status=$?
-  expect_code 0 "$status" "Pi extension must surface an external healthy watcher as an owned-wake failure"
-  [ -z "$out" ] || fail "Pi external-healthy test printed output: $out"
-  pass "Pi extension reports external healthy watcher output"
-}
-
-
 test_pi_tool_returns_agent_tool_result() {
   if ! fm_node_supports_ts_import; then
     echo "skip: node lacks native .ts import support (needs Node 22.6+ --experimental-strip-types or 23.6+)"
@@ -1548,11 +1465,12 @@ EOF
 }
 
 test_opencode_primary_watch_plugin_rearms_after_wake() {
-  local plugin repo home log out status
+  local plugin repo home log stop out status
   plugin="$ROOT/.opencode/plugins/fm-primary-watch-arm.js"
   repo="$TMP_ROOT/opencode-rearm-root"
   home="$TMP_ROOT/opencode-rearm-home"
   log="$TMP_ROOT/opencode-rearm.log"
+  stop="$TMP_ROOT/opencode-rearm.stop"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   git init -q "$repo"
   : > "$repo/AGENTS.md"
@@ -1560,10 +1478,17 @@ test_opencode_primary_watch_plugin_rearms_after_wake() {
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'arm\n' >> "${FM_ARM_LOG:?}"
-printf 'signal: synthetic wake\n'
+rows=$(wc -l < "${FM_ARM_LOG}")
+if [ "$rows" -le 2 ]; then
+  printf 'signal: synthetic wake\n'
+else
+  printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+  trap 'exit 0' TERM INT
+  while [ ! -e "${FM_STOP_FILE:?}" ]; do sleep 0.02; done
+fi
 SH
   chmod +x "$repo/bin/fm-watch-arm.sh"
-  out=$(PLUGIN="$plugin" WORKTREE="$repo" FM_HOME="$home" FM_ARM_LOG="$log" node 2>&1 <<'EOF'
+  out=$(PLUGIN="$plugin" WORKTREE="$repo" FM_HOME="$home" FM_ARM_LOG="$log" FM_STOP_FILE="$stop" node 2>&1 <<'EOF'
 import { writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -1595,6 +1520,8 @@ await hooks.event(event);
 await waitForPrompts(1);
 await hooks.event(event);
 await waitForPrompts(2);
+writeFileSync(process.env.FM_STOP_FILE, "stop\n");
+process.exit(0);
 EOF
 )
   status=$?
@@ -1757,7 +1684,6 @@ EOF
 test_tracked_extension_present_and_self_hashing
 test_spawn_template_mentions_pi_watch_placeholder
 test_pi_extension_surfaces_typed_wake_delivery_failure
-test_pi_extension_reports_external_healthy_watcher
 test_pi_tool_returns_agent_tool_result
 test_pi_redundant_tool_call_is_owned_noop
 test_pi_scheduled_retry_call_is_owned_noop

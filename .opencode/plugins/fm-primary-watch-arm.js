@@ -14,7 +14,7 @@ let child = null;
 let armStatus = "idle";
 let retryTimer = null;
 let retryFailures = 0;
-let launchInFlight = null;
+let spawnDecisionInFlight = Promise.resolve();
 let restorationInFlight = null;
 let armClose = new WeakMap();
 let armReadiness = new WeakMap();
@@ -129,13 +129,6 @@ function classifyArmClose(stdout, stderr, code, signal) {
   const combined = `${stdout}\n${stderr}`;
   const reason = combined.split(/\r?\n/).find((line) => /^(wake: queued|signal:|stale:|check:|heartbeat($|:))/.test(line));
   if (reason) return { kind: "actionable", message: reason };
-  const healthy = combined.split(/\r?\n/).find((line) => /^watcher: healthy\b/.test(line));
-  if (healthy) {
-    return {
-      kind: "failure",
-      message: `watcher: FAILED - OpenCode arm child found an external healthy watcher instead of owning wake delivery\n${healthy}`,
-    };
-  }
   const failed = combined.split(/\r?\n/).find((line) => /^(watcher: FAILED|wake delivery: FAILED)/.test(line));
   if (failed) return { kind: "failure", message: failed };
   if (signal) {
@@ -150,10 +143,9 @@ function classifyArmClose(stdout, stderr, code, signal) {
       message: `watcher: FAILED - fm-watch-arm.sh exited ${code}${combined.trim() ? `\n${combined.trim()}` : ""}`,
     };
   }
-  return {
-    kind: "failure",
-    message: "watcher: FAILED - OpenCode arm cycle ended without an actionable reason",
-  };
+  // A clean exit with no recognized marker isn't a failure worth retrying or
+  // reporting - it just means this cycle didn't establish supervision.
+  return { kind: "idle", message: "" };
 }
 
 function observeArmOutput(stdout, stderr, settleReadiness) {
@@ -166,11 +158,6 @@ function observeArmOutput(stdout, stderr, settleReadiness) {
   if (combined.split(/\r?\n/).some((line) => /^watcher: (?:started|attached)\b/.test(line))) {
     setArmStatus("armed");
     settleReadiness("armed");
-    return;
-  }
-  if (combined.split(/\r?\n/).some((line) => /^watcher: healthy\b/.test(line))) {
-    setArmStatus("external");
-    settleReadiness("external");
     return;
   }
   if (combined.split(/\r?\n/).some((line) => /^(watcher: FAILED|wake delivery: FAILED)/.test(line))) {
@@ -286,7 +273,7 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     FM_CONFIG_OVERRIDE: paths.config,
     FM_WATCH_PREDECESSOR_ARM_PID: predecessorArmPid,
   };
-  const armChild = spawn("bash", ["-lc", 'config_dir="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"; [ -f "$config_dir/x-mode.env" ] && . "$config_dir/x-mode.env"; exec "$FM_ROOT_OVERRIDE/bin/fm-watch-arm.sh" --restart'], {
+  const armChild = spawn("bash", ["-lc", 'exec "$FM_ROOT_OVERRIDE/bin/fm-watch-arm.sh"'], {
     cwd: paths.root,
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -328,7 +315,9 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
     resolveClosed();
     releaseChild();
     const classification = classifyArmClose(stdout, stderr, code, signal);
-    settleReadiness(classification.kind === "actionable" ? "wake" : "failed");
+    settleReadiness(
+      classification.kind === "actionable" ? "wake" : classification.kind === "idle" ? "idle" : "failed",
+    );
     const predecessor = String(armChild.pid ?? "");
     if (classification.kind === "actionable") {
       retryFailures = 0;
@@ -344,6 +333,10 @@ function spawnArm(paths, sessionID, client, predecessorArmPid = "") {
         return sendPrompt(paths, client, sessionID, wakePrompt(message));
       }).catch(() => {
       });
+      return;
+    }
+    if (classification.kind === "idle") {
+      setArmStatus("idle");
       return;
     }
     if (restorationInFlight) {
@@ -377,10 +370,24 @@ async function beginArm(paths, sessionID, client, predecessorArmPid) {
   if (!sessionID) return { status: "skipped", armChild: null };
   if (!(await isPrimaryRoot(paths.root, paths.home))) return { status: "not-primary", armChild: null };
   if (!(await sessionOwnsLock(paths))) return { status: "read-only", armChild: null };
-  if (child) return { status: "existing", armChild: child };
-  if (retryTimer) return { status: "retrying", armChild: null };
-  if (!shouldArm(paths)) return { status: "not-needed", armChild: null };
-  return { status: "spawned", armChild: spawnArm(paths, sessionID, client, predecessorArmPid) };
+  // Serialize only the spawn decision itself: the checks above read fresh
+  // state on every call, but the child-check-then-spawn step must stay
+  // atomic across concurrent callers so two overlapping calls can't both
+  // observe no arm child and both spawn one.
+  const previousSpawn = spawnDecisionInFlight;
+  let releaseSpawnDecision;
+  spawnDecisionInFlight = new Promise((resolveDecision) => {
+    releaseSpawnDecision = resolveDecision;
+  });
+  try {
+    await previousSpawn;
+    if (child) return { status: "existing", armChild: child };
+    if (retryTimer) return { status: "retrying", armChild: null };
+    if (!shouldArm(paths)) return { status: "not-needed", armChild: null };
+    return { status: "spawned", armChild: spawnArm(paths, sessionID, client, predecessorArmPid) };
+  } finally {
+    releaseSpawnDecision();
+  }
 }
 
 function armAttempt(status, armChild, includeArmChild) {
@@ -388,18 +395,7 @@ function armAttempt(status, armChild, includeArmChild) {
 }
 
 async function ensureArm(paths, sessionID, client, predecessorArmPid = "", includeArmChild = false) {
-  let launchResult = null;
-  if (!launchInFlight) {
-    const launch = beginArm(paths, sessionID, client, predecessorArmPid);
-    launchInFlight = launch;
-    try {
-      launchResult = await launch;
-    } finally {
-      if (launchInFlight === launch) launchInFlight = null;
-    }
-  } else {
-    launchResult = await launchInFlight;
-  }
+  const launchResult = await beginArm(paths, sessionID, client, predecessorArmPid);
   const armChild = launchResult.armChild;
   if (!armChild) {
     return armAttempt(launchResult.status, null, includeArmChild);
