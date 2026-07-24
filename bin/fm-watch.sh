@@ -1142,7 +1142,13 @@ while :; do
     out=""
     if [ "${#BRIDGE_VESSELS[@]}" -gt 0 ] && [ -d "$BRIDGE_ROOT/.git" ]; then
       # Each vessel keeps its own signature/surfaced marker so a wake about one
-      # vessel's inbox never suppresses or is suppressed by another's.
+      # vessel's inbox never suppresses or is suppressed by another's. A
+      # surfaced marker is only written after fm_wake_append durably queues
+      # the wake, so a failed append never leaves a vessel's pending mail
+      # marked as already-surfaced; clearing a stale marker carries no such
+      # risk (it just re-triggers the same check next pass) so it happens
+      # immediately.
+      bridge_marker_writes=""
       for vessel in "${BRIDGE_VESSELS[@]}"; do
         bridge_surfaced_marker="$STATE/.bridge-surfaced$(bridge_state_suffix "$vessel")"
         bridge_sig=$(bridge_inbox_signature "$vessel")
@@ -1152,7 +1158,7 @@ while :; do
         vessel_out=$(bridge_inbox_check "$vessel" "$bridge_sig")
         if [ -n "$vessel_out" ]; then
           out="${out:+$out; }$vessel_out"
-          printf '%s' "$bridge_sig" > "$bridge_surfaced_marker" 2>/dev/null || true
+          bridge_marker_writes="$bridge_marker_writes$bridge_surfaced_marker"$'\t'"$bridge_sig"$'\n'
         else
           rm -f "$bridge_surfaced_marker" 2>/dev/null || true
         fi
@@ -1162,6 +1168,12 @@ while :; do
     if [ -n "$out" ]; then
       reason="check: bridge-inbox: $out"
       fm_wake_append check bridge-inbox "$reason" || exit 1
+      while IFS=$(printf '\t') read -r marker_path marker_sig; do
+        [ -n "$marker_path" ] || continue
+        printf '%s' "$marker_sig" > "$marker_path" 2>/dev/null || true
+      done <<EOF
+$bridge_marker_writes
+EOF
       wake "$reason"
       [ "$WAKE_PENDING" -eq 0 ] || continue
     fi
