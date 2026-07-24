@@ -278,7 +278,19 @@ hash_text() {
 }
 
 dead_pid() {
-  local p=999999
+  # Start above the kernel's pid_max (when readable) rather than at a fixed
+  # 999999: on hosts with a large pid_max (e.g. 4194304, common on Linux CI
+  # runners), 999999 is a plausible live pid, and heavy concurrent forking
+  # (tests spawn dozens of background processes) can recycle it mid-test,
+  # turning a "dead" pid live and making every stale-lock steal back off.
+  # A pid past pid_max can never be assigned to a real process, so it stays
+  # dead no matter how much fork churn the test generates.
+  local max p
+  max=$(cat /proc/sys/kernel/pid_max 2>/dev/null || true)
+  case "$max" in
+    ''|*[!0-9]*) max=999999 ;;
+  esac
+  p=$((max + 1000))
   while kill -0 "$p" 2>/dev/null; do
     p=$((p + 1))
   done

@@ -61,10 +61,7 @@ test_stale_watch_lock_reclaimed() {
   state="$dir/state"
   fakebin="$dir/fakebin"
   out="$dir/watch.out"
-  dead_pid=999999
-  while kill -0 "$dead_pid" 2>/dev/null; do
-    dead_pid=$((dead_pid + 1))
-  done
+  dead_pid=$(dead_pid)
   mkdir "$state/.watch.lock"
   printf '%s\n' "$dead_pid" > "$state/.watch.lock/pid"
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
