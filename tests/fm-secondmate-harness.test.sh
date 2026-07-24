@@ -767,9 +767,10 @@ run_bootstrap() {
 }
 
 run_config_push() {
-  local w=$1
+  local w=$1 fakebin
+  fakebin=$(make_fake_toolchain "$w")
   fm_test_record_supervision_healthy "$w/home"
-  PATH="$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
+  PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     "$ROOT/bin/fm-config-push.sh"
 }
 
@@ -944,8 +945,10 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
     "config push did not report crew-harness as pushed"
   assert_contains "$out" "backlog-backend: pushed" \
     "config push did not report backlog-backend as pushed"
+  assert_contains "$out" "config-reread: sent" \
+    "config push did not report the targeted config-reread as sent"
   assert_not_contains "$out" "NUDGE_SECONDMATES" \
-    "config push must not nudge secondmates"
+    "config push must not emit the old broad nudge marker"
   [ "$(git -C "$w/sm" rev-parse HEAD)" = "$old_head" ] \
     || fail "config push fast-forwarded tracked files"
   [ ! -s "$err" ] || fail "clean config push wrote unexpected stderr: $(cat "$err")"
@@ -958,7 +961,9 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
     "idempotent config push did not report crew-harness as unchanged"
   assert_contains "$out2" "backlog-backend: unchanged" \
     "idempotent config push did not report backlog-backend as unchanged"
-  pass "B12 config-push propagates via shared live discovery, reports items, and does not fast-forward or nudge"
+  assert_not_contains "$out2" "config-reread: sent" \
+    "idempotent config push must not send another config-reread"
+  pass "B12 config-push propagates via shared live discovery, reports items, sends a targeted config reread (not a broad nudge), and does not fast-forward"
 }
 
 test_config_push_reports_skips_dirty_and_invalid_home() {
