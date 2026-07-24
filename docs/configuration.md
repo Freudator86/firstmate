@@ -260,6 +260,21 @@ When X mode is opted in, bootstrap also requires `curl` and `jq` before arming t
 `tasks-axi` and `quota-axi` are required bootstrap tools in every profile, the same class as `lavish-axi`.
 An absent or incompatible `tasks-axi` reports `MISSING: tasks-axi (install: npm install -g tasks-axi)`; when `config/backlog-backend` is not `manual` and compatible `tasks-axi` is on `PATH`, bootstrap stays silent and firstmate uses its verbs for routine backlog mutations, otherwise it hand-edits `data/backlog.md` until installation is approved and completed.
 An absent `quota-axi` reports `MISSING: quota-axi (install: npm install -g quota-axi)`; `bin/fm-dispatch-select.sh` still selects uniformly from the valid candidate array with an OS-backed random source when quota data is unavailable.
+On Ubuntu hosts with `kernel.apparmor_restrict_unprivileged_userns=1`, a Codex-harness crewmate's built-in `apply_patch` can fail on every edit with an error such as `bwrap: loopback: Failed RTM_NEWADDR`, even though ordinary in-worktree shell writes still work.
+Codex's npm package uses its private `<path-to-codex-install>/node_modules/@openai/codex-linux-x64/vendor/<target>/codex-resources/bwrap` to create an isolated network namespace for sandboxed edits under `sandbox_mode = "workspace-write"`, and Ubuntu's AppArmor restriction denies that binary access to unprivileged user namespaces when it has no matching profile.
+Keep the host restriction enabled and install a profile scoped to the exact bundled `bwrap` path, substituting the installed path for the placeholder:
+
+```text
+abi <abi/4.0>,
+include <tunables/global>
+
+profile codex-bwrap-userns <path-to-codex-install>/node_modules/@openai/codex-linux-x64/vendor/<target>/codex-resources/bwrap flags=(unconfined) {
+  userns,
+}
+```
+
+Place the profile under `/etc/apparmor.d/`, load it with `sudo apparmor_parser -r <profile-file>`, and update its attachment path when the Codex package layout changes.
+Until that profile is active, use plain in-worktree shell writes such as heredoc redirection, `sed -i`, or `python3 -c` with `open().write()`; those stay within the existing workspace-write access because the failing step is the nested network namespace setup, not general file access.
 Bootstrap also reports a `TANGLE:` line when `FM_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.
 In a read-only session that did not get the fleet lock, the same line is advisory and omits the checkout command.
 The locked session-start bootstrap step also runs a best-effort project clone refresh through `fm-fleet-sync.sh`.
