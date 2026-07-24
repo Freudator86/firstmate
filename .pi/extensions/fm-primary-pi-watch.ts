@@ -134,6 +134,14 @@ function actionableLine(output: string): string {
   return lines.find((line) => /^(wake: queued|signal:|stale:|check:|heartbeat($|:))/.test(line)) || "";
 }
 
+// A "wake: queued" close means the durable queue is still non-empty, so a
+// successor watching the SAME undrained queue would immediately report the
+// same thing again; never start one until the queue is drained (see
+// docs/supervision-protocols/pi.md point 6).
+function queueDrainPending(message: string): boolean {
+  return message.startsWith("wake: queued");
+}
+
 function classifyClose(stdout: string, stderr: string, code: number | null, signal: NodeJS.Signals | null): CloseClassification {
   const combined = `${stdout}\n${stderr}`.trim();
   const reason = actionableLine(combined);
@@ -387,6 +395,11 @@ export default function (pi: ExtensionAPI) {
       const predecessor = String(armChild.pid ?? "");
       if (classification.kind === "actionable") {
         retryFailures = 0;
+        if (queueDrainPending(classification.message)) {
+          void sendWake(classification.message).catch(() => {
+          });
+          return;
+        }
         const previousRestoration = restorationInFlight;
         const restoration = previousRestoration
           ? previousRestoration.catch(() => "").then(() => restoreAfterActionableClose(predecessor))

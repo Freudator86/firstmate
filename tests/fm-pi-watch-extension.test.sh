@@ -477,9 +477,9 @@ test_pi_actionable_close_waits_for_drain_before_rearm() {
     return
   fi
   local repo home plugin log stop out status
-  repo="$TMP_ROOT/pi-continuous-rearm-root"
-  home="$TMP_ROOT/pi-continuous-rearm-home"
-  log="$TMP_ROOT/pi-continuous-rearm.log"
+  repo="$TMP_ROOT/pi-drain-wait-root"
+  home="$TMP_ROOT/pi-drain-wait-home"
+  log="$TMP_ROOT/pi-drain-wait.log"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
