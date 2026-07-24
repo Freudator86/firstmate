@@ -61,10 +61,7 @@ test_stale_watch_lock_reclaimed() {
   state="$dir/state"
   fakebin="$dir/fakebin"
   out="$dir/watch.out"
-  dead_pid=999999
-  while kill -0 "$dead_pid" 2>/dev/null; do
-    dead_pid=$((dead_pid + 1))
-  done
+  dead_pid=$(dead_pid)
   mkdir "$state/.watch.lock"
   printf '%s\n' "$dead_pid" > "$state/.watch.lock/pid"
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
@@ -342,10 +339,28 @@ test_lock_stale_steal_single_winner_under_concurrency() {
   while [ "$i" -le 40 ]; do
     FM_STATE_OVERRIDE="$state" bash -c '
       . "$1"
-      if fm_lock_try_acquire "$2"; then
-        printf "%s\n" "${BASHPID:-$$}" >> "$3"
-        sleep 1
-      fi
+      # A single fm_lock_try_acquire is a non-blocking, non-retrying attempt:
+      # when 40 processes simultaneously steal the same stale lock, a losing
+      # racer can transiently occupy the just-vacated lockdir with its own
+      # (doomed, steal-unaware) publish attempt before the safety net in
+      # fm_lock_claim rolls it back a moment later. That can cost the actual
+      # stealer its one shot. Retry briefly rather than giving up on the
+      # first miss, matching how real callers use fm_lock_acquire_wait
+      # instead of a single try. The retry budget is wall-clock bounded
+      # (not a fixed try count): under CI contention a fixed count of tries
+      # can take longer in real time than the 1s the winner holds the lock
+      # below, letting a retrying loser legitimately observe the winner die
+      # and steal the now-genuinely-stale lock itself - a second, later,
+      # but not concurrent winner that would still fail this test.
+      deadline_ns=$(($(date +%s%N) + 400000000))
+      while [ "$(date +%s%N)" -lt "$deadline_ns" ]; do
+        if fm_lock_try_acquire "$2"; then
+          printf "%s\n" "${BASHPID:-$$}" >> "$3"
+          sleep 1
+          break
+        fi
+        sleep 0.02
+      done
     ' _ "$LIB" "$lockdir" "$marker" &
     pids="$pids $!"
     i=$((i + 1))

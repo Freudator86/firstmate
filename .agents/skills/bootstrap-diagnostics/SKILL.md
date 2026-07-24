@@ -2,7 +2,7 @@
 name: bootstrap-diagnostics
 description: >-
   Agent-only handling playbook for session-start bootstrap diagnostics.
-  Use whenever the session-start digest's bootstrap section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, NEEDS_GH_AUTH, TANGLE, SELF_DRIFT, CREW_DISPATCH invalid, FLEET_SYNC, PR_CHECK_MIGRATION, SECONDMATE_SYNC, SECONDMATE_LIVENESS, NUDGE_SECONDMATES, AXI_SUITE_UPDATED, AXI_SUITE_REVIEW, AXI_SUITE_STUCK, FIRSTMATE_UPDATE_AVAILABLE, FIRSTMATE_UPDATE_STUCK, FORK_SYNC, FORK_SYNC_STUCK, WATCHER_UNIT, or FMX - or when a standalone bin/fm-bootstrap.sh run prints one of those lines.
+  Use whenever the session-start digest's bootstrap section prints an actionable diagnostic line - MISSING, MISSING_MANUAL, BACKEND_INVALID, NEEDS_GH_AUTH, TANGLE, SELF_DRIFT, CREW_DISPATCH invalid, FLEET_SYNC, PR_CHECK_MIGRATION, SECONDMATE_SYNC, SECONDMATE_LIVENESS, NUDGE_SECONDMATES, AXI_SUITE_UPDATED, AXI_SUITE_REVIEW, AXI_SUITE_STUCK, FIRSTMATE_UPDATE_AVAILABLE, FIRSTMATE_UPDATE_STUCK, FORK_SYNC, FORK_SYNC_STUCK, WATCHER_UNIT, FREQUENCY_MONITOR_UNIT, or FMX - or when a standalone bin/fm-bootstrap.sh run prints one of those lines.
   A silent bootstrap section, or a BOOTSTRAP_INFO fact, means no skill load.
 user-invocable: false
 metadata:
@@ -35,6 +35,14 @@ When any diagnostic needs captain attention, report the plain consequence and re
 - `WATCHER_UNIT: systemd --user unavailable ... tmux keeper fallback ...` - the selected fallback is automatic and needs no captain consent.
   A detect-only session leaves startup to the lock holder; a locked session reports only when the fallback could not establish a healthy watcher.
 - `WATCHER_UNIT: systemd --user is unavailable and tmux is not installed ...` - supervision has no restart owner, so do not dispatch until one backend is available.
+- `FREQUENCY_MONITOR_UNIT: missing ...` or `FREQUENCY_MONITOR_UNIT: ... disabled ...` - explain that the configured Bridge inbox remains durable but live-session delivery stays on the slower watcher fallback, ask for explicit consent, then run `bin/fm-bootstrap.sh install frequency-monitor-unit` only after approval.
+  The installation copies the tracked template, writes this home's private environment, reloads the user manager, and enables and starts only the instance encoded from this home.
+- `FREQUENCY_MONITOR_UNIT: <instance> needs locked convergence ...` - this read-only session found stale unit bytes, source path or version, environment, or runtime state.
+  Leave repair to the lock-holding session and rerun session start after that session converges the instance.
+- `FREQUENCY_MONITOR_UNIT: <instance> convergence failed ...` - inspect the named `systemctl --user status` result and the home-scoped service environment, then report the concrete failure.
+  The original watcher remains the slow delivery backstop.
+- `FREQUENCY_MONITOR_UNIT: systemd --user is unavailable ...` - fast Bridge delivery cannot run on this host through the tracked unit, but the original watcher still provides slow durable delivery.
+  Do not invent or auto-start an unapproved background-process fallback.
 - `AXI_SUITE_UPDATED: <tool> <old> -> <new>` - the vessel completed a gated patch or minor self-update; report it only when it materially affects current work.
 - `AXI_SUITE_REVIEW: <detail>` - a major release or newly required suite command was deliberately not installed; present the printed install command and purpose to the captain, then use `bin/fm-bootstrap.sh install <approved tool...>` only after consent.
 - `AXI_SUITE_STUCK: <detail>` - the vessel could not check or apply an eligible update and persisted the condition in `state/axi-suite-update.stuck`; investigate the local install path first, and if the vessel cannot repair itself, relay the status through the existing Bridge workflow by dispatching a crewmate rather than calling project automation directly.

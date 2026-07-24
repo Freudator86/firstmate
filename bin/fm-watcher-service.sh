@@ -43,6 +43,7 @@ watch_source_version() {
   local -a files=(
     "$WATCH"
     "$SCRIPT_DIR/fm-wake-lib.sh"
+    "$SCRIPT_DIR/fm-bridge-inbox-lib.sh"
     "$SCRIPT_DIR/fm-classify-lib.sh"
     "$SCRIPT_DIR/fm-backend.sh"
     "$SCRIPT_DIR/fm-transition-lib.sh"

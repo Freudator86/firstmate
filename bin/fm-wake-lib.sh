@@ -243,6 +243,15 @@ fm_lock_claim() {
 fm_lock_try_create() {
   local lockdir=$1 allowed_steal_owner=${2:-} ownerdir claim_rc
   FM_LOCK_OWNER_DIR=
+  # A fresh (non-steal) attempt must defer up front whenever a steal is in
+  # flight for this lockdir, not only via fm_lock_claim's post-publish
+  # rollback below: publishing costs several more filesystem operations than
+  # this one check, so a fresh caller retrying in a tight loop can otherwise
+  # win the race to relink a just-vacated lockdir before the real stealer
+  # republishes it, letting both believe they hold the lock at once.
+  if fm_lock_claim_blocked_by_steal "$lockdir" "$allowed_steal_owner"; then
+    return 1
+  fi
   if ! ownerdir=$(fm_lock_owner_dir "$lockdir"); then
     FM_LOCK_ERROR="could not create owner directory for $lockdir"
     return 2

@@ -21,7 +21,8 @@
 #                 "FIRSTMATE_UPDATE_AVAILABLE|STUCK: <detail>",
 #                 "FORK_SYNC: <detail>" or "FORK_SYNC_STUCK: <detail>",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...",
-#                 "WATCHER_UNIT: <consent, convergence, or fallback detail>".
+#                 "WATCHER_UNIT: <consent, convergence, or fallback detail>",
+#                 "FREQUENCY_MONITOR_UNIT: <consent, convergence, or fallback detail>".
 #          When a RUNNING secondmate worktree is fast-forwarded to firstmate's
 #          own current default-branch commit (a purely LOCAL fast-forward, never
 #          an origin fetch) AND its loaded instruction surface (AGENTS.md, bin/,
@@ -819,6 +820,11 @@ if [ "${1:-}" = "install" ]; then
         "$SCRIPT_DIR/fm-watcher-service.sh" enable-linger || exit 1
         continue
         ;;
+      frequency-monitor-unit)
+        echo "installing frequency-monitor-unit: systemd user template plus this home's enabled instance"
+        "$SCRIPT_DIR/fm-frequency-monitor-service.sh" install-unit || exit 1
+        continue
+        ;;
     esac
     if ! cmd=$(install_cmd "$t"); then
       instructions=$(manual_install_url "$t") || { echo "error: unknown tool $t" >&2; exit 1; }
@@ -895,11 +901,13 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   x_mode_setup
   if [ "${FM_TEST_SKIP_WATCHER_SERVICE:-0}" != 1 ]; then
     "$SCRIPT_DIR/fm-watcher-service.sh" bootstrap
+    "$SCRIPT_DIR/fm-frequency-monitor-service.sh" bootstrap
   fi
   fleet_sync
 else
   if [ "${FM_TEST_SKIP_WATCHER_SERVICE:-0}" != 1 ]; then
     "$SCRIPT_DIR/fm-watcher-service.sh" bootstrap
+    "$SCRIPT_DIR/fm-frequency-monitor-service.sh" bootstrap
   fi
 fi
 [ -f "$STATE/firstmate-update.available" ] && cat "$STATE/firstmate-update.available"
