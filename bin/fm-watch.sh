@@ -118,12 +118,19 @@ HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
 CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}     # seconds allowed per *.check.sh
 if [ -n "${FM_BRIDGE_VESSEL:-}" ]; then
-  BRIDGE_VESSEL=$FM_BRIDGE_VESSEL
+  BRIDGE_VESSEL_RAW=$FM_BRIDGE_VESSEL
 elif [ -f "$FM_HOME/config/bridge-vessel" ]; then
-  IFS= read -r BRIDGE_VESSEL < "$FM_HOME/config/bridge-vessel" || BRIDGE_VESSEL=
+  IFS= read -r BRIDGE_VESSEL_RAW < "$FM_HOME/config/bridge-vessel" || BRIDGE_VESSEL_RAW=
 else
-  BRIDGE_VESSEL=
+  BRIDGE_VESSEL_RAW=
 fi
+# One or more space-separated vessel names, each watched independently.
+# BRIDGE_VESSEL keeps its historical single-vessel meaning (the first/primary
+# vessel) so a pre-existing single-vessel value, and code or tests that read
+# $BRIDGE_VESSEL directly, keep working unchanged.
+BRIDGE_VESSELS=()
+read -r -a BRIDGE_VESSELS <<< "$BRIDGE_VESSEL_RAW"
+BRIDGE_VESSEL=${BRIDGE_VESSELS[0]:-}
 BRIDGE_ROOT=${FM_BRIDGE_ROOT:-$FM_HOME/projects/coditan-bridge}
 BRIDGE_URGENT_CHECK_INTERVAL=${FM_BRIDGE_URGENT_CHECK_INTERVAL:-30}
 SIGNAL_GRACE=${FM_SIGNAL_GRACE:-30}   # seconds to linger after a signal so trailing
@@ -726,37 +733,56 @@ bridge_inbox_signature_scan() {
 export -f bridge_inbox_signature_scan
 
 bridge_inbox_signature() {
-  local out
-  out=$(BRIDGE_ROOT="$BRIDGE_ROOT" BRIDGE_VESSEL="$BRIDGE_VESSEL" run_bounded bash -c 'bridge_inbox_signature_scan')
+  local vessel=${1:-$BRIDGE_VESSEL} out
+  out=$(BRIDGE_ROOT="$BRIDGE_ROOT" BRIDGE_VESSEL="$vessel" run_bounded bash -c 'bridge_inbox_signature_scan')
   printf '%s' "${out:-timeout}"
 }
 
+# The primary vessel (BRIDGE_VESSEL, the first configured one) keeps its
+# original unsuffixed state filenames so an existing single-vessel home sees
+# no state churn on upgrade; only additional vessels get a suffixed file.
+bridge_state_suffix() {
+  local vessel=$1
+  [ "$vessel" = "$BRIDGE_VESSEL" ] && return 0
+  printf -- '-%s' "$(printf '%s' "$vessel" | tr -c 'A-Za-z0-9_.-' '_')"
+}
+
 bridge_pending_priority() {
-  local cache="$STATE/.bridge-priority-cache" sig=${1:-} cached_sig="" cached_priority="" out
-  [ -n "$BRIDGE_VESSEL" ] || { printf '%s' none; return; }
+  local sig=${1:-} vessel=${2:-$BRIDGE_VESSEL} cache cached_sig="" cached_priority="" out
+  [ -n "$vessel" ] || { printf '%s' none; return; }
   [ -d "$BRIDGE_ROOT/.git" ] || { printf '%s' none; return; }
-  [ -n "$sig" ] || sig=$(bridge_inbox_signature)
+  cache="$STATE/.bridge-priority-cache$(bridge_state_suffix "$vessel")"
+  [ -n "$sig" ] || sig=$(bridge_inbox_signature "$vessel")
   if [ -f "$cache" ]; then
     IFS=$'\t' read -r cached_sig cached_priority < "$cache" 2>/dev/null || true
   fi
   if [ "$sig" = timeout ]; then printf '%s' "${cached_priority:-none}"; return; fi
   if [ -n "$cached_sig" ] && [ "$sig" = "$cached_sig" ]; then printf '%s' "${cached_priority:-none}"; return; fi
-  out=$(BRIDGE_ROOT="$BRIDGE_ROOT" BRIDGE_VESSEL="$BRIDGE_VESSEL" run_bounded bash -c 'bridge_pending_priority_scan')
+  out=$(BRIDGE_ROOT="$BRIDGE_ROOT" BRIDGE_VESSEL="$vessel" run_bounded bash -c 'bridge_pending_priority_scan')
   if [ -z "$out" ]; then printf '%s' "${cached_priority:-none}"; return; fi
   printf '%s\t%s\n' "$sig" "$out" > "$cache" 2>/dev/null || true
   printf '%s' "$out"
 }
 
+# Interval reflects the whole watched fleet of vessels: any one of them
+# pending high/immediate tightens the shared Bridge cadence.
 bridge_check_interval() {
-  case "$(bridge_pending_priority)" in high|immediate) echo "$BRIDGE_URGENT_CHECK_INTERVAL" ;; *) echo "$CHECK_INTERVAL" ;; esac
+  local vessel
+  for vessel in "${BRIDGE_VESSELS[@]}"; do
+    case "$(bridge_pending_priority "" "$vessel")" in
+      high|immediate) echo "$BRIDGE_URGENT_CHECK_INTERVAL"; return ;;
+    esac
+  done
+  echo "$CHECK_INTERVAL"
 }
 
 bridge_inbox_check() {
-  local sig=${1:-} inbox="inbox/$BRIDGE_VESSEL/new" highest count
-  highest=$(bridge_pending_priority "$sig")
+  local vessel=$1 sig=${2:-}
+  local inbox="inbox/$vessel/new" highest count
+  highest=$(bridge_pending_priority "$sig" "$vessel")
   [ "$highest" != none ] || return 0
   count=$(run_bounded git -C "$BRIDGE_ROOT" ls-tree --name-only "origin/main:$inbox" | awk '/[.]json$/' | wc -l | tr -d '[:space:]')
-  printf 'bridge-inbox %s pending=%s highest=%s\n' "$BRIDGE_VESSEL" "${count:-0}" "$highest"
+  printf 'bridge-inbox %s pending=%s highest=%s\n' "$vessel" "${count:-0}" "$highest"
 }
 
 # Surfaced-marker bookkeeping for the heartbeat backstop. The watcher records the
@@ -1101,7 +1127,7 @@ while :; do
     touch "$STATE/.last-check"
   fi
 
-  if [ -z "$BRIDGE_VESSEL" ] || [ ! -d "$BRIDGE_ROOT/.git" ]; then
+  if [ "${#BRIDGE_VESSELS[@]}" -eq 0 ] || [ ! -d "$BRIDGE_ROOT/.git" ]; then
     bridge_interval=$CHECK_INTERVAL
   elif [ "$(age_of "$STATE/.last-bridge-discovery")" -ge "$BRIDGE_URGENT_CHECK_INTERVAL" ]; then
     run_bounded git -C "$BRIDGE_ROOT" fetch --quiet origin main >/dev/null
@@ -1114,19 +1140,40 @@ while :; do
   fi
   if [ "$(age_of "$STATE/.last-bridge-check")" -ge "$bridge_interval" ]; then
     out=""
-    if [ -n "$BRIDGE_VESSEL" ] && [ -d "$BRIDGE_ROOT/.git" ]; then
-      bridge_sig=$(bridge_inbox_signature)
-      bridge_surfaced=$(cat "$STATE/.bridge-surfaced" 2>/dev/null)
-      if [ "$bridge_sig" != timeout ] && [ "$bridge_sig" != "$bridge_surfaced" ]; then
-        out=$(bridge_inbox_check "$bridge_sig")
-        [ -n "$out" ] || rm -f "$STATE/.bridge-surfaced" 2>/dev/null || true
-      fi
+    if [ "${#BRIDGE_VESSELS[@]}" -gt 0 ] && [ -d "$BRIDGE_ROOT/.git" ]; then
+      # Each vessel keeps its own signature/surfaced marker so a wake about one
+      # vessel's inbox never suppresses or is suppressed by another's. A
+      # surfaced marker is only written after fm_wake_append durably queues
+      # the wake, so a failed append never leaves a vessel's pending mail
+      # marked as already-surfaced; clearing a stale marker carries no such
+      # risk (it just re-triggers the same check next pass) so it happens
+      # immediately.
+      bridge_marker_writes=""
+      for vessel in "${BRIDGE_VESSELS[@]}"; do
+        bridge_surfaced_marker="$STATE/.bridge-surfaced$(bridge_state_suffix "$vessel")"
+        bridge_sig=$(bridge_inbox_signature "$vessel")
+        bridge_surfaced=$(cat "$bridge_surfaced_marker" 2>/dev/null)
+        [ "$bridge_sig" != timeout ] || continue
+        [ "$bridge_sig" != "$bridge_surfaced" ] || continue
+        vessel_out=$(bridge_inbox_check "$vessel" "$bridge_sig")
+        if [ -n "$vessel_out" ]; then
+          out="${out:+$out; }$vessel_out"
+          bridge_marker_writes="$bridge_marker_writes$bridge_surfaced_marker"$'\t'"$bridge_sig"$'\n'
+        else
+          rm -f "$bridge_surfaced_marker" 2>/dev/null || true
+        fi
+      done
     fi
     touch "$STATE/.last-bridge-check"
     if [ -n "$out" ]; then
       reason="check: bridge-inbox: $out"
       fm_wake_append check bridge-inbox "$reason" || exit 1
-      printf '%s' "$bridge_sig" > "$STATE/.bridge-surfaced" 2>/dev/null || true
+      while IFS=$(printf '\t') read -r marker_path marker_sig; do
+        [ -n "$marker_path" ] || continue
+        printf '%s' "$marker_sig" > "$marker_path" 2>/dev/null || true
+      done <<EOF
+$bridge_marker_writes
+EOF
       wake "$reason"
       [ "$WAKE_PENDING" -eq 0 ] || continue
     fi

@@ -45,8 +45,8 @@ A bounded direct-report terminal tail can help diagnose a mismatch by showing th
 The snapshot strips control sequences, retains only capture metadata and literal event-corroboration flags, and never lets terminal evidence override a valid structured classification.
 The default path remains local-only; live GitHub enrichment exists only behind the bearings `--include-prs` opt-in.
 Optional X mode integrates with the watcher only after explicit opt-in; [configuration.md](configuration.md#x-mode-env) owns its generated-artifact and dispatch mechanics.
-The optional per-home Bridge inbox check uses the same watcher path to bounded-fetch and read a configured vessel's unacknowledged envelopes from the Bridge clone's `origin/main` without acknowledging them.
-It surfaces each pending inbox tree signature once and tightens only its own cadence for high or immediate priority; [configuration.md](configuration.md#bridge-inbox-check-fm_bridge_) owns the mechanics.
+The optional per-home Bridge inbox check uses the same watcher path to bounded-fetch and read one or more configured vessels' unacknowledged envelopes from the Bridge clone's `origin/main` without acknowledging them.
+It surfaces each vessel's pending inbox tree signature once and tightens the shared cadence for high or immediate priority; [configuration.md](configuration.md#bridge-inbox-check-fm_bridge_) owns the mechanics.
 
 At session start, `bin/fm-session-start.sh` emits exactly one primary-harness delivery block rendered by `bin/fm-supervision-instructions.sh` from `docs/supervision-protocols/`.
 The watcher loop is external to the model harness and runs continuously in an enabled `systemd --user` template instance, or in a detached home-scoped tmux keeper when the user manager is unavailable.

@@ -82,7 +82,7 @@ config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCA
 config/x-mode.env    generated X-mode watcher cadence; LOCAL, gitignored; source before arming watcher when present
 config/telegram.env  optional direct Telegram receive credentials; LOCAL, gitignored; when present, the locked session-start digest emits the `bin/fm-tg-recv-arm.sh` tracked-background arm step
 config/fm-tg-recv.sh optional local direct Telegram receiver implementation; LOCAL, gitignored; `bin/fm-tg-recv-arm.sh` owns only the tracked arm/attach wrapper
-config/bridge-vessel  Bridge inbox vessel name; LOCAL, gitignored; used only when FM_BRIDGE_VESSEL is unset, and absent (with FM_BRIDGE_VESSEL also unset) disables Bridge inbox scans (docs/configuration.md "Bridge inbox check (FM_BRIDGE_*)")
+config/bridge-vessel  Bridge inbox vessel name(s), space-separated; LOCAL, gitignored; used only when FM_BRIDGE_VESSEL is unset, and absent (with FM_BRIDGE_VESSEL also unset) disables Bridge inbox scans (docs/configuration.md "Bridge inbox check (FM_BRIDGE_*)")
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
   captain.md         this home's domain-local captain preferences and working style; LOCAL, gitignored, canonical even if harness memory mirrors it, and updated with inspect-then-update
