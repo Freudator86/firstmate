@@ -64,7 +64,7 @@ jobs:
             --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-parallel-1.json"
       - name: Upload shard 1 timing artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fm-test-timing-portable-parallel-1
           path: ${{ runner.temp }}/fm-test/fm-test-timing-portable-parallel-1.json
@@ -96,7 +96,7 @@ jobs:
             --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-parallel-2.json"
       - name: Upload shard 2 timing artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fm-test-timing-portable-parallel-2
           path: ${{ runner.temp }}/fm-test/fm-test-timing-portable-parallel-2.json
@@ -141,7 +141,7 @@ jobs:
             --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-serial.json"
       - name: Upload portable serial timing artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fm-test-timing-portable-serial
           path: ${{ runner.temp }}/fm-test/fm-test-timing-portable-serial.json
@@ -256,7 +256,7 @@ jobs:
           }
       - name: Upload Herdr timing and diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fm-test-timing-herdr
           path: |
@@ -278,7 +278,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Download lane timing artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: fm-test-timing-*
           path: ${{ runner.temp }}/fm-test-aggregate
@@ -298,7 +298,7 @@ jobs:
             "${inputs[@]}"
       - name: Upload aggregate timing artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fm-test-timing-aggregate
           path: ${{ runner.temp }}/fm-test/fm-test-timing-aggregate.json
