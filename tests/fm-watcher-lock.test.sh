@@ -344,17 +344,21 @@ test_lock_stale_steal_single_winner_under_concurrency() {
       # racer can transiently occupy the just-vacated lockdir with its own
       # (doomed, steal-unaware) publish attempt before the safety net in
       # fm_lock_claim rolls it back a moment later. That can cost the actual
-      # stealer its one shot. Retry briefly (well under the 1s the winner
-      # stays alive below) rather than giving up on the first miss, matching
-      # how real callers use fm_lock_acquire_wait instead of a single try.
-      tries=0
-      while [ "$tries" -lt 25 ]; do
+      # stealer its one shot. Retry briefly rather than giving up on the
+      # first miss, matching how real callers use fm_lock_acquire_wait
+      # instead of a single try. The retry budget is wall-clock bounded
+      # (not a fixed try count): under CI contention a fixed count of tries
+      # can take longer in real time than the 1s the winner holds the lock
+      # below, letting a retrying loser legitimately observe the winner die
+      # and steal the now-genuinely-stale lock itself - a second, later,
+      # but not concurrent winner that would still fail this test.
+      deadline_ns=$(($(date +%s%N) + 400000000))
+      while [ "$(date +%s%N)" -lt "$deadline_ns" ]; do
         if fm_lock_try_acquire "$2"; then
           printf "%s\n" "${BASHPID:-$$}" >> "$3"
           sleep 1
           break
         fi
-        tries=$((tries + 1))
         sleep 0.02
       done
     ' _ "$LIB" "$lockdir" "$marker" &
