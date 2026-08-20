@@ -185,6 +185,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/vessel-file-relay/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": "AGENTS.md",
       "audience": "agent-runtime"
     },
