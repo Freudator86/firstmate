@@ -1195,7 +1195,7 @@ No qualifying option, or two equally probable qualifying options, produces `ambi
 | --- | --- |
 | `clear` | A `profile:` line ready for `fm-spawn.sh`. |
 | `ambiguous` | Rule confidence below the floor with no runner-up taken. |
-| `escalate` | An approval-gated rule, unverifiable rule floor, nothing rankable, a genuine tie, or a classifier escalation recommendation reported after every declared local gate. |
+| `escalate` | An approval-gated rule, unverifiable rule floor, nothing rankable, a genuine tie, or a classifier escalation recommendation at or above the confidence floor, reported after every declared local gate. |
 | `error` | API, network, malformed response metadata, rendering, or quota-axi failure. |
 
 Every result above exits 0.
@@ -1209,7 +1209,8 @@ Every result above exits 0.
 The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns what firstmate does with each outcome.
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 The classifier axes other than `escalation` are published evidence only: their choices and confidences ride on the `classification:` line and never gate the route, so low confidence on an axis no gate reads cannot veto an otherwise valid rule match.
-The `escalation` axis can make the tool decline to emit a profile, and no classifier answer can directly authorize a model launch, a merge, a sensitive action, or an exception to local policy; a declared `approval` or rule-floor gate is always reported ahead of it.
+The `escalation` axis can make the tool decline to emit a profile, but only when its own confidence reaches the same floor the rule answer must clear: a `yes` below the floor is published on the `classification:` line and routes as usual, so a near-coin-flip reading never spends a full intake.
+No classifier answer can directly authorize a model launch, a merge, a sensitive action, or an exception to local policy, and a declared `approval` or rule-floor gate is always reported ahead of the classifier, whatever its confidence.
 
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
@@ -1217,7 +1218,7 @@ Firstmate passes its profile line unless it states a reason to override, such as
 
 - The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
 - The resolver sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
-- The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, default rule confidence floor at 0.6, and request timeout at 10 seconds, measured against the shipped multi-axis request; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
+- The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, the one confidence floor at 0.6 for both the rule answer and the escalation gate, and request timeout at 10 seconds, measured against the shipped multi-axis request; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
 
 The live rule-match and router-axis evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
