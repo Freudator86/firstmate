@@ -1201,6 +1201,7 @@ No qualifying option, or two equally probable qualifying options, produces `ambi
 Every result above exits 0.
 
 - Response probabilities for the rule and every classifier axis must contain exactly every offered choice, use numeric values from 0 through 1, and sum to approximately 1 within 0.01.
+- Every classifier axis must also be present and answer with one of its own offered options; a missing axis or an unrecognized choice is an `error` outcome, never a silently ignored classification.
 - Only a usage or configuration error exits 2: an unreadable brief, an existing but unreadable or malformed canonical rules file, or missing `jq`, each reported and never selected around.
 - Missing `curl` is a normal structured `error` outcome with exit 0 so firstmate uses today's routing.
 
