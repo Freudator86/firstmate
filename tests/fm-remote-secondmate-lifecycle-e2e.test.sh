@@ -727,9 +727,14 @@ assert_grep 'remote_backend=herdr' "$PARENT/state/ios.meta" "parent metadata omi
 assert_grep 'remote_herdr_session=fm-remote' "$PARENT/state/ios.meta" "parent metadata omitted the pinned remote Herdr session"
 assert_grep 'remote_target=fm-remote:' "$PARENT/state/ios.meta" "parent metadata did not record an fm-remote endpoint"
 assert_grep 'herdr_session=fm-remote' "$REMOTE_HOME/state/parent-route/ios.meta" "remote metadata did not record the pinned Herdr session"
-assert_grep "$REMOTE_HOME/state/parent-route/ios.inbox" "$REMOTE_HOME/data/.parent-route/ios/launch-brief.md" "remote launch brief did not put the host-local steering inbox first"
-assert_no_grep "$PARENT/state/ios.inbox" "$REMOTE_HOME/data/.parent-route/ios/launch-brief.md" "remote launch brief retained the inaccessible local steering inbox"
-assert_grep "$REMOTE_HOME/state/parent-replies.status" "$REMOTE_HOME/data/.parent-route/ios/launch-brief.md" "remote launch brief did not put the remote parent channel first"
+remote_launch_brief="$REMOTE_HOME/data/.parent-route/ios/launch-brief.md"
+assert_present "$remote_launch_brief" "remote secondmate launch did not publish its current route overlay"
+# The overlay is the preamble the renderer emits above the concatenated charter,
+# so the route assertions below discriminate it from the charter's own wording.
+sed -n '1,/^$/p' "$remote_launch_brief" > "$TMP_ROOT/remote-launch-route.overlay"
+assert_grep '# Current secondmate launch route' "$TMP_ROOT/remote-launch-route.overlay" "remote launch brief omitted the launch-time route contract"
+assert_grep "$REMOTE_HOME/state/parent-route/ios.inbox" "$TMP_ROOT/remote-launch-route.overlay" "remote launch brief did not put the host-local steering inbox first"
+assert_no_grep "$PARENT/state/ios.inbox" "$remote_launch_brief" "remote launch brief retained the inaccessible local steering inbox"
 assert_grep '--session fm-remote' "$HERDR_LOG" "remote launch did not target the fm-remote session"
 assert_no_grep '--session default' "$HERDR_LOG" "remote launch targeted the interactive default session"
 assert_grep 'window=remote:ios' "$PARENT/state/ios.meta" "parent metadata pretended the endpoint was local"

@@ -26,8 +26,9 @@
 #   refused as a flag value.
 #   Ship/scout launches always put fm-dod-lib.sh's current worker role scope
 #   first in the private launch-brief overlay, including the exact task-owned
-#   steering inbox. Secondmate launches put their current parent-channel and
-#   steering-inbox route first for the same stale-charter protection. Neither
+#   steering inbox. A REMOTE-route secondmate launch puts that home's
+#   host-local steering inbox first, because only a remote route can inherit a
+#   charter naming a steering inbox on a host this agent cannot reach. Neither
 #   path rewrites a project's instruction files or a secondmate's charter.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
@@ -456,8 +457,8 @@ PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # shellcheck source=bin/fm-config-inherit-lib.sh
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
-# shellcheck source=bin/fm-parent-channel-lib.sh
-. "$SCRIPT_DIR/fm-parent-channel-lib.sh"
+# shellcheck source=bin/fm-secondmate-parent-lib.sh
+. "$SCRIPT_DIR/fm-secondmate-parent-lib.sh"
 if ! LAUNCH_ENV_ENABLED=$(fm_config_source_present "$CONFIG/launch-env-allowlist"); then
   exit 1
 fi
@@ -1709,30 +1710,25 @@ shell_quote() {
   printf "'"
 }
 
-secondmate_launch_parent_channel() { # <home> <id>
-  local home=$1 id=$2 dest rc=0
-  dest=$(fm_parent_channel_destination "$home" "$home/state" 2>/dev/null) || rc=$?
-  if [ "$rc" -eq 0 ] && [ -n "$dest" ]; then
-    printf '%s\n' "$dest"
-  else
-    printf '%s/%s.status\n' "$STATE" "$id"
-  fi
+# A secondmate home whose durable parent binding reports a REMOTE route. Only
+# that shape can carry a charter naming a steering inbox in the parent's own
+# home, which this agent's host cannot reach. An absent or unparsable binding is
+# not a remote route, so the standing charter stays the sole authority.
+secondmate_launch_route_is_remote() { # <home>
+  local home=$1
+  fm_secondmate_parent_record_parse "$home/.fm-secondmate-parent" || return 1
+  [ "$FM_SECONDMATE_PARENT_ROUTE" = remote ]
 }
 
-render_secondmate_launch_brief() { # <source-charter> <launch-brief> <home> <id>
-  local source=$1 launch=$2 home=$3 id=$4 tmp parent_channel inbox_dir q_parent q_inbox
-  parent_channel=$(secondmate_launch_parent_channel "$home" "$id") || return 1
-  inbox_dir="$STATE/$id.inbox"
-  q_parent=$(shell_quote "$parent_channel")
-  q_inbox=$(shell_quote "$inbox_dir")
+render_secondmate_launch_brief() { # <source-charter> <launch-brief> <id>
+  local source=$1 launch=$2 id=$3 tmp q_inbox
+  q_inbox=$(shell_quote "$STATE/$id.inbox")
   mkdir -p "$(dirname "$launch")" || return 1
   tmp="$(dirname "$launch")/.launch-brief.md.${BASHPID:-$$}"
   {
     cat <<EOF
 # Current secondmate launch route
-This launch-time route contract supersedes any conflicting parent-channel or instruction-inbox path in the standing charter below.
-The parent channel for captain-facing outcomes and routed-request answers is $q_parent.
-When you append by hand, use: \`echo "{state}: {one short line}" >> $q_parent\`.
+This launch-time route contract supersedes any conflicting instruction-inbox path in the standing charter below.
 Firstmate steers you through durable message files in $q_inbox.
 When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list $q_inbox/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: \`mv $q_inbox/NNN.msg $q_inbox/handled/\`.
 That exact inbox path belongs to this routed secondmate endpoint for this launch; do not substitute another home or the charter's older path.
@@ -2742,10 +2738,10 @@ fi
   echo "error: task $ID has no brief at inaccessible data path $BRIEF" >&2
   exit 1
 }
-if [ "$KIND" = secondmate ]; then
+if [ "$KIND" = secondmate ] && secondmate_launch_route_is_remote "$PROJ_ABS"; then
   SOURCE_BRIEF=$BRIEF
   BRIEF="$DATA/$ID/launch-brief.md"
-  if ! render_secondmate_launch_brief "$SOURCE_BRIEF" "$BRIEF" "$PROJ_ABS" "$ID"; then
+  if ! render_secondmate_launch_brief "$SOURCE_BRIEF" "$BRIEF" "$ID"; then
     echo "error: could not render current secondmate launch route for $SOURCE_BRIEF" >&2
     exit 1
   fi
