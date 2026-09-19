@@ -1126,7 +1126,7 @@ Firstmate invokes the resolve path directly after writing the brief, without a p
 **What the model receives**
 
 When on and at least one rule exists, the tool sends the project name and the brief's task-specific text as state and asks one Choice question whose options are every rule's `when` plus the fixed neutral option for no matching rule; the model never sees quota, catalogs, `why`, `use`, approvals, or confidence floors.
-The same request also asks a fixed set of Choice questions for model-router evidence: intent (`implementation`, `bugfix`, `investigation`, `review`, `operations`, `documentation`, `design`, `other`), domain (`firstmate`, `project_code`, `infrastructure`, `github`, `browser_visual`, `docs`, `unknown`), difficulty (`low`, `medium`, `high`, `xhigh`), risk (`low`, `medium`, `high`, `sensitive`), effort recommendation (`low`, `medium`, `high`, `xhigh`), likely model class (`small_fast`, `standard`, `strong_reasoning`, `current_web`, `vision`, `code_execution`), and whether the request should escalate before dispatch (`yes`, `no`).
+The same request also asks a fixed set of Choice questions for model-router evidence: intent (`implementation`, `bugfix`, `investigation`, `review`, `operations`, `documentation`, `design`, `other`), domain (`firstmate`, `project_code`, `infrastructure`, `github`, `browser_visual`, `docs`, `unknown`), difficulty (`low`, `medium`, `high`, `xhigh`), risk (`low`, `medium`, `high`, `sensitive`), likely model class (`small_fast`, `standard`, `strong_reasoning`, `current_web`, `vision`, `code_execution`), and whether the request should escalate before dispatch (`yes`, `no`).
 The task-specific text is the brief's `## Captain's intent` and `## Firstmate spec` sections under `# Task` that `bin/fm-brief.sh` scaffolds, read by the same parser that feeds `fm-spawn.sh` validation and the no-mistakes `--intent` contract; a brief with neither section is sent whole.
 
 When the sections are sent from a scout brief, the line `Brief kind: scout (report only)` comes first, taken from the scaffold's scout contract line; ship briefs and briefs sent whole get no kind line.
@@ -1162,7 +1162,6 @@ An absent rules file, a default-only file, or `rules: []` returns the non-clear 
 After the answer, code applies all remaining checks and ranking:
 
 - The confidence floor and the matched rule's `approval` and `floor`.
-- The classifier confidence floor on every classifier axis.
 - Each candidate's `provider` and `floor`.
 - Every applicable account-wide and model/product row from one `quota-axi --json` snapshot.
 - The numeric `spendPriority` argmax over candidates, using each candidate's limiting row.
@@ -1195,8 +1194,8 @@ No qualifying option, or two equally probable qualifying options, produces `ambi
 | Result | Meaning |
 | --- | --- |
 | `clear` | A `profile:` line ready for `fm-spawn.sh`. |
-| `ambiguous` | Rule confidence below the floor with no runner-up taken, or any classifier-axis confidence below the floor. |
-| `escalate` | An approval-gated rule, unverifiable rule floor, a classifier escalation recommendation or sensitive-risk classification, nothing rankable, or a genuine tie. |
+| `ambiguous` | Rule confidence below the floor with no runner-up taken. |
+| `escalate` | An approval-gated rule, unverifiable rule floor, nothing rankable, a genuine tie, or a classifier escalation recommendation reported after every declared local gate. |
 | `error` | API, network, malformed response metadata, rendering, or quota-axi failure. |
 
 Every result above exits 0.
@@ -1209,7 +1208,8 @@ Every result above exits 0.
 
 The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns what firstmate does with each outcome.
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
-The classifier output is evidence only: it can make the tool decline to emit a profile by returning `ambiguous` or `escalate`, but it cannot directly authorize a model launch, a merge, a sensitive action, or an exception to local policy.
+The classifier axes other than `escalation` are published evidence only: their choices and confidences ride on the `classification:` line and never gate the route, so low confidence on an axis no gate reads cannot veto an otherwise valid rule match.
+The `escalation` axis can make the tool decline to emit a profile, and no classifier answer can directly authorize a model launch, a merge, a sensitive action, or an exception to local policy; a declared `approval` or rule-floor gate is always reported ahead of it.
 
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
@@ -1217,9 +1217,9 @@ Firstmate passes its profile line unless it states a reason to override, such as
 
 - The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
 - The resolver sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
-- The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, default rule and classifier confidence floors at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
+- The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, default rule confidence floor at 0.6, and request timeout at 10 seconds, measured against the shipped multi-axis request; `TYPESAFE_API_KEY` is its only resolver-specific environment setting.
 
-The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
+The live rule-match and router-axis evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
 ## Toolchain
 
