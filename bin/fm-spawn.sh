@@ -26,8 +26,9 @@
 #   refused as a flag value.
 #   Ship/scout launches always put fm-dod-lib.sh's current worker role scope
 #   first in the private launch-brief overlay, including the exact task-owned
-#   steering inbox. This never rewrites a project's instruction files or a
-#   secondmate's charter.
+#   steering inbox. Secondmate launches put their current parent-channel and
+#   steering-inbox route first for the same stale-charter protection. Neither
+#   path rewrites a project's instruction files or a secondmate's charter.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded worktree, reusing its recorded endpoint when that
@@ -455,6 +456,8 @@ PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # shellcheck source=bin/fm-config-inherit-lib.sh
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
+# shellcheck source=bin/fm-parent-channel-lib.sh
+. "$SCRIPT_DIR/fm-parent-channel-lib.sh"
 if ! LAUNCH_ENV_ENABLED=$(fm_config_source_present "$CONFIG/launch-env-allowlist"); then
   exit 1
 fi
@@ -1728,6 +1731,47 @@ shell_quote() {
   printf "'"
 }
 
+secondmate_launch_parent_channel() { # <home> <id>
+  local home=$1 id=$2 dest rc=0
+  dest=$(fm_parent_channel_destination "$home" "$home/state" 2>/dev/null) || rc=$?
+  if [ "$rc" -eq 0 ] && [ -n "$dest" ]; then
+    printf '%s\n' "$dest"
+  else
+    printf '%s/%s.status\n' "$STATE" "$id"
+  fi
+}
+
+render_secondmate_launch_brief() { # <source-charter> <launch-brief> <home> <id>
+  local source=$1 launch=$2 home=$3 id=$4 tmp parent_channel inbox_dir q_parent q_inbox
+  parent_channel=$(secondmate_launch_parent_channel "$home" "$id") || return 1
+  inbox_dir="$STATE/$id.inbox"
+  q_parent=$(shell_quote "$parent_channel")
+  q_inbox=$(shell_quote "$inbox_dir")
+  mkdir -p "$(dirname "$launch")" || return 1
+  tmp="$(dirname "$launch")/.launch-brief.md.${BASHPID:-$$}"
+  {
+    cat <<EOF
+# Current secondmate launch route
+This launch-time route contract supersedes any conflicting parent-channel or instruction-inbox path in the standing charter below.
+The parent channel for captain-facing outcomes and routed-request answers is $q_parent.
+When you append by hand, use: \`echo "{state}: {one short line}" >> $q_parent\`.
+Firstmate steers you through durable message files in $q_inbox.
+When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list $q_inbox/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: \`mv $q_inbox/NNN.msg $q_inbox/handled/\`.
+That exact inbox path belongs to this routed secondmate endpoint for this launch; do not substitute another home or the charter's older path.
+The move IS the acknowledgement: without it firstmate rings again and eventually treats you as stuck. An empty or absent inbox needs no action.
+
+EOF
+    cat "$source"
+  } >"$tmp" || {
+    rm -f -- "$tmp"
+    return 1
+  }
+  mv "$tmp" "$launch" || {
+    rm -f -- "$tmp"
+    return 1
+  }
+}
+
 resolve_pi_executable() {
   local candidate dir
   candidate=$(type -P -- "$1" 2>/dev/null) || return 1
@@ -2720,6 +2764,14 @@ fi
   echo "error: task $ID has no brief at inaccessible data path $BRIEF" >&2
   exit 1
 }
+if [ "$KIND" = secondmate ]; then
+  SOURCE_BRIEF=$BRIEF
+  BRIEF="$DATA/$ID/launch-brief.md"
+  if ! render_secondmate_launch_brief "$SOURCE_BRIEF" "$BRIEF" "$PROJ_ABS" "$ID"; then
+    echo "error: could not render current secondmate launch route for $SOURCE_BRIEF" >&2
+    exit 1
+  fi
+fi
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   if fm_brief_task_placeholders_present "$BRIEF"; then
     echo "error: $BRIEF still contains {TASK} or {FIRSTMATE_SPEC}; fill ## Captain's intent and ## Firstmate spec before spawn" >&2

@@ -837,16 +837,19 @@ test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" pi-signed default default
   cmp -s "$ROOT/AGENTS.md" "$sm/AGENTS.md" || fail "secondmate launch rewrote the supervisor contract"
   cmp -s "$CASE_DIR/charter-before" "$sm/data/charter.md" || fail "secondmate launch rewrote the charter"
-  assert_absent "$HOME_DIR/data/$id/launch-brief.md" "secondmate launch received a worker overlay"
+  assert_present "$HOME_DIR/data/$id/launch-brief.md" "secondmate launch did not publish its current route overlay"
+  assert_grep '# Current secondmate launch route' "$HOME_DIR/data/$id/launch-brief.md" "secondmate launch route overlay is missing"
+  assert_grep "$HOME_DIR/state/$id.inbox" "$HOME_DIR/data/$id/launch-brief.md" "secondmate launch route overlay omitted the current steering inbox"
+  assert_no_grep 'You are a crewmate: an autonomous worker agent managed by firstmate' "$HOME_DIR/data/$id/launch-brief.md" "secondmate launch route overlay became a task-worker role overlay"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "< '$sm/data/charter.md'" "secondmate launch lost its original charter"
+  assert_contains "$launch" "< '$HOME_DIR/data/$id/launch-brief.md'" "secondmate launch lost its current route overlay"
   assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
     "pi-signed secondmate did not force the regular TUI with Pi's primary extension launch shape"
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
     printf '# evidence begin: persistent secondmate\n%s\n' "$out"
     printf 'launch command:\n%s\noriginal charter:\n' "$launch"
     cat "$sm/data/charter.md"
-    printf 'supervisor AGENTS.md and charter remain byte-identical; no worker overlay created\n# evidence end\n'
+    printf 'supervisor AGENTS.md and charter remain byte-identical; route overlay created separately\n# evidence end\n'
   fi
   pass "pi-signed is a distinct persistent secondmate runtime with shared Pi supervision semantics"
 }
