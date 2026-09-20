@@ -1,0 +1,34 @@
+## task record state/rl1.meta (claude worker launched on pool claude-max-b):
+window=fm-lab-claudeauth-72886-582:w1:p2
+endpoint_task_id=rl1
+worktree=/tmp/fm-claude-auth-live.vuCSAX/wt
+project=/tmp/fm-claude-auth-live.vuCSAX/proj
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+model=default
+effort=default
+claude_profile=claude-max-b
+backend=herdr
+herdr_session=fm-lab-claudeauth-72886-582
+herdr_workspace_id=w1
+herdr_tab_id=w1:t2
+herdr_pane_id=w1:p2
+
+$ fm-control.sh rl1 relaunch --note "lab relaunch"      (recorded pool claude-max-b is unauthenticated)
+error: Claude profile claude-max-b is not ready for the replacement worker, so relaunching rl1 onto it would stop the running agent for a launch that must be refused; pass --claude-profile <id> to name a configured authenticated pool. profile=claude-max-b auth=unauthenticated:vendor-probe setup=absent config_dir=/tmp/fm-claude-auth-live.vuCSAX/pool-b
+setup: Claude setup-token material is absent for profile claude-max-b; add setup_token_file in config/claude-profiles.json or authenticate Claude interactively.
+exit=1
+
+$ fm-control.sh rl1 relaunch --claude-profile unlisted-pool --note x
+error: Claude profile unlisted-pool is not ready for the replacement worker, so relaunching rl1 onto it would stop the running agent for a launch that must be refused; pass --claude-profile <id> to name a configured authenticated pool. error: Claude profile not configured in this home: unlisted-pool; config/claude-profiles.json is per-home and is never inherited between firstmate homes, so install this home's own file listing unlisted-pool with locally valid paths through the authorized credential path
+exit=1
+
+$ fm-control.sh rl1 relaunch --harness codex --claude-profile claude-max-a --note x
+error: --claude-profile names a Claude capacity pool, but this relaunch targets 'codex'; drop the flag or relaunch onto claude
+exit=1
+
+## AFTER: task record unchanged: yes
+## relaunch journals in state/: 
+## lab pane w1:p2 still present: w1:p2

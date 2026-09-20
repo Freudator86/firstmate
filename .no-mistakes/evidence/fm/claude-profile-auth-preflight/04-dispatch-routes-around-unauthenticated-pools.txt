@@ -1,0 +1,27 @@
+## fm-dispatch-resolve.sh with REAL claude auth evidence (fm-claude-auth.sh -> claude auth status); classifier (curl) and quota-axi are local fakes
+## Case A: both named pools unauthenticated, higher quota than default; ambient default authenticated
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 3   tokens: 100/10
+  rule: rule_1 (A simple bug fix with a stated root cause.)   confidence: 0.93
+  probabilities: rule_1=0.93 default=0.07
+  note: rule matched
+  candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  auth=unauthenticated:vendor-probe  setup=available:file  -> not eligible: Claude profile claude-max-a not authenticated (unauthenticated:vendor-probe); setup available:file
+  candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:vendor-probe  setup=absent  -> not eligible: Claude profile claude-max-b not authenticated (unauthenticated:vendor-probe); setup absent
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=60%  spendPriority=0.5  runway=through_reset  -> eligible
+  candidate: codex:gpt-5.6-sol  provider=codex  scope=all_models  remaining=30%  spendPriority=0.1  runway=through_reset  -> eligible
+  profile: --harness 'claude' --model 'sonnet'
+exit=0
+
+## Case B: only the two named pools and codex (all Claude pools unready) -> another ready runtime
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 4   tokens: 100/10
+  rule: rule_1 (A simple bug fix with a stated root cause.)   confidence: 0.93
+  probabilities: rule_1=0.93 default=0.07
+  note: rule matched
+  candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  auth=unauthenticated:vendor-probe  setup=available:file  -> not eligible: Claude profile claude-max-a not authenticated (unauthenticated:vendor-probe); setup available:file
+  candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:vendor-probe  setup=absent  -> not eligible: Claude profile claude-max-b not authenticated (unauthenticated:vendor-probe); setup absent
+  candidate: codex:gpt-5.6-sol  provider=codex  scope=all_models  remaining=30%  spendPriority=0.1  runway=through_reset  -> eligible
+  profile: --harness 'codex' --model 'gpt-5.6-sol'
+exit=0
