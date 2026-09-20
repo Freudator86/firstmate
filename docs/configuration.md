@@ -446,11 +446,15 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 ```
 
 `id` is required and must match `^[a-z0-9]+(-[a-z0-9]+)*$`; every other field is optional.
-`config_dir` selects the Claude credential/config directory for that pool; when no config file exists, Firstmate exposes one `default` profile using `CLAUDE_CONFIG_DIR` or `$HOME/.claude`.
+`config_dir` selects the Claude credential/config directory for that pool.
+Firstmate synthesizes a `default` profile using `CLAUDE_CONFIG_DIR` or `$HOME/.claude` whenever the file does not list one, so a pools-only file still answers spawns that name no profile - secondmates, relaunches of records written before this file existed, and manual `--harness claude`; an explicit `default` entry overrides the synthesized one.
 `setup_token_file` is a presence probe for local setup-token material on the fleet credential path only; the script reports available or absent and never reads or prints the value.
 `fm-spawn.sh --claude-profile <id>` refuses a Claude launch before endpoint creation unless the bounded Claude vendor probe reports an authenticated session with that profile's `CLAUDE_CONFIG_DIR` scoped into the probe.
 When the selected profile is authenticated, spawn pins that profile's `CLAUDE_CONFIG_DIR` into the launched worker so the worker uses the checked account.
 An existing but unreadable or malformed `config/claude-profiles.json` is reported and never selected around: `fm-claude-auth.sh` exits non-zero with the cause, so a spawn refuses and typed dispatch resolution returns an error outcome rather than treating every pool as unauthenticated.
+The preflight measures login state only.
+Claude's machine-scoped Bypass Permissions disclaimer is accepted per store, so a pool whose `config_dir` has never accepted it can still meet that dialog on a bypass-mode launch; [dispatch-auth.md](verification/dispatch-auth.md#claude-bypass-permissions-acceptance) records why no discriminator for it is currently checkable.
+Accept it once per pool with `CLAUDE_CONFIG_DIR=<config_dir> claude --dangerously-skip-permissions` run interactively, which is the step Claude Code itself names, before routing workers to that pool.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 

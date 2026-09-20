@@ -193,6 +193,16 @@ These discriminator strings are un-owned vendor UI text.
 `bin/fm-vendor-auth-probe.sh` pins the verified version, reports `versionVerified=no` when the running CLI differs, and classifies unrecognized output as `indeterminate` rather than authenticated.
 Re-run the two commands above and update this section and the pinned version together when the vendor CLI changes.
 
+## Claude Bypass Permissions acceptance
+
+Attempted 2026-09-20 on Claude Code 2.1.276; no probe registered.
+
+Claude records acceptance of the machine-scoped Bypass Permissions disclaimer under the settings key `skipDangerousModePermissionPrompt` (user, local, flag, or policy scope), having migrated it out of the legacy `bypassPermissionsModeAccepted` field of `.claude.json`.
+Neither is present anywhere on this host, yet the treatment arm in [runtime-backends.md](runtime-backends.md) records an interactive bypass worker against this same store meeting no dialog, so reading either one would report `absent` for a machine whose acceptance is in effect and would refuse every Claude launch.
+There is also no non-interactive vendor command that reports the effective value, so nothing here satisfies the first-hand discriminator rule in `bin/fm-vendor-auth-probe.sh`.
+The preflight therefore measures login state only and does not claim to prevent that dialog; [configuration.md](../configuration.md#claude-profiles-configclaude-profilesjson) carries the one-time per-pool operator step instead.
+Re-check when the vendor exposes a readable acceptance state.
+
 ## Standalone Grok discovery probe
 
 Verified 2026-07-30 on `grok 0.2.117 (f1c06093089f) [stable]`.
