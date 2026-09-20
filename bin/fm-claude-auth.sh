@@ -95,7 +95,7 @@ done
 case "$cmd" in
   check)
     profiles=$(json_profiles) || exit $?
-    p=$(jq -cer --arg id "$profile" 'map(select(.id == $id)) | first // empty' <<<"$profiles") || die "Claude profile not configured: $profile"
+    p=$(jq -cer --arg id "$profile" 'map(select(.id == $id)) | first // empty' <<<"$profiles") || die "Claude profile not configured in this home: $profile; config/claude-profiles.json is per-home and is never inherited between firstmate homes, so install this home's own file listing $profile with locally valid paths through the authorized credential path"
     line=$(render_one "$p")
     printf '%s\n' "$line"
     case "$line" in *' auth=authenticated '*) exit 0 ;; esac

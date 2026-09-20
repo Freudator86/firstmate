@@ -50,6 +50,35 @@ trap relaunch_cleanup EXIT
 # The same lifecycle-modelling tmux stub as tests/fm-control.test.sh: the
 # harness's exit command stops the agent, and a launch-brief literal starts the
 # harness named in `becomes`.
+# The Claude profile preflight (bin/fm-claude-auth.sh) runs the bounded vendor
+# probe on every claude relaunch, so this hermetic suite stubs the vendor CLI
+# rather than letting the developer's real `claude` decide its outcome.
+# FM_FAKE_CLAUDE_LOGGED_OUT_DIR names one store that reads logged out.
+make_claude_stub() {  # <dir>
+  local fb="$1/fakebin"
+  mkdir -p "$fb"
+  cat > "$fb/claude" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf 'claude %s
+' "${FM_FAKE_CLAUDE_VERSION:-2.1.266}"; exit 0 ;;
+  auth)
+    if [ "${2:-}" = status ]; then
+      if [ -n "${FM_FAKE_CLAUDE_LOGGED_OUT_DIR:-}" ] \
+         && [ "${CLAUDE_CONFIG_DIR:-}" = "$FM_FAKE_CLAUDE_LOGGED_OUT_DIR" ]; then
+        printf 'loggedIn: false\nauthMethod: none\n'
+      else
+        printf 'loggedIn: true\nauthMethod: oauth\n'
+      fi
+      exit 0
+    fi
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fb/claude"
+}
+
 make_tmux_stub() {  # <dir>
   local fb="$1/fakebin"
   mkdir -p "$fb"
@@ -191,6 +220,7 @@ new_case() {
   printf '%s\n' "fm-$id" > "$dir/fake/windows"
   printf '%s' fmses > "$dir/fake/session-name"
   make_tmux_stub "$dir"
+  make_claude_stub "$dir"
   printf '%s\n' "$dir"
 }
 
@@ -246,6 +276,7 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
+    FM_FAKE_CLAUDE_LOGGED_OUT_DIR="${FM_FAKE_CLAUDE_LOGGED_OUT_DIR:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -732,6 +763,96 @@ test_same_harness_relaunch_keeps_the_profile_axes() {
   [ "$(meta_field "$dir" rl6 model)" = opus ] || fail "the model should carry across a same-harness relaunch"
   [ "$(meta_field "$dir" rl6 effort)" = high ] || fail "the effort should carry across a same-harness relaunch"
   pass "fm-control relaunch: a same-harness relaunch keeps the profile axes it was running with"
+}
+
+# Claude capacity pools (docs/configuration.md "Claude profiles"): the recorded
+# pool is a durable account pin, and --claude-profile is the deliberate way to
+# move a task to a different configured pool.
+add_claude_pools() {  # <case-dir> <task-id> [recorded-profile]
+  local dir=$1 id=$2 profile=${3:-}
+  mkdir -p "$dir/home/config" "$dir/pool-a" "$dir/pool-b"
+  cat > "$dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$dir/pool-a"},{"id":"claude-max-b","config_dir":"$dir/pool-b"}]}
+EOF
+  [ -z "$profile" ] || printf 'claude_profile=%s\n' "$profile" >> "$dir/home/state/$id.meta"
+}
+
+test_claude_relaunch_keeps_the_recorded_capacity_pool() {
+  local dir out rc
+  dir=$(new_case poolkeep rl-pool-keep)
+  add_ship_task "$dir" rl-pool-keep claude
+  add_claude_pools "$dir" rl-pool-keep claude-max-b
+  out=$(run_control "$dir" rl-pool-keep relaunch --note "same pool"); rc=$?
+  expect_code 0 "$rc" "a relaunch naming no pool should succeed"$'\n'"$out"
+  [ "$(meta_field "$dir" rl-pool-keep claude_profile)" = claude-max-b ] \
+    || fail "the recorded Claude pool must survive a relaunch that does not name one"
+  assert_contains "$(cat "$dir/fake/literal")" "CLAUDE_CONFIG_DIR='$dir/pool-b'" \
+    "the replacement worker must launch against the recorded pool's store"
+  assert_not_contains "$(cat "$dir/fake/literal")" "$dir/pool-a" \
+    "a relaunch must not move the worker to another Anthropic account on its own"
+  pass "fm-control relaunch: the recorded Claude capacity pool survives a relaunch that names none"
+}
+
+test_claude_relaunch_moves_to_an_explicitly_named_pool() {
+  local dir out rc
+  dir=$(new_case poolmove rl-pool-move)
+  add_ship_task "$dir" rl-pool-move claude
+  add_claude_pools "$dir" rl-pool-move claude-max-b
+  out=$(run_control "$dir" rl-pool-move relaunch --claude-profile claude-max-a --note "move pools"); rc=$?
+  expect_code 0 "$rc" "an explicit pool override should succeed"$'\n'"$out"
+  [ "$(meta_field "$dir" rl-pool-move claude_profile)" = claude-max-a ] \
+    || fail "an explicit --claude-profile must be recorded for the replacement"
+  assert_contains "$(cat "$dir/fake/literal")" "CLAUDE_CONFIG_DIR='$dir/pool-a'" \
+    "the replacement worker must launch against the explicitly named pool's store"
+  assert_contains "$out" "claude_profile=claude-max-a" "the relaunch report should name the pool it moved to"
+  pass "fm-control relaunch: --claude-profile moves a task to another configured pool"
+}
+
+test_claude_relaunch_refuses_an_unavailable_pool_before_stopping() {
+  local dir out rc meta_before
+  dir=$(new_case poolgone rl-pool-gone)
+  add_ship_task "$dir" rl-pool-gone claude
+  add_claude_pools "$dir" rl-pool-gone claude-max-b
+  meta_before=$(cat "$dir/home/state/rl-pool-gone.meta")
+  out=$(FM_FAKE_CLAUDE_LOGGED_OUT_DIR="$dir/pool-b" run_control "$dir" rl-pool-gone relaunch --note "pool b lapsed"); rc=$?
+  expect_code 1 "$rc" "a relaunch onto a logged-out pool should refuse"
+  assert_contains "$out" "pass --claude-profile <id>" "the refusal should name the way out"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "an unavailable pool must not stop the running agent"
+  [ ! -s "$dir/fake/literal" ] || fail "an unavailable pool must not reach a replacement launch"
+  [ "$(cat "$dir/home/state/rl-pool-gone.meta")" = "$meta_before" ] \
+    || fail "a refused relaunch must leave the durable record byte-identical"
+
+  out=$(FM_FAKE_CLAUDE_LOGGED_OUT_DIR="$dir/pool-b" run_control "$dir" rl-pool-gone relaunch --claude-profile claude-max-a --note "move to the ready pool"); rc=$?
+  expect_code 0 "$rc" "the task must stay relaunchable onto a ready pool"$'\n'"$out"
+  [ "$(meta_field "$dir" rl-pool-gone claude_profile)" = claude-max-a ] \
+    || fail "the recovery relaunch should record the pool it moved to"
+  pass "fm-control relaunch: an unavailable Claude pool refuses before the agent is stopped and stays recoverable"
+}
+
+test_claude_relaunch_names_the_per_home_pool_requirement() {
+  local dir out rc
+  dir=$(new_case poolunconfigured rl-pool-unconf)
+  add_ship_task "$dir" rl-pool-unconf claude
+  printf 'claude_profile=claude-max-a\n' >> "$dir/home/state/rl-pool-unconf.meta"
+  out=$(run_control "$dir" rl-pool-unconf relaunch --note "no profiles file in this home"); rc=$?
+  expect_code 1 "$rc" "a pool this home has not configured should refuse"
+  assert_contains "$out" "not configured in this home" "the refusal should name the per-home requirement"
+  assert_contains "$out" "never inherited" "the refusal should explain why the pool did not arrive with the dispatch rules"
+  assert_not_contains "$out" "not authenticated" "an unconfigured pool must not be reported as a logged-out one"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "an unconfigured pool must not stop the running agent"
+  pass "fm-control relaunch: an unconfigured Claude pool refuses with the per-home configuration requirement"
+}
+
+test_claude_profile_override_refuses_on_a_non_claude_relaunch() {
+  local dir out rc
+  dir=$(new_case poolwrongharness rl-pool-wrong)
+  add_ship_task "$dir" rl-pool-wrong claude
+  add_claude_pools "$dir" rl-pool-wrong claude-max-b
+  out=$(run_control "$dir" rl-pool-wrong relaunch --harness codex --claude-profile claude-max-a --note "wrong axis"); rc=$?
+  expect_code 1 "$rc" "a Claude pool named for a non-Claude relaunch should refuse"
+  assert_contains "$out" "targets 'codex'" "the refusal should name the target harness"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "the refusal must not stop the running agent"
+  pass "fm-control relaunch: --claude-profile is refused when the replacement is not a Claude worker"
 }
 
 test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop() {
@@ -2211,6 +2332,11 @@ test_harness_switch_does_not_carry_the_old_profile_axes
 test_harness_switch_resolves_a_prefixed_recorded_harness
 test_prefixed_recorded_harness_requires_explicit_replacement
 test_same_harness_relaunch_keeps_the_profile_axes
+test_claude_relaunch_keeps_the_recorded_capacity_pool
+test_claude_relaunch_moves_to_an_explicitly_named_pool
+test_claude_relaunch_refuses_an_unavailable_pool_before_stopping
+test_claude_relaunch_names_the_per_home_pool_requirement
+test_claude_profile_override_refuses_on_a_non_claude_relaunch
 test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop
 test_explicit_model_wins_over_the_recorded_one
 test_relaunch_onto_an_unverified_harness_is_refused
