@@ -1709,7 +1709,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # the caller's explicit decision, made with --harness (bin/fm-control.sh
   # resolves that decision, including a secondmate's durable pin).
   ARG3=${HARNESS_ARG:-$RELAUNCH_PRIOR_HARNESS}
-  if [ "$CLAUDE_PROFILE_SET" -eq 0 ]; then
+  if [ "$CLAUDE_PROFILE_SET" -eq 0 ] && [ "$ARG3" = claude ]; then
     CLAUDE_PROFILE=$(fm_meta_get "$RELAUNCH_META" claude_profile)
   fi
   [ -n "$ARG3" ] || {
@@ -2234,10 +2234,21 @@ fi
 if [ "$HARNESS" = agy ]; then
   agy_model_validate "$AGY_BIN" "$MODEL" || exit 1
 fi
+if [ "$HARNESS" != claude ] && [ "$CLAUDE_PROFILE_SET" -eq 1 ]; then
+  printf 'error: --claude-profile names a Claude capacity pool, but this spawn resolved harness %s; drop the flag or spawn on claude\n' "$HARNESS" >&2
+  exit 1
+fi
 if [ "$HARNESS" = claude ]; then
   CLAUDE_PROFILE=${CLAUDE_PROFILE:-default}
   CLAUDE_AUTH_OUT=$("$FM_ROOT/bin/fm-claude-auth.sh" check --profile "$CLAUDE_PROFILE" 2>&1) || {
-    printf 'error: Claude profile %s is not authenticated enough for worker launch; refusing before interactive login. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2
+    case "$CLAUDE_AUTH_OUT" in
+      *' auth=indeterminate:'*)
+        printf 'error: Claude profile %s could not be verified as authenticated; the bounded vendor probe established nothing, so the launch is refused rather than assumed. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2
+        ;;
+      *)
+        printf 'error: Claude profile %s is not authenticated enough for worker launch; refusing before interactive login. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2
+        ;;
+    esac
     exit 1
   }
   case "$CLAUDE_AUTH_OUT" in
@@ -4499,7 +4510,7 @@ preserve_relaunch_meta() {
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
-  [ -z "$CLAUDE_PROFILE" ] || echo "claude_profile=$CLAUDE_PROFILE"
+  [ "$HARNESS" != claude ] || [ -z "$CLAUDE_PROFILE" ] || echo "claude_profile=$CLAUDE_PROFILE"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   echo "spawn_gen=$SPAWN_GEN"
   # Default-off writes no traceparent= line.

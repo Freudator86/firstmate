@@ -60,16 +60,16 @@ make_claude_stub() {  # <dir>
   cat > "$fb/claude" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  --version) printf 'claude %s
-' "${FM_FAKE_CLAUDE_VERSION:-2.1.266}"; exit 0 ;;
+  --version) printf '%s (Claude Code)
+' "${FM_FAKE_CLAUDE_VERSION:-2.1.276}"; exit 0 ;;
   auth)
     if [ "${2:-}" = status ]; then
       if [ -n "${FM_FAKE_CLAUDE_LOGGED_OUT_DIR:-}" ] \
          && [ "${CLAUDE_CONFIG_DIR:-}" = "$FM_FAKE_CLAUDE_LOGGED_OUT_DIR" ]; then
-        printf 'loggedIn: false\nauthMethod: none\n'
-      else
-        printf 'loggedIn: true\nauthMethod: oauth\n'
+        printf '{\n  "loggedIn": false,\n  "authMethod": "none"\n}\n'
+        exit 1
       fi
+      printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n'
       exit 0
     fi
     ;;
@@ -841,6 +841,28 @@ test_claude_relaunch_names_the_per_home_pool_requirement() {
   assert_not_contains "$out" "not authenticated" "an unconfigured pool must not be reported as a logged-out one"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "an unconfigured pool must not stop the running agent"
   pass "fm-control relaunch: an unconfigured Claude pool refuses with the per-home configuration requirement"
+}
+
+test_claude_pool_does_not_survive_a_harness_switch() {
+  local dir out rc
+  dir=$(new_case poolswitch rl-pool-switch)
+  add_ship_task "$dir" rl-pool-switch claude
+  add_claude_pools "$dir" rl-pool-switch claude-max-b
+  printf codex > "$dir/fake/becomes"
+  out=$(run_control "$dir" rl-pool-switch relaunch --harness codex --note "off claude"); rc=$?
+  expect_code 0 "$rc" "a relaunch onto codex should succeed"$'\n'"$out"
+  [ -z "$(meta_field "$dir" rl-pool-switch claude_profile)" ] \
+    || fail "a non-Claude task record must not name a Claude capacity pool"
+
+  printf claude > "$dir/fake/becomes"
+  : > "$dir/fake/literal"
+  out=$(FM_FAKE_CLAUDE_LOGGED_OUT_DIR="$dir/pool-b" run_control "$dir" rl-pool-switch relaunch --harness claude --note "back to claude"); rc=$?
+  expect_code 0 "$rc" "coming back to claude should use the default pool, not the cleared one"$'\n'"$out"
+  [ "$(meta_field "$dir" rl-pool-switch claude_profile)" = default ] \
+    || fail "coming back to claude must land on the default pool, not the cleared one"
+  assert_not_contains "$(cat "$dir/fake/literal")" "$dir/pool-b" \
+    "the replacement must not launch against the pool fm-control cleared"
+  pass "fm-control relaunch: a Claude capacity pool does not survive a switch away from claude"
 }
 
 test_claude_profile_override_refuses_on_a_non_claude_relaunch() {
@@ -2337,6 +2359,7 @@ test_claude_relaunch_moves_to_an_explicitly_named_pool
 test_claude_relaunch_refuses_an_unavailable_pool_before_stopping
 test_claude_relaunch_names_the_per_home_pool_requirement
 test_claude_profile_override_refuses_on_a_non_claude_relaunch
+test_claude_pool_does_not_survive_a_harness_switch
 test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop
 test_explicit_model_wins_over_the_recorded_one
 test_relaunch_onto_an_unverified_harness_is_refused

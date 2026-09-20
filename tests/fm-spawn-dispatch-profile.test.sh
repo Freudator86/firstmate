@@ -1014,6 +1014,21 @@ EOF
   pass "a pools-only Claude profile config keeps serving spawns that name no profile"
 }
 
+test_claude_profile_refused_on_a_non_claude_spawn() {
+  local rec id out status
+  id=profile-codex-pool-z22
+  rec=$(make_spawn_case profile-codex-pool codex "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness codex --claude-profile claude-max-a)
+  status=$?
+  expect_code 1 "$status" "a Claude pool named for a codex spawn should refuse"
+  assert_contains "$out" "names a Claude capacity pool" "the refusal should say why the flag does not apply"
+  [ ! -s "$LAUNCH_LOG" ] || fail "a refused spawn should not launch; launch log: $(cat "$LAUNCH_LOG")"
+  assert_absent "$HOME_DIR/state/$id.meta" "a refused spawn should leave no task record naming a pool"
+  pass "a Claude capacity pool cannot be attached to a non-Claude spawn"
+}
+
 test_non_claude_harness_ignores_config_dir() {
   local rec id out status launch
   id=profile-codex-nocfgdir-z19
@@ -1593,6 +1608,7 @@ test_claude_permission_mode_auto_reaches_scout_launch
 test_claude_permission_mode_invalid_refuses_before_endpoint_or_metadata
 test_non_claude_harness_ignores_claude_permission_mode
 test_non_claude_harness_ignores_config_dir
+test_claude_profile_refused_on_a_non_claude_spawn
 test_claude_task_launch_carries_control_channel_authority
 test_claude_secondmate_launch_omits_task_control_channel_authority
 test_claude_long_launch_is_delivered_intact

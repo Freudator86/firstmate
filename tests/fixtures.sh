@@ -303,19 +303,17 @@ fm_test_make_spawn_fakebin() {
 #!/usr/bin/env bash
 case "${1:-}" in
   --version)
-    printf 'claude %s\n' "${FM_FAKE_CLAUDE_VERSION:-2.1.266}"
+    printf '%s (Claude Code)\n' "${FM_FAKE_CLAUDE_VERSION:-2.1.276}"
     exit 0
     ;;
   auth)
     if [ "${2:-}" = status ]; then
       if [ "${FM_FAKE_CLAUDE_LOGGED_IN:-1}" = 1 ]; then
-        printf 'loggedIn: true\n'
-        printf 'authMethod: oauth\n'
-      else
-        printf 'loggedIn: false\n'
-        printf 'authMethod: none\n'
+        printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n'
+        exit 0
       fi
-      exit 0
+      printf '{\n  "loggedIn": false,\n  "authMethod": "none"\n}\n'
+      exit 1
     fi
     ;;
 esac

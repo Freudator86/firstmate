@@ -12,7 +12,7 @@ cat > "$FAKEBIN/claude" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   --version)
-    printf 'claude %s\n' "${FM_FAKE_CLAUDE_VERSION:-2.1.266}"
+    printf '%s (Claude Code)\n' "${FM_FAKE_CLAUDE_VERSION:-2.1.276}"
     exit 0
     ;;
   auth)
@@ -22,8 +22,8 @@ case "${1:-}" in
         case "${CLAUDE_CONFIG_DIR:-}" in */b|*/a-empty) status=unauthenticated ;; *) status=authenticated ;; esac
       fi
       case "$status" in
-        authenticated) printf 'loggedIn: true\nauthMethod: oauth\n' ;;
-        unauthenticated) printf 'loggedIn: false\nauthMethod: none\n' ;;
+        authenticated) printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n'; exit 0 ;;
+        unauthenticated) printf '{\n  "loggedIn": false,\n  "authMethod": "none"\n}\n'; exit 1 ;;
         garbage) printf 'session maybe\n' ;;
       esac
       exit 0
@@ -140,6 +140,19 @@ out=$(PATH="$FAKEBIN:$PATH" FM_FAKE_CLAUDE_STATUS=unauthenticated FM_HOME="$case
 expect_code 1 "$status" "an unauthenticated probe over a missing config directory should still refuse"
 assert_contains "$out" 'auth=unauthenticated:vendor-probe' "the refusal must name the probe as its source"
 pass "fm-claude-auth: a missing config directory is probed rather than assumed unauthenticated"
+
+case_dir="$TMP_ROOT/indeterminate"
+make_home "$case_dir/home"
+mkdir -p "$case_dir/a"
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a"}]}
+EOF
+out=$(PATH="$FAKEBIN:$PATH" FM_FAKE_CLAUDE_STATUS=garbage FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
+expect_code 1 "$status" "an unclassifiable probe result must still refuse"
+assert_contains "$out" 'auth=indeterminate:vendor-probe' "the unclassifiable state should be reported as indeterminate"
+assert_contains "$out" 'could not be verified' "an indeterminate probe should say the state was never established"
+assert_not_contains "$out" 'authenticate Claude interactively' "an indeterminate probe must not send the operator to re-login"
+pass "fm-claude-auth: an indeterminate probe refuses without claiming the profile is logged out"
 
 case_dir="$TMP_ROOT/malformed"
 make_home "$case_dir/home"
