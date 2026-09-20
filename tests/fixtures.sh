@@ -326,8 +326,14 @@ fm_test_run_spawn() {
   # because bin/fm-spawn.sh prefixes the launch only when the value is non-empty,
   # so every launch-shape assertion in the suite keeps reading the same command.
   # A test that needs the set case opts in through FM_TEST_CLAUDE_CONFIG_DIR.
-  local spawn_home=$home/user-home
+  local spawn_home=$home/user-home claude_dir
   mkdir -p "$spawn_home"
+  if [ -z "${FM_TEST_NO_CLAUDE_AUTH:-}" ]; then
+    claude_dir=${FM_TEST_CLAUDE_CONFIG_DIR:-$spawn_home/.claude}
+    if mkdir -p "$claude_dir" 2>/dev/null; then
+      printf '%s\n' '{"claudeAiOauth":{"refreshToken":"test-refresh-token"}}' > "$claude_dir/.credentials.json"
+    fi
+  fi
   FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$spawn_home" \
     CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
