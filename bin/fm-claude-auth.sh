@@ -64,8 +64,9 @@ setup_state() {
 
 auth_state() {
   local dir=$1 line status
-  line=$(if [ -n "$dir" ]; then export CLAUDE_CONFIG_DIR="$dir"; else unset CLAUDE_CONFIG_DIR; fi
-    "$FM_ROOT/bin/fm-vendor-auth-probe.sh" claude 2>/dev/null) || {
+  local -a scope=(env -u CLAUDE_CONFIG_DIR)
+  [ -z "$dir" ] || scope=(env CLAUDE_CONFIG_DIR="$dir")
+  line=$("${scope[@]}" "$FM_ROOT/bin/fm-vendor-auth-probe.sh" claude 2>/dev/null) || {
     printf 'indeterminate:probe-error'
     return
   }
@@ -124,7 +125,7 @@ case "$cmd" in
         printf 'auth: Claude profile %s is a named capacity pool, and separating accounts by CLAUDE_CONFIG_DIR is verified first-hand only on %s (docs/verification/dispatch-auth.md). On this platform a shared credential store can answer for a different account than the pool names, so named pools are refused rather than silently spending the wrong account. Use the default profile here, or record a first-hand measurement for this platform before enabling named pools on it.\n' "$profile" "$POOL_SEPARATION_VERIFIED_PLATFORM" >&2
         ;;
       indeterminate:*)
-        printf 'auth: Claude authentication for profile %s could not be verified (%s); the bounded vendor probe established nothing, so this launch is refused rather than assumed. Check that the claude CLI is installed and answers `claude auth status` for this profile before retrying.\n' "$profile" "$state" >&2
+        printf 'auth: Claude authentication for profile %s could not be verified (%s); the bounded vendor probe established nothing, so this launch is refused rather than assumed. Check that the claude CLI is installed and answers %s for this profile before retrying.\n' "$profile" "$state" "\`claude auth status\`" >&2
         ;;
       *)
         case "$line" in *' setup=available:'*) printf 'setup: Claude setup-token material is available for profile %s; run the credential installer before launching this profile.\n' "$profile" >&2 ;;
