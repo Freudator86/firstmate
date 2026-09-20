@@ -115,6 +115,36 @@ INHERITED=$(as_foreign_root bash -c '
 assert_equals inherited "$INHERITED" \
   "the guarded invocation did not keep the account's own global git config"
 
+# With no GIT_CONFIG_GLOBAL of its own, the account's global layer is BOTH the
+# XDG file and ~/.gitconfig. A guarded command has to resolve every setting the
+# unguarded one would - a proxy, a credential helper, an insteadOf rewrite -
+# from either file, and keep ~/.gitconfig winning where the two disagree.
+AGENT_HOME="$TMP_ROOT/agent-home"
+mkdir -p "$AGENT_HOME/.config/git"
+printf '[fm]\n\txdgonly = fromxdg\n\tlayered = fromxdg\n' > "$AGENT_HOME/.config/git/config"
+printf '[fm]\n\tuseronly = fromuser\n\tlayered = fromuser\n' > "$AGENT_HOME/.gitconfig"
+
+with_agent_home() { # <key> [guarded]
+  # shellcheck disable=SC2016 # The inner shell expands these, not this one.
+  env -u GIT_CONFIG_GLOBAL -u XDG_CONFIG_HOME \
+    HOME="$AGENT_HOME" GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    bash -c '
+      if [ -n "${3:-}" ]; then
+        . "$1/bin/fm-git-code-root-lib.sh"
+        fm_git_code_root_run "$2" git config --get "$4"
+      else
+        git config --get "$4"
+      fi
+    ' bash "$ROOT" "$CODE_ROOT" "${2:-}" "$1" 2>/dev/null
+}
+
+for FM_KEY in fm.xdgonly fm.useronly fm.layered; do
+  UNGUARDED=$(with_agent_home "$FM_KEY")
+  [ -n "$UNGUARDED" ] || fail "the global-config fixture does not resolve $FM_KEY unguarded"
+  assert_equals "$UNGUARDED" "$(with_agent_home "$FM_KEY" guarded)" \
+    "the guarded invocation resolved $FM_KEY differently than git would have"
+done
+
 SIBLING="$TMP_ROOT/sibling-root"
 git clone --quiet -- "$CODE_ROOT" "$SIBLING" || fail "cannot stage the sibling repository"
 # shellcheck disable=SC2016 # The inner shell expands these, not this one.
