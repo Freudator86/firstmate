@@ -9,9 +9,11 @@
 # Schema:
 #   {"profiles":[{"id":"claude-max-a","config_dir":"/abs/path/to/.claude-a","setup_token_file":"/secret/path"}]}
 # All fields except id are optional. config_dir defaults to this process's
-# CLAUDE_CONFIG_DIR, then $HOME/.claude. A `default` profile using that same
-# ambient store is synthesized whenever the file does not list one, so a
-# pools-only file still answers a spawn that names no profile; an explicit
+# CLAUDE_CONFIG_DIR; when that is unset the profile is ambient, reported as an
+# empty config_dir, probed with the variable unset, and launched without one,
+# which is exactly the store an ordinary claude launch uses. A `default` profile
+# naming that ambient store is synthesized whenever the file does not list one,
+# so a pools-only file still answers a spawn that names no profile; an explicit
 # `default` entry overrides the synthesized one.
 # setup_token_file is a presence probe; its value is never read into output.
 #
@@ -35,7 +37,7 @@ die() { printf 'error: %s\n' "$1" >&2; exit 2; }
 need_jq() { command -v jq >/dev/null 2>&1 || die 'jq required'; }
 
 json_profiles() {
-  local dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
+  local dir="${CLAUDE_CONFIG_DIR:-}"
   need_jq
   if [ -e "$PROFILE_FILE" ] || [ -L "$PROFILE_FILE" ]; then
     [ -r "$PROFILE_FILE" ] || die "config/claude-profiles.json is not readable"
@@ -48,9 +50,9 @@ json_profiles() {
       elif any(.profiles[]; has("config_dir") and ((.config_dir | type) != "string" or (.config_dir | length) == 0 or (.config_dir | startswith("/") | not))) then error("profile config_dir must be an absolute path")
       elif any(.profiles[]; has("setup_token_file") and ((.setup_token_file | type) != "string" or (.setup_token_file | length) == 0 or (.setup_token_file | startswith("/") | not))) then error("profile setup_token_file must be an absolute path")
       elif any(.profiles[]; .id == "default") then .profiles
-      else .profiles + [{id: "default", config_dir: $dir}] end' "$PROFILE_FILE" 2>/dev/null || die "config/claude-profiles.json is malformed"
+      else .profiles + [{id: "default"} + (if $dir == "" then {} else {config_dir: $dir} end)] end' "$PROFILE_FILE" 2>/dev/null || die "config/claude-profiles.json is malformed"
   else
-    jq -cn --arg dir "$dir" '[{id:"default",config_dir:$dir}]'
+    jq -cn --arg dir "$dir" '[{id: "default"} + (if $dir == "" then {} else {config_dir: $dir} end)]'
   fi
 }
 
@@ -62,7 +64,8 @@ setup_state() {
 
 auth_state() {
   local dir=$1 line status
-  line=$(CLAUDE_CONFIG_DIR="$dir" "$FM_ROOT/bin/fm-vendor-auth-probe.sh" claude 2>/dev/null) || {
+  line=$(if [ -n "$dir" ]; then export CLAUDE_CONFIG_DIR="$dir"; else unset CLAUDE_CONFIG_DIR; fi
+    "$FM_ROOT/bin/fm-vendor-auth-probe.sh" claude 2>/dev/null) || {
     printf 'indeterminate:probe-error'
     return
   }
@@ -88,7 +91,7 @@ render_one() {
   id=$(jq -r '.id' <<<"$p")
   dir=$(jq -r '.config_dir // empty' <<<"$p")
   setup_file=$(jq -r '.setup_token_file // empty' <<<"$p")
-  [ -n "$dir" ] || dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
+  [ -n "$dir" ] || dir="${CLAUDE_CONFIG_DIR:-}"
   if [ "$id" != default ] && ! pool_separation_verified; then
     auth=unsupported:pool-separation-unverified
   else

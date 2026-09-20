@@ -18,7 +18,7 @@ Busy hooks verified 2026-07-28 on Claude Code 2.1.220.
 
 `../../../../../docs/configuration.md` "Claude profiles" owns `config/claude-profiles.json`, named capacity pools such as `claude-max-a`, and setup-token probes.
 Before a Claude launch, `../../../../../bin/fm-spawn.sh` calls `../../../../../bin/fm-claude-auth.sh check --profile <id>` and refuses before endpoint creation unless the bounded Claude vendor probe reports an authenticated session with that profile's selected config directory.
-A successful preflight pins that profile's `CLAUDE_CONFIG_DIR` into the worker launch so the worker uses the checked account.
+A successful preflight pins a profile's configured `CLAUDE_CONFIG_DIR` into the worker launch and trust registration so the worker uses the checked account; the ambient default adds no prefix when firstmate has no `CLAUDE_CONFIG_DIR`.
 The preflight output reports only profile names, auth/setup verdicts, and config paths; token values are never printed.
 It measures login state only: a pool store that has never accepted the machine-scoped Bypass Permissions disclaimer can still meet that dialog, and `../../../../../docs/configuration.md` "Claude profiles" owns the one-time per-pool step.
 

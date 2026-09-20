@@ -140,7 +140,7 @@ test_no_profile_keeps_claude_profile_defaults() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
 
   launch=$(cat "$LAUNCH_LOG")
-  expected="export COMPACT_ADVISER_DISABLE=1; CLAUDE_CONFIG_DIR='$HOME_DIR/user-home/.claude' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/launch-brief.md')\""
+  expected="export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/launch-brief.md')\""
   [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
@@ -886,8 +886,9 @@ test_claude_rejects_unauthenticated_profile_before_launch() {
   out=$(FM_TEST_NO_CLAUDE_AUTH=1 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude)
   status=$?
   expect_code 1 "$status" "unauthenticated claude profile should be rejected"
-  assert_contains "$out" "Claude profile default is not authenticated enough for worker launch" \
+  assert_contains "$out" "Claude profile default is not ready for worker launch" \
     "spawn should refuse before launching into Claude login"
+  assert_contains "$out" "auth=unauthenticated:vendor-probe" "the refusal should carry the auth owner's measured cause"
   [ ! -s "$LAUNCH_LOG" ] || fail "unauthenticated profile should not launch; launch log: $(cat "$LAUNCH_LOG")"
   assert_absent "$HOME_DIR/state/$id.meta" "unauthenticated profile should refuse before task metadata publication"
   pass "claude spawn refuses an unauthenticated profile before endpoint launch"
@@ -912,21 +913,27 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
 
-test_claude_pins_default_checked_config_dir_when_unset() {
+assert_trust_in_home_store() {  # <store> <path>
+  jq -e --arg p "$2" '.projects[$p].hasTrustDialogAccepted == true' "$1" >/dev/null 2>&1 \
+    || fail "workspace trust for $2 was not registered in $1"
+}
+
+test_claude_omits_config_dir_prefix_when_unset() {
   local rec id out status launch
   id=profile-claude-nocfgdir-z18
   rec=$(make_spawn_case profile-claude-nocfgdir claude "$id")
   read_case_record "$rec"
 
-  # run_spawn pins CLAUDE_CONFIG_DIR empty by default, exercising the checked
-  # default profile under the throwaway HOME.
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   expect_code 0 "$status" "claude spawn without ambient CLAUDE_CONFIG_DIR should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$HOME_DIR/user-home/.claude' env -u CURSOR_AGENT" \
-    "claude launch must pin the checked default profile config dir"
-  pass "claude pins the checked default profile config dir when the ambient variable is unset"
+  assert_not_contains "$launch" "CLAUDE_CONFIG_DIR=" \
+    "the ambient default must launch against the store an ordinary claude launch uses"
+  assert_trust_in_home_store "$HOME_DIR/user-home/.claude.json" "$WT_DIR"
+  [ ! -e "$HOME_DIR/user-home/.claude/.claude.json" ] \
+    || fail "the ambient default must not create or use a relocated \$HOME/.claude/.claude.json store"
+  pass "claude adds no CLAUDE_CONFIG_DIR prefix and trusts the ambient store when the variable is unset"
 }
 
 test_claude_pins_named_profile_config_dir() {
@@ -965,8 +972,8 @@ EOF
   status=$?
   expect_code 0 "$status" "a pools-only profile config must not break a spawn that names no profile: $out"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$HOME_DIR/user-home/.claude' env -u CURSOR_AGENT" \
-    "the synthesized default profile must pin the ambient store"
+  assert_not_contains "$launch" "CLAUDE_CONFIG_DIR=" \
+    "the synthesized default profile must keep the ambient store"
   pass "a pools-only Claude profile config keeps serving spawns that name no profile"
 }
 
@@ -1446,7 +1453,7 @@ SH
 # permission flag, and any other token refuses before endpoint or metadata.
 claude_expected_launch() {  # <home> <id> <permission-flag>
   local home=$1 id=$2 flag=$3
-  printf '%s' "export COMPACT_ADVISER_DISABLE=1; CLAUDE_CONFIG_DIR='$home/user-home/.claude' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$home/data/$id/launch-brief.md')\""
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$home/data/$id/launch-brief.md')\""
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {
@@ -1570,7 +1577,7 @@ test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity
 test_batch_forwards_shared_profile_flags
 test_claude_rejects_unauthenticated_profile_before_launch
 test_claude_forwards_firstmate_config_dir_when_set
-test_claude_pins_default_checked_config_dir_when_unset
+test_claude_omits_config_dir_prefix_when_unset
 test_claude_pins_named_profile_config_dir
 test_claude_pools_only_config_still_spawns_without_a_profile_flag
 test_claude_permission_mode_bypass_matches_absent_launch
