@@ -1709,6 +1709,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # the caller's explicit decision, made with --harness (bin/fm-control.sh
   # resolves that decision, including a secondmate's durable pin).
   ARG3=${HARNESS_ARG:-$RELAUNCH_PRIOR_HARNESS}
+  if [ "$CLAUDE_PROFILE_SET" -eq 0 ]; then
+    CLAUDE_PROFILE=$(fm_meta_get "$RELAUNCH_META" claude_profile)
+  fi
   [ -n "$ARG3" ] || {
     echo "error: task $ID has no recorded harness; pass --harness to relaunch it" >&2
     exit 1
@@ -2230,6 +2233,17 @@ if [ "$HARNESS" = omp ]; then
 fi
 if [ "$HARNESS" = agy ]; then
   agy_model_validate "$AGY_BIN" "$MODEL" || exit 1
+fi
+if [ "$HARNESS" = claude ]; then
+  CLAUDE_PROFILE=${CLAUDE_PROFILE:-default}
+  CLAUDE_AUTH_OUT=$("$FM_ROOT/bin/fm-claude-auth.sh" check --profile "$CLAUDE_PROFILE" 2>&1) || {
+    printf 'error: Claude profile %s is not authenticated enough for worker launch; refusing before interactive login. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2
+    exit 1
+  }
+  case "$CLAUDE_AUTH_OUT" in
+    *\ config_dir=*) CLAUDE_SELECTED_CONFIG_DIR=${CLAUDE_AUTH_OUT##* config_dir=} ;;
+    *) CLAUDE_SELECTED_CONFIG_DIR= ;;
+  esac
 fi
 
 secondmate_registry_value() {
@@ -4627,17 +4641,6 @@ LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
 LAUNCH=${LAUNCH//__CLAUDEPERMFLAG__/$CLAUDE_PERM_FLAG}
 
-if [ "$HARNESS" = claude ]; then
-  CLAUDE_PROFILE=${CLAUDE_PROFILE:-default}
-  CLAUDE_AUTH_OUT=$("$FM_ROOT/bin/fm-claude-auth.sh" check --profile "$CLAUDE_PROFILE" 2>&1) || {
-    printf 'error: Claude profile %s is not authenticated enough for worker launch; refusing before interactive login. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2
-    exit 1
-  }
-  case "$CLAUDE_AUTH_OUT" in
-    *\ config_dir=*) CLAUDE_SELECTED_CONFIG_DIR=${CLAUDE_AUTH_OUT##* config_dir=} ;;
-    *) CLAUDE_SELECTED_CONFIG_DIR= ;;
-  esac
-fi
 if [ "$HARNESS" = rovo ]; then
   ROVOCONFIGOVERRIDE=$(rovo_config_override_flag "$EFFORT" "$DATA" "$STATE" "$ID") || {
     echo "error: could not resolve this task's home paths for rovo's allowedExternalPaths grant" >&2

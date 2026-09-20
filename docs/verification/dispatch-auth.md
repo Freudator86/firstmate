@@ -173,6 +173,26 @@ Neither this per-source shape nor `state.authStatus` exists before quota-axi 0.1
 Grok also reports `credits.remaining: 0` alongside `percentRemaining: 41` on a healthy account.
 That zero is a prepaid balance, not the subscription window, and is never headroom.
 
+## Claude Code auth probe
+
+Verified 2026-09-20 on Claude Code 2.1.266.
+
+```sh
+claude --version
+claude auth status   # stdin closed, single attempt, hard-bounded
+```
+
+Observed:
+
+- With a usable Claude session, stdout contains `loggedIn: true` and `authMethod: oauth`.
+- With no usable session in the scoped `CLAUDE_CONFIG_DIR` and keychain context, stdout contains `loggedIn: false` and `authMethod: none`.
+- Because the command reports the session state directly, `bin/fm-vendor-auth-probe.sh` reads only those `loggedIn` fields; any unrecognized output is `indeterminate`, never authenticated.
+- The probe is run with the caller-selected `CLAUDE_CONFIG_DIR` in the environment, so named Claude profile pools can be checked without printing token values or launching the interactive TUI.
+
+These discriminator strings are un-owned vendor UI text.
+`bin/fm-vendor-auth-probe.sh` pins the verified version, reports `versionVerified=no` when the running CLI differs, and classifies unrecognized output as `indeterminate` rather than authenticated.
+Re-run the two commands above and update this section and the pinned version together when the vendor CLI changes.
+
 ## Standalone Grok discovery probe
 
 Verified 2026-07-30 on `grok 0.2.117 (f1c06093089f) [stable]`.

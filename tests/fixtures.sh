@@ -299,6 +299,29 @@ fm_test_make_spawn_fakebin() {
   shift
   fakebin=$(fm_fakebin "$dir")
   fm_test_fake_tmux_spawn "$fakebin"
+  cat > "$fakebin/claude" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version)
+    printf 'claude %s\n' "${FM_FAKE_CLAUDE_VERSION:-2.1.266}"
+    exit 0
+    ;;
+  auth)
+    if [ "${2:-}" = status ]; then
+      if [ "${FM_FAKE_CLAUDE_LOGGED_IN:-1}" = 1 ]; then
+        printf 'loggedIn: true\n'
+        printf 'authMethod: oauth\n'
+      else
+        printf 'loggedIn: false\n'
+        printf 'authMethod: none\n'
+      fi
+      exit 0
+    fi
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/claude"
   fm_fake_exit0 "$fakebin" treehouse "$@"
   printf '%s\n' "$fakebin"
 }
@@ -326,8 +349,9 @@ fm_test_run_spawn() {
   # because bin/fm-spawn.sh prefixes the launch only when the value is non-empty,
   # so every launch-shape assertion in the suite keeps reading the same command.
   # A test that needs the set case opts in through FM_TEST_CLAUDE_CONFIG_DIR.
-  local spawn_home=$home/user-home claude_dir
+  local spawn_home=$home/user-home claude_dir claude_logged_in=1
   mkdir -p "$spawn_home"
+  [ -z "${FM_TEST_NO_CLAUDE_AUTH:-}" ] || claude_logged_in=0
   if [ -z "${FM_TEST_NO_CLAUDE_AUTH:-}" ]; then
     claude_dir=${FM_TEST_CLAUDE_CONFIG_DIR:-$spawn_home/.claude}
     if mkdir -p "$claude_dir" 2>/dev/null; then
@@ -336,6 +360,7 @@ fm_test_run_spawn() {
   fi
   FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$spawn_home" \
     CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \
+    FM_FAKE_CLAUDE_LOGGED_IN="$claude_logged_in" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" TMUX="${TMUX:-fake,1,0}" \

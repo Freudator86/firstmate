@@ -154,6 +154,27 @@ cat "${QUOTA_AXI_FIXTURE:?}"
 SH
 chmod +x "$FAKEBIN/quota-axi"
 
+cat > "$FAKEBIN/claude" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version)
+    printf 'claude 2.1.266\n'
+    exit 0
+    ;;
+  auth)
+    if [ "${2:-}" = status ]; then
+      case "${CLAUDE_CONFIG_DIR:-}" in
+        */claude-max-b) printf 'loggedIn: false\nauthMethod: none\n' ;;
+        *) printf 'loggedIn: true\nauthMethod: oauth\n' ;;
+      esac
+      exit 0
+    fi
+    ;;
+esac
+exit 2
+SH
+chmod +x "$FAKEBIN/claude"
+
 RESPONSE="$TMP_ROOT/response.json"
 export FAKE_CURL_LOG="$LOG" FAKE_CURL_RESPONSE="$RESPONSE" QUOTA_AXI_CALLS="$LOG/quota-axi.calls" QUOTA_AXI_FIXTURE="$QUOTA" CHILD_ENV_LOG="$LOG/child-env"
 
@@ -450,7 +471,7 @@ JSON
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
 assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  scope=all_models  remaining=80%  spendPriority=0.9' "authenticated Claude pool should be represented and rankable"
-assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:missing-credentials  setup=absent  -> not eligible: Claude profile claude-max-b not authenticated' "unauthenticated Claude pool should be represented and excluded"
+assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:vendor-probe  setup=absent  -> not eligible: Claude profile claude-max-b not authenticated' "unauthenticated Claude pool should be represented and excluded"
 assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --claude-profile 'claude-max-a'" "authenticated Claude profile should be selected when best eligible"
 assert_not_contains "$out" 'secret-a' "Claude auth secret leaked into dispatch output"
 
@@ -458,7 +479,7 @@ CLAUDE_A_EXHAUSTED="$TMP_ROOT/claude-a-exhausted.json"
 jq '(.providers[] | select(.provider == "claude-max-a") | .quotaSemantics.effectiveAvailability[] | select(.scope == "all_models")) |= (.effectivePercentRemaining = 0 | .runway.status = "exhausted_now")' "$CLAUDE_POOLS_QUOTA" > "$CLAUDE_A_EXHAUSTED"
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_A_EXHAUSTED" run code out err "$BRIEF"
 assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models' "exhausted authenticated Claude pool should be excluded"
-assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:missing-credentials  setup=absent  -> not eligible' "unauthenticated Claude pool evidence should not disappear"
+assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:vendor-probe  setup=absent  -> not eligible' "unauthenticated Claude pool evidence should not disappear"
 assert_contains "$out" "  profile: --harness 'codex' --model 'gpt-5.6-sol'" "routing should choose non-Claude eligible profile when Claude pools are unusable"
 cp "$BASE_RULES" "$RULES"
 cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
