@@ -481,6 +481,13 @@ TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_A_EXHAUSTED" run code out err "
 assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models' "exhausted authenticated Claude pool should be excluded"
 assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:vendor-probe  setup=absent  -> not eligible' "unauthenticated Claude pool evidence should not disappear"
 assert_contains "$out" "  profile: --harness 'codex' --model 'gpt-5.6-sol'" "routing should choose non-Claude eligible profile when Claude pools are unusable"
+printf '%s\n' '{"profiles":[{"id":"claude-max-a",}]}' > "$HOME_DIR/config/claude-profiles.json"
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
+expect_code 0 "$code" "a malformed Claude profile config still exits 0 with a structured outcome"
+assert_contains "$out" '  status: error' "a malformed Claude profile config is an error outcome"
+assert_contains "$out" '  reason: Claude profile evidence failed; check config/claude-profiles.json' "the malformed Claude profile config is named actionably"
+assert_not_contains "$out" 'not authenticated' "a malformed Claude profile config must not be reported as an unauthenticated pool"
+assert_not_contains "$out" "  profile: --harness" "a malformed Claude profile config must not select a profile"
 cp "$BASE_RULES" "$RULES"
 cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
 {"profiles":[{"id":"default","config_dir":"$HOME_DIR/claude-default"}]}
