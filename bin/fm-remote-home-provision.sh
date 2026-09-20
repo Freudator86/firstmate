@@ -174,7 +174,14 @@ if [ -e "$FM_HOME" ] || [ -L "$FM_HOME" ]; then
   fi
 else
   CREATED_HOME=1
-  git clone --quiet -- "$FM_ROOT" "$FM_HOME" || die "could not clone the remote Firstmate home"
+  env \
+    GIT_CONFIG_COUNT=2 \
+    GIT_CONFIG_KEY_0=safe.directory \
+    GIT_CONFIG_VALUE_0="$FM_ROOT" \
+    GIT_CONFIG_KEY_1=safe.directory \
+    GIT_CONFIG_VALUE_1="$FM_ROOT/.git" \
+    git clone --quiet -- "$FM_ROOT" "$FM_HOME" \
+    || die "could not clone the remote Firstmate home"
 fi
 for operational_dir in data state config projects; do
   operational_path="$FM_HOME/$operational_dir"
