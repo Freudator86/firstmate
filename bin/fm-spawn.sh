@@ -1751,10 +1751,7 @@ render_secondmate_launch_brief() { # <source-charter> <launch-brief> <id>
     cat <<EOF
 # Current secondmate launch route
 This launch-time route contract supersedes any conflicting instruction-inbox path in the standing charter below.
-Firstmate steers you through durable message files in $q_inbox.
-When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list $q_inbox/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: \`mv $q_inbox/NNN.msg $q_inbox/handled/\`.
-That exact inbox path belongs to this routed secondmate endpoint for this launch; do not substitute another home or the charter's older path.
-The move IS the acknowledgement: without it firstmate rings again and eventually treats you as stuck. An empty or absent inbox needs no action.
+Your firstmate instruction inbox for this launch is $q_inbox; this exact path belongs to this routed secondmate endpoint, so read and acknowledge its messages under the charter's own instruction-inbox procedure and do not substitute another home or the charter's older path.
 
 EOF
     cat "$source"
