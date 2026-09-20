@@ -995,6 +995,25 @@ EOF
   pass "claude pins the checked named profile config dir over the ambient variable"
 }
 
+test_claude_pools_only_config_still_spawns_without_a_profile_flag() {
+  local rec id out status launch
+  id=profile-claude-poolsonly-z21
+  rec=$(make_spawn_case profile-claude-poolsonly claude "$id")
+  read_case_record "$rec"
+  mkdir -p "$CASE_DIR/claude-a" "$CASE_DIR/claude-b"
+  cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$CASE_DIR/claude-a"},{"id":"claude-max-b","config_dir":"$CASE_DIR/claude-b"}]}
+EOF
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "a pools-only profile config must not break a spawn that names no profile: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$HOME_DIR/user-home/.claude' env -u CURSOR_AGENT" \
+    "the synthesized default profile must pin the ambient store"
+  pass "a pools-only Claude profile config keeps serving spawns that name no profile"
+}
+
 test_non_claude_harness_ignores_config_dir() {
   local rec id out status launch
   id=profile-codex-nocfgdir-z19
@@ -1567,6 +1586,7 @@ test_lavish_server_address_is_exported_to_worker_launch
 test_lavish_absent_config_preserves_destination_ambient
 test_claude_pins_default_checked_config_dir_when_unset
 test_claude_pins_named_profile_config_dir
+test_claude_pools_only_config_still_spawns_without_a_profile_flag
 test_claude_permission_mode_bypass_matches_absent_launch
 test_claude_permission_mode_auto_swaps_only_the_permission_flag
 test_claude_permission_mode_auto_reaches_scout_launch

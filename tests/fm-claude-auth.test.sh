@@ -96,6 +96,51 @@ assert_contains "$out" 'setup=absent' "absent setup should be reported"
 assert_contains "$out" 'add setup_token_file' "absent setup should be actionable"
 pass "fm-claude-auth: absent setup-token material reports an actionable setup need"
 
+case_dir="$TMP_ROOT/pools-only"
+make_home "$case_dir/home"
+write_creds "$case_dir/a"
+mkdir -p "$case_dir/b" "$case_dir/ambient"
+write_creds "$case_dir/ambient"
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a"},{"id":"claude-max-b","config_dir":"$case_dir/b"}]}
+EOF
+out=$(PATH="$FAKEBIN:$PATH" CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
+expect_code 0 "$status" "a pools-only config must still answer the default profile: $out"
+assert_contains "$out" "profile=default auth=authenticated setup=absent config_dir=$case_dir/ambient" "the synthesized default should use the ambient store"
+out=$(PATH="$FAKEBIN:$PATH" CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case_dir/home" "$AUTH" evidence 2>&1) || fail "evidence failed: $out"
+assert_contains "$out" 'profile=claude-max-a auth=authenticated' "named pool a should still be listed"
+assert_contains "$out" 'profile=claude-max-b auth=unauthenticated:vendor-probe' "named pool b should still be listed"
+assert_contains "$out" "profile=default auth=authenticated setup=absent config_dir=$case_dir/ambient" "the synthesized default should appear alongside the pools"
+pass "fm-claude-auth: a pools-only config keeps answering the default profile"
+
+case_dir="$TMP_ROOT/explicit-default"
+make_home "$case_dir/home"
+write_creds "$case_dir/chosen"
+mkdir -p "$case_dir/ambient"
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"default","config_dir":"$case_dir/chosen"},{"id":"claude-max-a","config_dir":"$case_dir/a"}]}
+EOF
+out=$(PATH="$FAKEBIN:$PATH" CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
+expect_code 0 "$status" "an explicit default entry should resolve: $out"
+assert_contains "$out" "config_dir=$case_dir/chosen" "an explicit default entry must override the synthesized one"
+assert_not_contains "$out" "$case_dir/ambient" "the ambient store must not reach an explicitly configured default"
+out=$(PATH="$FAKEBIN:$PATH" CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case_dir/home" "$AUTH" evidence 2>&1) || fail "evidence failed: $out"
+assert_equals 2 "$(printf '%s\n' "$out" | grep -c '^profile=')" "an explicit default must not be duplicated by the synthesized one"
+pass "fm-claude-auth: an explicit default entry overrides the synthesized one"
+
+case_dir="$TMP_ROOT/missing-config-dir"
+make_home "$case_dir/home"
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/never-created"}]}
+EOF
+out=$(PATH="$FAKEBIN:$PATH" FM_FAKE_CLAUDE_STATUS=authenticated FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
+expect_code 0 "$status" "a missing config directory must be answered by the probe, not by the filesystem: $out"
+assert_contains "$out" 'auth=authenticated' "the probe verdict must win over a missing config directory"
+out=$(PATH="$FAKEBIN:$PATH" FM_FAKE_CLAUDE_STATUS=unauthenticated FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
+expect_code 1 "$status" "an unauthenticated probe over a missing config directory should still refuse"
+assert_contains "$out" 'auth=unauthenticated:vendor-probe' "the refusal must name the probe as its source"
+pass "fm-claude-auth: a missing config directory is probed rather than assumed unauthenticated"
+
 case_dir="$TMP_ROOT/malformed"
 make_home "$case_dir/home"
 printf '%s\n' '{"profiles":[{"id":"claude-max-a",}]}' > "$case_dir/home/config/claude-profiles.json"
