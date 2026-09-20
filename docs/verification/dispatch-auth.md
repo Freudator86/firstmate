@@ -232,7 +232,7 @@ That measurement has NOT been repeated on macOS, and this repository's own recor
 If that one keychain item answers regardless of `CLAUDE_CONFIG_DIR`, a named pool would report authenticated from a different account than it names and the worker would spend that account.
 
 `bin/fm-claude-auth.sh` therefore reports `unsupported:pool-separation-unverified` for any named (non-`default`) profile on a platform other than Linux, and every caller refuses on it.
-The `default` profile is unaffected on every platform: it names the ambient store the launch would have used anyway, so no account-separation claim is being made about it.
+The `default` profile is unaffected on every platform: it names the ambient store an ordinary launch uses (no `CLAUDE_CONFIG_DIR` at all when firstmate has none), so no account-separation claim is being made about it.
 To enable named pools on another platform, measure `claude auth status` under a second `CLAUDE_CONFIG_DIR` on a host of that platform, record the result in this section, and extend `POOL_SEPARATION_VERIFIED_PLATFORM` in `bin/fm-claude-auth.sh` to match.
 Do not infer the outcome from the keychain's design, and do not read or move credential values to find out.
 

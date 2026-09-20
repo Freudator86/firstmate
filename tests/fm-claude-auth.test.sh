@@ -17,6 +17,7 @@ case "${1:-}" in
     ;;
   auth)
     if [ "${2:-}" = status ]; then
+      [ -z "${FM_FAKE_CLAUDE_ENV_LOG:-}" ] || printf '%s\n' "${CLAUDE_CONFIG_DIR-<unset>}" >> "$FM_FAKE_CLAUDE_ENV_LOG"
       status=${FM_FAKE_CLAUDE_STATUS:-}
       if [ -z "$status" ]; then
         case "${CLAUDE_CONFIG_DIR:-}" in */b|*/a-empty) status=unauthenticated ;; *) status=authenticated ;; esac
@@ -185,6 +186,15 @@ out=$(PATH="$FAKEBIN:$PATH" CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case
 expect_code 0 "$status" "a named pool must still work on the verified platform: $out"
 assert_contains "$out" 'auth=authenticated' "the verified platform should still probe named pools"
 pass "fm-claude-auth: named pools are refused where CLAUDE_CONFIG_DIR account separation is unverified"
+
+case_dir="$TMP_ROOT/ambient-default"
+make_home "$case_dir/home"
+out=$(env -u CLAUDE_CONFIG_DIR PATH="$FAKEBIN:$PATH" FM_FAKE_CLAUDE_ENV_LOG="$case_dir/env.log" FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
+expect_code 0 "$status" "the ambient default should pass: $out"
+assert_contains "$out" "profile=default auth=authenticated setup=absent config_dir=" "the ambient default should report its row"
+case "$out" in *"config_dir=$case_dir"*|*'config_dir=/'*) fail "the ambient default must report no config dir when CLAUDE_CONFIG_DIR is unset: $out" ;; esac
+assert_equals '<unset>' "$(cat "$case_dir/env.log")" "the ambient default must be probed with CLAUDE_CONFIG_DIR unset"
+pass "fm-claude-auth: with CLAUDE_CONFIG_DIR unset the default profile is ambient and probed unset"
 
 case_dir="$TMP_ROOT/malformed"
 make_home "$case_dir/home"
