@@ -49,11 +49,11 @@ case_dir="$TMP_ROOT/authenticated"
 make_home "$case_dir/home"
 write_creds "$case_dir/a" "top-secret-token"
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a","provider":"claude-max-a"}]}
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a"}]}
 EOF
 out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
 expect_code 0 "$status" "authenticated profile should pass: $out"
-assert_contains "$out" 'profile=claude-max-a provider=claude-max-a auth=authenticated setup=absent' "auth evidence missing"
+assert_contains "$out" 'profile=claude-max-a auth=authenticated setup=absent' "auth evidence missing"
 assert_not_contains "$out" 'top-secret-token' "secret access token leaked"
 assert_not_contains "$out" 'refresh-secret' "secret refresh token leaked"
 pass "fm-claude-auth: authenticated Claude profile proceeds without printing secrets"
@@ -62,7 +62,7 @@ case_dir="$TMP_ROOT/unauthenticated"
 make_home "$case_dir/home"
 mkdir -p "$case_dir/a-empty"
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a-empty","provider":"claude-max-a","setup_token_file":"$case_dir/setup-token"}]}
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a-empty","setup_token_file":"$case_dir/setup-token"}]}
 EOF
 printf 'setup-token-secret\n' > "$case_dir/setup-token"
 out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
@@ -77,18 +77,18 @@ make_home "$case_dir/home"
 write_creds "$case_dir/a"
 mkdir -p "$case_dir/b"
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a","provider":"claude-max-a"},{"id":"claude-max-b","config_dir":"$case_dir/b","provider":"claude-max-b"}]}
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a"},{"id":"claude-max-b","config_dir":"$case_dir/b"}]}
 EOF
 out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" evidence 2>&1) || fail "evidence failed: $out"
-assert_contains "$out" 'profile=claude-max-a provider=claude-max-a auth=authenticated' "pool a missing"
-assert_contains "$out" 'profile=claude-max-b provider=claude-max-b auth=unauthenticated:vendor-probe' "pool b missing"
+assert_contains "$out" 'profile=claude-max-a auth=authenticated' "pool a missing"
+assert_contains "$out" 'profile=claude-max-b auth=unauthenticated:vendor-probe' "pool b missing"
 pass "fm-claude-auth: both Claude pools are represented in auth evidence"
 
 case_dir="$TMP_ROOT/no-setup"
 make_home "$case_dir/home"
 mkdir -p "$case_dir/a"
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a","provider":"claude-max-a"}]}
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a"}]}
 EOF
 out=$(PATH="$FAKEBIN:$PATH" FM_FAKE_CLAUDE_STATUS=unauthenticated FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
 expect_code 1 "$status" "unauthenticated profile without setup should fail"

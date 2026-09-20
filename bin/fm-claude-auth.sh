@@ -7,7 +7,7 @@
 #
 # Local config lives at config/claude-profiles.json in the active FM_HOME.
 # Schema:
-#   {"profiles":[{"id":"claude-max-a","config_dir":"/abs/path/to/.claude-a","provider":"claude-max-a","setup_token_file":"/secret/path","setup_token_env":"ENV_NAME"}]}
+#   {"profiles":[{"id":"claude-max-a","config_dir":"/abs/path/to/.claude-a","setup_token_file":"/secret/path","setup_token_env":"ENV_NAME"}]}
 # All fields except id are optional. config_dir defaults to this process's
 # CLAUDE_CONFIG_DIR, then $HOME/.claude for a profile named default. setup_token
 # fields are probes only; token values are never read into output.
@@ -18,7 +18,7 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-$FM_ROOT}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 PROFILE_FILE="$CONFIG/claude-profiles.json"
-PROVIDER_RE='^[a-z0-9]+(-[a-z0-9]+)*$'
+ID_RE='^[a-z0-9]+(-[a-z0-9]+)*$'
 
 die() { printf 'error: %s\n' "$1" >&2; exit 2; }
 need_jq() { command -v jq >/dev/null 2>&1 || die 'jq required'; }
@@ -27,19 +27,18 @@ json_profiles() {
   need_jq
   if [ -e "$PROFILE_FILE" ] || [ -L "$PROFILE_FILE" ]; then
     [ -r "$PROFILE_FILE" ] || die "config/claude-profiles.json is not readable"
-    jq -c --arg provider_re "$PROVIDER_RE" '
+    jq -c --arg id_re "$ID_RE" '
       if type != "object" then error("top-level value must be an object")
       elif (.profiles | type) != "array" or (.profiles | length) == 0 then error("profiles must be a non-empty array")
       elif any(.profiles[]; type != "object") then error("each profile must be an object")
-      elif any(.profiles[]; (.id | type) != "string" or (.id | length) == 0 or (.id | test($provider_re) | not)) then error("each profile id must match " + $provider_re)
+      elif any(.profiles[]; (.id | type) != "string" or (.id | length) == 0 or (.id | test($id_re) | not)) then error("each profile id must match " + $id_re)
       elif ((.profiles | map(.id) | length) != (.profiles | map(.id) | unique | length)) then error("profile ids must be unique")
-      elif any(.profiles[]; has("provider") and ((.provider | type) != "string" or (.provider | test($provider_re) | not))) then error("profile provider must match " + $provider_re)
       elif any(.profiles[]; has("config_dir") and ((.config_dir | type) != "string" or (.config_dir | length) == 0 or (.config_dir | startswith("/") | not))) then error("profile config_dir must be an absolute path")
       elif any(.profiles[]; has("setup_token_file") and ((.setup_token_file | type) != "string" or (.setup_token_file | length) == 0 or (.setup_token_file | startswith("/") | not))) then error("profile setup_token_file must be an absolute path")
       elif any(.profiles[]; has("setup_token_env") and ((.setup_token_env | type) != "string" or (.setup_token_env | test("^[A-Za-z_][A-Za-z0-9_]*$") | not))) then error("profile setup_token_env must be an environment variable name")
       else .profiles end' "$PROFILE_FILE" 2>/dev/null || die "config/claude-profiles.json is malformed"
   else
-    jq -cn --arg dir "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}" '[{id:"default",config_dir:$dir,provider:"claude"}]'
+    jq -cn --arg dir "${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}" '[{id:"default",config_dir:$dir}]'
   fi
 }
 
@@ -77,16 +76,15 @@ auth_state() {
 }
 
 render_one() {
-  local p=$1 id dir provider setup_file setup_env auth setup
+  local p=$1 id dir setup_file setup_env auth setup
   id=$(jq -r '.id' <<<"$p")
   dir=$(jq -r '.config_dir // empty' <<<"$p")
-  provider=$(jq -r '.provider // "claude"' <<<"$p")
   setup_file=$(jq -r '.setup_token_file // empty' <<<"$p")
   setup_env=$(jq -r '.setup_token_env // empty' <<<"$p")
   [ -n "$dir" ] || dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
   auth=$(auth_state "$dir")
   setup=$(setup_state "$setup_file" "$setup_env")
-  printf 'profile=%s provider=%s auth=%s setup=%s config_dir=%s\n' "$id" "$provider" "$auth" "$setup" "$dir"
+  printf 'profile=%s auth=%s setup=%s config_dir=%s\n' "$id" "$auth" "$setup" "$dir"
 }
 
 cmd=${1:-}; shift || true

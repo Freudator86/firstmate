@@ -271,7 +271,7 @@ fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an inval
 RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson pmap "$PMAP" \
   --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" --rawfile claude_auth "$CLAUDE_AUTH" '
   ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
-  ($claude_auth | split("\n") | map(select(length > 0) | capture("profile=(?<profile>[^ ]+) provider=(?<provider>[^ ]+) auth=(?<auth>[^ ]+) setup=(?<setup>[^ ]+) config_dir=(?<config_dir>.*)")) ) as $claude_auth_rows |
+  ($claude_auth | split("\n") | map(select(length > 0) | capture("profile=(?<profile>[^ ]+) auth=(?<auth>[^ ]+) setup=(?<setup>[^ ]+) config_dir=(?<config_dir>.*)")) ) as $claude_auth_rows |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   def prov($p): ([$q.providers[] | select(.provider == $p)] | first) // null;
   def rows($p): (prov($p) | .quotaSemantics.effectiveAvailability // []);
