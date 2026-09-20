@@ -93,7 +93,20 @@ EOF
 out=$(PATH="$FAKEBIN:$PATH" FM_FAKE_CLAUDE_STATUS=unauthenticated FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
 expect_code 1 "$status" "unauthenticated profile without setup should fail"
 assert_contains "$out" 'setup=absent' "absent setup should be reported"
-assert_contains "$out" 'add setup_token_file or setup_token_env' "absent setup should be actionable"
+assert_contains "$out" 'add setup_token_file' "absent setup should be actionable"
 pass "fm-claude-auth: absent setup-token material reports an actionable setup need"
+
+case_dir="$TMP_ROOT/malformed"
+make_home "$case_dir/home"
+printf '%s\n' '{"profiles":[{"id":"claude-max-a",}]}' > "$case_dir/home/config/claude-profiles.json"
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" evidence 2>&1); status=$?
+[ "$status" -ne 0 ] || fail "malformed profile config should make evidence fail, got exit 0: $out"
+assert_contains "$out" 'config/claude-profiles.json is malformed' "malformed config should name its cause"
+assert_not_contains "$out" 'profile= ' "malformed config must not emit an invented profile row"
+assert_not_contains "$out" 'auth=' "malformed config must not invent an auth verdict"
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
+expect_code 2 "$status" "malformed profile config should make check fail closed"
+assert_contains "$out" 'config/claude-profiles.json is malformed' "malformed config should name its cause to check too"
+pass "fm-claude-auth: a malformed profile config fails both commands instead of inventing verdicts"
 
 echo '# all Claude auth preflight tests passed'

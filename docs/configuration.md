@@ -448,16 +448,17 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 ```json
 {
   "profiles": [
-    { "id": "claude-max-a", "config_dir": "/absolute/path/to/.claude-a", "setup_token_file": "/absolute/secret/path", "setup_token_env": "CLAUDE_MAX_A_SETUP_TOKEN" }
+    { "id": "claude-max-a", "config_dir": "/absolute/path/to/.claude-a", "setup_token_file": "/absolute/secret/path" }
   ]
 }
 ```
 
 `id` is required and must match `^[a-z0-9]+(-[a-z0-9]+)*$`; every other field is optional.
 `config_dir` selects the Claude credential/config directory for that pool; when no config file exists, Firstmate exposes one `default` profile using `CLAUDE_CONFIG_DIR` or `$HOME/.claude`.
-`setup_token_file` and `setup_token_env` are presence probes for local setup-token material only; the script reports available or absent and never reads or prints the value.
+`setup_token_file` is a presence probe for local setup-token material on the fleet credential path only; the script reports available or absent and never reads or prints the value.
 `fm-spawn.sh --claude-profile <id>` refuses a Claude launch before endpoint creation unless the bounded Claude vendor probe reports an authenticated session with that profile's `CLAUDE_CONFIG_DIR` scoped into the probe.
 When the selected profile is authenticated, spawn pins that profile's `CLAUDE_CONFIG_DIR` into the launched worker so the worker uses the checked account.
+An existing but unreadable or malformed `config/claude-profiles.json` is reported and never selected around: `fm-claude-auth.sh` exits non-zero with the cause, so a spawn refuses and typed dispatch resolution returns an error outcome rather than treating every pool as unauthenticated.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
