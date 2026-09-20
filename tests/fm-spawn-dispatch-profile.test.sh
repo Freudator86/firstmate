@@ -936,8 +936,10 @@ test_lavish_absent_config_preserves_destination_ambient() {
   read_case_record "$rec"
   pane_log="$CASE_DIR/pane.log"
   seen="$CASE_DIR/lavish-seen"
+  mv "$FAKEBIN_DIR/claude" "$FAKEBIN_DIR/claude-probe"
   cat > "$FAKEBIN_DIR/claude" <<'SH'
 #!/usr/bin/env bash
+case "${1:-}" in --version|auth) exec "$(dirname "$0")/claude-probe" "$@" ;; esac
 printf '%s\n' "${LAVISH_AXI_HOST-unset}" > "$FM_LAVISH_SEEN"
 SH
   chmod +x "$FAKEBIN_DIR/claude"
