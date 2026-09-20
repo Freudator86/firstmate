@@ -23,7 +23,11 @@ BASE_RULES="$TMP_ROOT/rules.json"
 RULES="$HOME_DIR/config/crew-dispatch.json"
 QUOTA="$TMP_ROOT/quota.json"
 BASE_PATH=$PATH
-mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN"
+mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN" "$HOME_DIR/claude-default"
+printf '%s\n' '{"claudeAiOauth":{"refreshToken":"dispatch-test-refresh-secret"}}' > "$HOME_DIR/claude-default/.credentials.json"
+cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"default","config_dir":"$HOME_DIR/claude-default","provider":"claude"}]}
+EOF
 for command_name in bash chmod cp dirname jq mktemp rm; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
 done
@@ -411,6 +415,56 @@ TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$NONNUMERIC" run code out err "$BRIEF"
 assert_contains "$out" 'candidate: cursor:cursor-grok-4.6-medium  provider=cursor  scope=all_models  remaining=91%  spendPriority=-  runway=through_reset  -> eligible, unranked: spendPriority missing or non-numeric at all_models: not rankable: disclosed uncertainty' "a nonnumeric spendPriority remains eligible but unranked"
 assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "numeric evidence wins without mixed-type ordering"
 pass "nonnumeric spendPriority evidence is never ranked"
+
+# --- Claude profile auth is a candidate gate -----------------------------------
+reset_log
+CLAUDE_POOLS_RULES="$TMP_ROOT/claude-pools-rules.json"
+cat > "$CLAUDE_POOLS_RULES" <<'JSON'
+{
+  "rules": [
+    { "when": "New feature work on the app.", "use": { "harness": "codex", "model": "gpt-5.6-sol" } },
+    { "when": "The task generates images.", "use": { "harness": "codex", "model": "gpt-5.6-sol" } },
+    { "when": "Genuinely very difficult design or planning work.", "use": { "harness": "codex", "model": "gpt-5.6-sol" } },
+    { "when": "A simple bug fix with a stated root cause.", "use": [
+      { "harness": "claude", "model": "sonnet", "provider": "claude-max-a", "claude_profile": "claude-max-a" },
+      { "harness": "claude", "model": "sonnet", "provider": "claude-max-b", "claude_profile": "claude-max-b" },
+      { "harness": "codex", "model": "gpt-5.6-sol" }
+    ] }
+  ]
+}
+JSON
+cp "$CLAUDE_POOLS_RULES" "$RULES"
+mkdir -p "$HOME_DIR/claude-max-a" "$HOME_DIR/claude-max-b"
+printf '%s\n' '{"claudeAiOauth":{"refreshToken":"secret-a"}}' > "$HOME_DIR/claude-max-a/.credentials.json"
+cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$HOME_DIR/claude-max-a","provider":"claude-max-a"},{"id":"claude-max-b","config_dir":"$HOME_DIR/claude-max-b","provider":"claude-max-b"}]}
+EOF
+CLAUDE_POOLS_QUOTA="$TMP_ROOT/claude-pools-quota.json"
+cat > "$CLAUDE_POOLS_QUOTA" <<'JSON'
+{"generatedAt":"2030-01-01T00:00:00Z","schemaVersion":5,"providers":[
+  {"provider":"claude-max-a","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.9}}]}},
+  {"provider":"claude-max-b","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":70,"runway":{"status":"through_reset"},"selection":{"spendPriority":1.0}}]}},
+  {"provider":"codex","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":20,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}}
+]}
+JSON
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
+assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  scope=all_models  remaining=80%  spendPriority=0.9' "authenticated Claude pool should be represented and rankable"
+assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:missing-credentials  setup=absent  -> not eligible: Claude profile claude-max-b not authenticated' "unauthenticated Claude pool should be represented and excluded"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --claude-profile 'claude-max-a'" "authenticated Claude profile should be selected when best eligible"
+assert_not_contains "$out" 'secret-a' "Claude auth secret leaked into dispatch output"
+
+CLAUDE_A_EXHAUSTED="$TMP_ROOT/claude-a-exhausted.json"
+jq '(.providers[] | select(.provider == "claude-max-a") | .quotaSemantics.effectiveAvailability[] | select(.scope == "all_models")) |= (.effectivePercentRemaining = 0 | .runway.status = "exhausted_now")' "$CLAUDE_POOLS_QUOTA" > "$CLAUDE_A_EXHAUSTED"
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_A_EXHAUSTED" run code out err "$BRIEF"
+assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models' "exhausted authenticated Claude pool should be excluded"
+assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:missing-credentials  setup=absent  -> not eligible' "unauthenticated Claude pool evidence should not disappear"
+assert_contains "$out" "  profile: --harness 'codex' --model 'gpt-5.6-sol'" "routing should choose non-Claude eligible profile when Claude pools are unusable"
+cp "$BASE_RULES" "$RULES"
+cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"default","config_dir":"$HOME_DIR/claude-default","provider":"claude"}]}
+EOF
+pass "Claude profile auth and per-pool quota evidence gate dispatch candidates"
 
 # --- partial providers retain their known row evidence --------------------------
 reset_log

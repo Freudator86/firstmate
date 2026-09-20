@@ -14,6 +14,13 @@ Busy hooks verified 2026-07-28 on Claude Code 2.1.220.
 | Effort | `--effort <low\|medium\|high\|xhigh\|max>`, verified on 2.1.196. |
 | Permissions | `--dangerously-skip-permissions` by default, or `--permission-mode auto` when `config/claude-permission-mode` is `auto`; the `auto` shape verified on 2.1.269, and `../../../../../docs/configuration.md` "Claude permission mode" owns the file. |
 
+## Profile authentication preflight
+
+`../../../../../docs/configuration.md` "Claude profiles" owns `config/claude-profiles.json`, named capacity pools such as `claude-max-a`, and setup-token probes.
+Before a Claude launch, `../../../../../bin/fm-spawn.sh` calls `../../../../../bin/fm-claude-auth.sh check --profile <id>` and refuses before endpoint creation unless that profile has Claude OAuth material in its selected config directory.
+A successful preflight pins that profile's `CLAUDE_CONFIG_DIR` into the worker launch so the worker uses the checked account.
+The preflight output reports only profile names, auth/setup verdicts, provider ids, and config paths; token values are never printed.
+
 ## Workspace trust
 
 Claude gates a folder it has never seen behind an interactive workspace-trust dialog (titled "Quick safety check: Is this a project you created or one you trust?"), so every fresh task worktree would hit it, and so would every secondmate home no operator has opened by hand.
