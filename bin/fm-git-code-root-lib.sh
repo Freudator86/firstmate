@@ -24,8 +24,10 @@
 #     path, so nothing else on the host becomes acceptable to git;
 #   - it lives in a temporary file for the duration of ONE command, so no
 #     persistent configuration of this host or account is changed;
-#   - the account's real global config is included first, so proxy, transport,
-#     identity, and any other ambient settings git would have read still apply.
+#   - every global config file the account really has is included first, in
+#     git's own order, so proxy, transport, identity, and any other ambient
+#     settings git would have read still apply, and still resolve to the same
+#     value they would have without the guard.
 # Ownership remains git's decision everywhere else, including inside the home
 # itself: nothing here marks the home, its origin, or a project clone safe.
 
@@ -37,22 +39,21 @@ fm_git_code_root_config_value() {
   printf '"%s"' "$value"
 }
 
-# fm_git_code_root_inherited_config: the global config file git would have read
-# on its own, or nothing when the account has none. GIT_CONFIG_GLOBAL wins when
-# set (including /dev/null, git's own way of saying "no global config"),
-# otherwise git prefers ~/.gitconfig over the XDG location.
+# fm_git_code_root_inherited_config: every global config file git would have
+# read on its own, one per line and in git's own order, or nothing when the
+# account has none. GIT_CONFIG_GLOBAL replaces the whole layer when set
+# (including /dev/null, git's own way of saying "no global config"); otherwise
+# git reads BOTH the XDG file and ~/.gitconfig, in that order, so a later value
+# in ~/.gitconfig keeps overriding the XDG one exactly as it would unguarded.
 fm_git_code_root_inherited_config() {
   local xdg
   if [ -n "${GIT_CONFIG_GLOBAL:-}" ]; then
     [ "$GIT_CONFIG_GLOBAL" = /dev/null ] || printf '%s\n' "$GIT_CONFIG_GLOBAL"
     return 0
   fi
-  if [ -f "${HOME:-}/.gitconfig" ]; then
-    printf '%s\n' "$HOME/.gitconfig"
-    return 0
-  fi
   xdg="${XDG_CONFIG_HOME:-${HOME:-}/.config}/git/config"
   [ ! -f "$xdg" ] || printf '%s\n' "$xdg"
+  [ ! -f "${HOME:-}/.gitconfig" ] || printf '%s\n' "$HOME/.gitconfig"
 }
 
 # fm_git_code_root_stage_config <code-root> <dest>: write the throwaway global
@@ -63,10 +64,11 @@ fm_git_code_root_inherited_config() {
 fm_git_code_root_stage_config() {
   local root=$1 dest=$2 inherited
   case $root in /*) ;; *) return 1 ;; esac
-  inherited=$(fm_git_code_root_inherited_config)
   {
-    [ -z "$inherited" ] \
-      || printf '[include]\n\tpath = %s\n' "$(fm_git_code_root_config_value "$inherited")"
+    while IFS= read -r inherited; do
+      [ -n "$inherited" ] || continue
+      printf '[include]\n\tpath = %s\n' "$(fm_git_code_root_config_value "$inherited")"
+    done < <(fm_git_code_root_inherited_config)
     printf '[safe]\n\tdirectory = %s\n\tdirectory = %s\n' \
       "$(fm_git_code_root_config_value "$root")" \
       "$(fm_git_code_root_config_value "$root/.git")"
