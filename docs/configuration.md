@@ -435,19 +435,18 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 ## Claude profiles (config/claude-profiles.json)
 
 `config/claude-profiles.json` is an optional local, gitignored file listing named Claude capacity pools that Firstmate may launch directly.
-`bin/fm-claude-auth.sh` owns the executable contract and prints only profile names, config paths, authentication verdicts, setup-token availability, and provider ids - never token values.
+`bin/fm-claude-auth.sh` owns the executable contract and prints only profile names, config paths, authentication verdicts, and setup-token availability - never token values.
 
 ```json
 {
   "profiles": [
-    { "id": "claude-max-a", "config_dir": "/absolute/path/to/.claude-a", "provider": "claude-max-a", "setup_token_file": "/absolute/secret/path", "setup_token_env": "CLAUDE_MAX_A_SETUP_TOKEN" }
+    { "id": "claude-max-a", "config_dir": "/absolute/path/to/.claude-a", "setup_token_file": "/absolute/secret/path", "setup_token_env": "CLAUDE_MAX_A_SETUP_TOKEN" }
   ]
 }
 ```
 
 `id` is required and must match `^[a-z0-9]+(-[a-z0-9]+)*$`; every other field is optional.
 `config_dir` selects the Claude credential/config directory for that pool; when no config file exists, Firstmate exposes one `default` profile using `CLAUDE_CONFIG_DIR` or `$HOME/.claude`.
-`provider` names the quota-axi provider row for the same capacity pool when quota evidence is split by account.
 `setup_token_file` and `setup_token_env` are presence probes for local setup-token material only; the script reports available or absent and never reads or prints the value.
 `fm-spawn.sh --claude-profile <id>` refuses a Claude launch before endpoint creation unless the bounded Claude vendor probe reports an authenticated session with that profile's `CLAUDE_CONFIG_DIR` scoped into the probe.
 When the selected profile is authenticated, spawn pins that profile's `CLAUDE_CONFIG_DIR` into the launched worker so the worker uses the checked account.

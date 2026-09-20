@@ -26,7 +26,7 @@ BASE_PATH=$PATH
 mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN" "$HOME_DIR/claude-default"
 printf '%s\n' '{"claudeAiOauth":{"refreshToken":"dispatch-test-refresh-secret"}}' > "$HOME_DIR/claude-default/.credentials.json"
 cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"default","config_dir":"$HOME_DIR/claude-default","provider":"claude"}]}
+{"profiles":[{"id":"default","config_dir":"$HOME_DIR/claude-default"}]}
 EOF
 for command_name in bash chmod cp dirname jq mktemp rm; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
@@ -458,7 +458,7 @@ cp "$CLAUDE_POOLS_RULES" "$RULES"
 mkdir -p "$HOME_DIR/claude-max-a" "$HOME_DIR/claude-max-b"
 printf '%s\n' '{"claudeAiOauth":{"refreshToken":"secret-a"}}' > "$HOME_DIR/claude-max-a/.credentials.json"
 cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"claude-max-a","config_dir":"$HOME_DIR/claude-max-a","provider":"claude-max-a"},{"id":"claude-max-b","config_dir":"$HOME_DIR/claude-max-b","provider":"claude-max-b"}]}
+{"profiles":[{"id":"claude-max-a","config_dir":"$HOME_DIR/claude-max-a"},{"id":"claude-max-b","config_dir":"$HOME_DIR/claude-max-b"}]}
 EOF
 CLAUDE_POOLS_QUOTA="$TMP_ROOT/claude-pools-quota.json"
 cat > "$CLAUDE_POOLS_QUOTA" <<'JSON'
@@ -483,7 +483,7 @@ assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-b  p
 assert_contains "$out" "  profile: --harness 'codex' --model 'gpt-5.6-sol'" "routing should choose non-Claude eligible profile when Claude pools are unusable"
 cp "$BASE_RULES" "$RULES"
 cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"default","config_dir":"$HOME_DIR/claude-default","provider":"claude"}]}
+{"profiles":[{"id":"default","config_dir":"$HOME_DIR/claude-default"}]}
 EOF
 pass "Claude profile auth and per-pool quota evidence gate dispatch candidates"
 

@@ -4656,8 +4656,6 @@ esac
 if [ "$HARNESS" = claude ]; then
   if [ -n "${CLAUDE_SELECTED_CONFIG_DIR:-}" ]; then
     LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_SELECTED_CONFIG_DIR") $LAUNCH"
-  elif [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
-    LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
   fi
 fi
 if [ "$KIND" = secondmate ]; then
