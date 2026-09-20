@@ -18,6 +18,7 @@ Do not enable agent forwarding for Firstmate.
 `fm-on.sh` also disables agent forwarding, forwarding setup, and configured `SendEnv` patterns on every call, and arms bounded SSH dead-peer detection so a vanished host (a reboot, a dropped link) fails within a bounded window instead of hanging indefinitely; its [script header](../bin/fm-on.sh) owns the keepalive defaults and environment overrides.
 
 Clone Firstmate on the remote host at an absolute code-root path.
+That code root may belong to an account other than the one the second mate runs as - a shared checkout, a deploy user - because every lifecycle read of it, the home clone at provisioning time and the later sync and update reads alike, carries a temporary git ownership exception naming only that code root; [`bin/fm-git-code-root-lib.sh`](../bin/fm-git-code-root-lib.sh) owns that exception, and nothing else on the host, the remote home included, becomes exempt from git's own ownership check.
 Expose that clone's fixed entrypoint on the account's non-interactive SSH `PATH`, for example:
 
 ```sh
@@ -277,6 +278,7 @@ bin/fm-test-run.sh tests/fm-remote-doctor.test.sh
 bin/fm-test-run.sh tests/fm-remote-herdr-guard.test.sh
 bin/fm-test-run.sh tests/fm-project-origin.test.sh
 bin/fm-test-run.sh tests/fm-secondmate-sync.test.sh
+bin/fm-test-run.sh tests/fm-remote-code-root-ownership.test.sh
 bin/fm-test-run.sh tests/fm-remote-reply.test.sh
 bin/fm-test-run.sh tests/fm-remote-backlog-handoff.test.sh
 bin/fm-test-run.sh tests/fm-remote-secondmate-lifecycle-e2e.test.sh
