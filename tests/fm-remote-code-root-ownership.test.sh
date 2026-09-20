@@ -22,6 +22,7 @@ cleanup() { rm -rf -- "$TMP_ROOT"; }
 trap cleanup EXIT
 
 CODE_ROOT="$TMP_ROOT/unowned-code-root"
+CODE_ROOT_ORIGIN="$TMP_ROOT/code-root-origin.git"
 REMOTE_HOME="$TMP_ROOT/remote-home"
 OWNED_CONFIG="$TMP_ROOT/owned.gitconfig"
 ID=route
@@ -54,11 +55,14 @@ git -C "$CODE_ROOT" commit -qam 'code root advance'
 SECOND_COMMIT=$(git -C "$CODE_ROOT" rev-parse HEAD)
 
 # Everything the agent account owns on this host, and nothing else: the code
-# root is deliberately absent. An ambient setting is included to prove the
+# root is deliberately absent. The home and the code root's own origin mirror
+# are the account's, standing in for the real remote where origin is a URL no
+# ownership check applies to. An ambient setting is included to prove the
 # guarded invocation still reads the account's real global config.
 {
   printf '[fm]\n\tcoderootfixture = inherited\n'
-  printf '[safe]\n\tdirectory = %s\n\tdirectory = %s\n' "$REMOTE_HOME" "$REMOTE_HOME/.git"
+  printf '[safe]\n\tdirectory = %s\n\tdirectory = %s\n\tdirectory = %s\n' \
+    "$REMOTE_HOME" "$REMOTE_HOME/.git" "$CODE_ROOT_ORIGIN"
 } > "$OWNED_CONFIG"
 
 as_foreign_root() {
@@ -114,6 +118,33 @@ INHERITED=$(as_foreign_root bash -c '
   || fail "the guarded invocation dropped the account's global git config: $INHERITED"
 assert_equals inherited "$INHERITED" \
   "the guarded invocation did not keep the account's own global git config"
+
+# update <id>: the whole code-root refresh runs against the unowned root - the
+# origin fetch and the fast-forward of the root itself - before the home is
+# synced to whatever that left behind.
+git -C "$CODE_ROOT" remote add origin "$CODE_ROOT_ORIGIN" \
+  || fail "cannot give the code-root fixture an origin"
+git init -q --bare "$CODE_ROOT_ORIGIN" || fail "cannot stage the code-root origin"
+git -C "$CODE_ROOT" push -q origin main || fail "cannot publish the code-root fixture"
+git --git-dir="$CODE_ROOT_ORIGIN" symbolic-ref HEAD refs/heads/main
+
+PUBLISHER="$TMP_ROOT/publisher"
+git clone --quiet -- "$CODE_ROOT_ORIGIN" "$PUBLISHER" || fail "cannot stage the publisher fixture"
+git -C "$PUBLISHER" config user.email test@example.com
+git -C "$PUBLISHER" config user.name Test
+printf 'origin revision\n' >> "$PUBLISHER/AGENTS.md"
+git -C "$PUBLISHER" commit -qam 'origin advance'
+git -C "$PUBLISHER" push -q origin main
+ORIGIN_TIP=$(git -C "$PUBLISHER" rev-parse HEAD)
+
+UPDATE_OUT=$(control update "$ID" 2>&1) \
+  || fail "update could not refresh an unowned code root: $UPDATE_OUT"
+assert_equals "$ORIGIN_TIP" "$(git -C "$CODE_ROOT" rev-parse HEAD)" \
+  "update did not fast-forward the unowned code root from its origin"
+assert_contains "$UPDATE_OUT" "synced: $ORIGIN_TIP" \
+  "update did not report the home following the refreshed code root"
+assert_equals "$ORIGIN_TIP" "$(as_foreign_root git -C "$REMOTE_HOME" rev-parse HEAD)" \
+  "the home did not follow the refreshed code root"
 
 # With no GIT_CONFIG_GLOBAL of its own, the account's global layer is BOTH the
 # XDG file and ~/.gitconfig. A guarded command has to resolve every setting the
