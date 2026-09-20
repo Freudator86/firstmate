@@ -303,7 +303,9 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
     if $p == null then {profile: $c, eligible: false, reason: "no provider family for harness \($c.harness); declare provider on the profile"}
     elif $c.harness == "claude" and (claude_auth_for(claude_profile_of($c)) == null or ((claude_auth_for(claude_profile_of($c)).auth | startswith("authenticated")) | not)) then
       (claude_auth_for(claude_profile_of($c))) as $auth |
-      {profile: ($c + {claude_profile: claude_profile_of($c)}), provider: $p, auth: ($auth.auth // "unconfigured"), setup: ($auth.setup // "absent"), eligible: false, reason: "Claude profile \(claude_profile_of($c)) not authenticated (\(($auth.auth // "unconfigured"))); setup \(($auth.setup // "absent"))"}
+      {profile: ($c + {claude_profile: claude_profile_of($c)}), provider: $p, auth: ($auth.auth // "unconfigured"), setup: ($auth.setup // "absent"), eligible: false,
+       reason: (if $auth == null then "Claude profile \(claude_profile_of($c)) is not configured in this home; config/claude-profiles.json is per-home and never inherited, so install a local claude-profiles.json listing that pool"
+                else "Claude profile \(claude_profile_of($c)) not authenticated (\($auth.auth)); setup \($auth.setup)" end)}
     elif prov($p) == null then {profile: $c, provider: $p, eligible: true, unranked: true, reason: "provider \($p) not in the quota snapshot"}
     else
       (applicable($p; ($c.model // ""))) as $rows |
