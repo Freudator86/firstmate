@@ -222,7 +222,7 @@ test_probe_result_is_never_an_exit_status_verdict() {
 
 test_unregistered_probe_is_a_usage_error() {
   local name
-  for name in openai codex claude pi ''; do
+  for name in openai codex pi ''; do
     if [ -z "$name" ]; then
       run_probe "unregistered-empty"
     else

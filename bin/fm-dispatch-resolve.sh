@@ -265,7 +265,7 @@ jq -e --slurpfile rules "$RULES" '
 command -v quota-axi >/dev/null 2>&1 || emit_error "quota-axi not installed"
 quota-axi --json > "$QUOTA" 2>/dev/null || emit_error "quota-axi --json failed"
 fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an invalid snapshot"
-"$FM_ROOT/bin/fm-claude-auth.sh" evidence > "$CLAUDE_AUTH" 2>/dev/null || : > "$CLAUDE_AUTH"
+"$FM_ROOT/bin/fm-claude-auth.sh" evidence > "$CLAUDE_AUTH" 2>/dev/null || emit_error "Claude profile evidence failed"
 
 # ---- resolution: declared gates + quota evidence + argmax, all in jq ------------
 RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson pmap "$PMAP" \
@@ -277,7 +277,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
   def rows($p): (prov($p) | .quotaSemantics.effectiveAvailability // []);
   def bare($m): ($m | split("/") | last);
   def provider_of($c): ($c.provider // $pmap[$c.harness] // null);
-  def claude_profile_of($c): ($c.claude_profile // (if $c.harness == "claude" and any($claude_auth_rows[]; .profile == ($c.provider // "")) then $c.provider else "default" end));
+  def claude_profile_of($c): ($c.claude_profile // "default");
   def claude_auth_for($id): ([$claude_auth_rows[] | select(.profile == $id)] | first) // null;
   def measured($p):
     (prov($p) != null and (["known", "partial"] | index(prov($p).quotaSemantics.status)) != null);

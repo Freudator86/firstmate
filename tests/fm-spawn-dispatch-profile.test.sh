@@ -36,7 +36,15 @@ make_spawn_fakebin() {
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
-shift
+if [ "${1:-}" = -- ]; then
+  shift
+elif [ "${1:-}" = -k ]; then
+  shift 3
+elif [ "${1:-}" = -s ]; then
+  shift 3
+elif [ "${1:-}" != "" ]; then
+  shift
+fi
 exec "$@"
 SH
   cat > "$fakebin/cursor-agent" <<'SH'
@@ -881,6 +889,7 @@ test_claude_rejects_unauthenticated_profile_before_launch() {
   assert_contains "$out" "Claude profile default is not authenticated enough for worker launch" \
     "spawn should refuse before launching into Claude login"
   [ ! -s "$LAUNCH_LOG" ] || fail "unauthenticated profile should not launch; launch log: $(cat "$LAUNCH_LOG")"
+  assert_absent "$HOME_DIR/state/$id.meta" "unauthenticated profile should refuse before task metadata publication"
   pass "claude spawn refuses an unauthenticated profile before endpoint launch"
 }
 

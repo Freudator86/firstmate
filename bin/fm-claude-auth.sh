@@ -3,7 +3,6 @@
 #
 # Usage:
 #   fm-claude-auth.sh check [--profile <id>]
-#   fm-claude-auth.sh env [--profile <id>]
 #   fm-claude-auth.sh evidence
 #
 # Local config lives at config/claude-profiles.json in the active FM_HOME.
@@ -58,14 +57,23 @@ setup_state() {
 }
 
 auth_state() {
-  local dir=$1 cred
-  cred="$dir/.credentials.json"
+  local dir=$1 line status
   [ -d "$dir" ] || { printf 'unauthenticated:missing-config-dir'; return; }
-  [ -f "$cred" ] || { printf 'unauthenticated:missing-credentials'; return; }
-  [ -r "$cred" ] || { printf 'unauthenticated:unreadable-credentials'; return; }
-  jq -e '(.claudeAiOauth | type) == "object" and (((.claudeAiOauth.accessToken? // "") | type == "string" and length > 0) or ((.claudeAiOauth.refreshToken? // "") | type == "string" and length > 0))' "$cred" >/dev/null 2>&1 \
-    && printf 'authenticated' \
-    || printf 'unauthenticated:missing-oauth-token'
+  line=$(CLAUDE_CONFIG_DIR="$dir" "$FM_ROOT/bin/fm-vendor-auth-probe.sh" claude 2>/dev/null) || {
+    printf 'indeterminate:probe-error'
+    return
+  }
+  case "$line" in
+    *' status='*) status=${line#* status=}; status=${status%% *} ;;
+    *) status=indeterminate ;;
+  esac
+  case "$status" in
+    authenticated) printf 'authenticated' ;;
+    unauthenticated) printf 'unauthenticated:vendor-probe' ;;
+    timeout) printf 'indeterminate:probe-timeout' ;;
+    unavailable) printf 'indeterminate:probe-unavailable' ;;
+    *) printf 'indeterminate:vendor-probe' ;;
+  esac
 }
 
 render_one() {
@@ -92,18 +100,21 @@ while [ $# -gt 0 ]; do
 done
 
 case "$cmd" in
-  check|env)
+  check)
     p=$(profile_json "$profile") || die "Claude profile not configured: $profile"
     line=$(render_one "$p")
     printf '%s\n' "$line"
-    case "$line" in *' auth=authenticated '*) [ "$cmd" = env ] && printf 'CLAUDE_CONFIG_DIR=%s\n' "${line##*config_dir=}"; exit 0 ;; esac
+    case "$line" in *' auth=authenticated '*) exit 0 ;; esac
     case "$line" in *' setup=available:'*) printf 'setup: Claude setup-token material is available for profile %s; run the credential installer before launching this profile.\n' "$profile" >&2 ;;
       *) printf 'setup: Claude setup-token material is absent for profile %s; add setup_token_file or setup_token_env in config/claude-profiles.json or authenticate Claude interactively.\n' "$profile" >&2 ;;
     esac
     exit 1
     ;;
   evidence)
-    json_profiles | jq -c '.[]' | while IFS= read -r p; do render_one "$p"; done
+    profiles=$(json_profiles)
+    while IFS= read -r p; do render_one "$p"; done <<EOF
+$(jq -c '.[]' <<<"$profiles")
+EOF
     ;;
-  *) die 'usage: fm-claude-auth.sh check|env|evidence [--profile <id>]' ;;
+  *) die 'usage: fm-claude-auth.sh check|evidence [--profile <id>]' ;;
 esac
