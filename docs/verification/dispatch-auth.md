@@ -175,7 +175,7 @@ That zero is a prepaid balance, not the subscription window, and is never headro
 
 ## Claude Code auth probe
 
-Verified 2026-09-20 on Claude Code 2.1.276.
+Verified 2026-09-20 on Claude Code 2.1.276, on Linux.
 
 ```sh
 claude --version
@@ -221,6 +221,20 @@ Observed:
 This JSON shape is un-owned vendor output.
 `bin/fm-vendor-auth-probe.sh` pins the verified version, reports `versionVerified=no` when the running CLI differs, and classifies unrecognized output as `indeterminate` rather than authenticated.
 Re-run the two commands above and update this section and the pinned version together when the vendor CLI changes.
+
+### Account separation by CLAUDE_CONFIG_DIR
+
+Verified on Linux only, on the same date and version.
+The probe was run with the caller-selected `CLAUDE_CONFIG_DIR` and answered for that directory: the ambient store reported `"loggedIn": true`, and a scratch directory reported `"loggedIn": false` in the same shell, so on this platform the config directory alone decides which account answers.
+`$HOME/.claude` is a plain directory here and no credential keychain is involved.
+
+That measurement has NOT been repeated on macOS, and this repository's own record argues against assuming it carries over: [runtime-backends.md](runtime-backends.md) records that the login keychain is authoritative there, that the item is addressed per user with no config-directory component, and that `~/.claude/.credentials.json` is only the fallback Claude reads when keychain access fails.
+If that one keychain item answers regardless of `CLAUDE_CONFIG_DIR`, a named pool would report authenticated from a different account than it names and the worker would spend that account.
+
+`bin/fm-claude-auth.sh` therefore reports `unsupported:pool-separation-unverified` for any named (non-`default`) profile on a platform other than Linux, and every caller refuses on it.
+The `default` profile is unaffected on every platform: it names the ambient store the launch would have used anyway, so no account-separation claim is being made about it.
+To enable named pools on another platform, measure `claude auth status` under a second `CLAUDE_CONFIG_DIR` on a host of that platform, record the result in this section, and extend `POOL_SEPARATION_VERIFIED_PLATFORM` in `bin/fm-claude-auth.sh` to match.
+Do not infer the outcome from the keychain's design, and do not read or move credential values to find out.
 
 ## Claude Bypass Permissions acceptance
 

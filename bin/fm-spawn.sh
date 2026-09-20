@@ -2220,11 +2220,17 @@ if [ "$HARNESS" = claude ]; then
   CLAUDE_PROFILE=${CLAUDE_PROFILE:-default}
   CLAUDE_AUTH_OUT=$("$FM_ROOT/bin/fm-claude-auth.sh" check --profile "$CLAUDE_PROFILE" 2>&1) || {
     case "$CLAUDE_AUTH_OUT" in
+      *' auth=unsupported:'*)
+        printf 'error: Claude profile %s is a named capacity pool that this platform has no first-hand account-separation verification for; refusing rather than spending an unknown account. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2
+        ;;
       *' auth=indeterminate:'*)
         printf 'error: Claude profile %s could not be verified as authenticated; the bounded vendor probe established nothing, so the launch is refused rather than assumed. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2
         ;;
-      *)
+      *' auth='*)
         printf 'error: Claude profile %s is not authenticated enough for worker launch; refusing before interactive login. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2
+        ;;
+      *)
+        printf 'error: Claude profile %s could not be resolved, so no authentication state was measured; refusing before launch. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2
         ;;
     esac
     exit 1
@@ -3975,7 +3981,8 @@ claude*)
   else
     spawn_trust_args=("$WT" "$PROJ_ABS")
   fi
-  if ! "$FM_ROOT/bin/fm-claude-trust.sh" "${spawn_trust_args[@]}" >/dev/null; then
+  if ! CLAUDE_CONFIG_DIR="${CLAUDE_SELECTED_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-}}" \
+       "$FM_ROOT/bin/fm-claude-trust.sh" "${spawn_trust_args[@]}" >/dev/null; then
     echo "error: could not pre-register Claude workspace trust for $WT; refusing to launch a claude worker that would wedge on the trust dialog; inspect window $T" >&2
     exit 1
   fi

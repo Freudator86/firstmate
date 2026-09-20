@@ -150,7 +150,7 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --arg provi
     or ($p | has("model") and ((.model | type) != "string" or (.model | length) == 0))
     or ($p | has("effort") and ((.effort | type) != "string" or (.effort | length) == 0))
     or ($p | has("provider") and (provider_id(.provider) | not))
-    or ($p | has("claude_profile") and (provider_id(.claude_profile) | not))
+    or ($p | has("claude_profile") and ((provider_id(.claude_profile) | not) or (.harness != "claude")))
     or ($p | has("floor") and floor_bad(.floor; false));
   def duplicate_profiles($items):
     ($items | map([.harness, (.model // null), (.effort // null), (.claude_profile // null)] | @json)) as $keys
@@ -165,12 +165,12 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --arg provi
   elif any((.rules // [])[]; has("select") and .select != "quota-balanced") then
     "unknown select: " + ([.rules[] | select(has("select") and .select != "quota-balanced") | .select] | unique | join(", "))
   elif any((.rules // [])[]; has("floor") and floor_bad(.floor; true)) then "rule floor needs scope, min_percent 0..100, and provider matching ^[a-z0-9]+(-[a-z0-9]+)*\\z"
-  elif any((.rules // [])[] | profiles(.use)[]; profile_bad(.)) then "each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z when present"
+  elif any((.rules // [])[] | profiles(.use)[]; profile_bad(.)) then "each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z when present; claude_profile belongs only on a profile whose harness is claude"
   elif any((.rules // [])[]; duplicate_profiles(profiles(.use))) then "each rule use must not contain duplicate harness, model, and effort profiles"
   elif any((.rules // [])[] | profiles(.use)[]; (verified(.harness) | not)) then "each use profile must name a verified harness"
   elif any((.rules // [])[] | profiles(.use)[]; (effort_ok(.harness; .model; .effort) | not)) then "each use profile effort must be supported by its harness and model"
   elif has("default") and (profiles(.default) | length) == 0 then "default must be a profile object or non-empty profile array"
-  elif has("default") and any(profiles(.default)[]; profile_bad(.)) then "each default profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z when present"
+  elif has("default") and any(profiles(.default)[]; profile_bad(.)) then "each default profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z when present; claude_profile belongs only on a profile whose harness is claude"
   elif has("default") and duplicate_profiles(profiles(.default)) then "default must not contain duplicate harness, model, and effort profiles"
   elif has("default") and any(profiles(.default)[]; (verified(.harness) | not)) then "each default profile must name a verified harness"
   elif has("default") and any(profiles(.default)[]; (effort_ok(.harness; .model; .effort) | not)) then "each default profile effort must be supported by its harness and model"
@@ -305,6 +305,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
       (claude_auth_for(claude_profile_of($c))) as $auth |
       {profile: ($c + {claude_profile: claude_profile_of($c)}), provider: $p, auth: ($auth.auth // "unconfigured"), setup: ($auth.setup // "absent"), eligible: false,
        reason: (if $auth == null then "Claude profile \(claude_profile_of($c)) is not configured in this home; config/claude-profiles.json is per-home and never inherited, so install a local claude-profiles.json listing that pool"
+                elif ($auth.auth | startswith("unsupported")) then "Claude profile \(claude_profile_of($c)) is a named capacity pool and this platform has no first-hand verification that CLAUDE_CONFIG_DIR separates accounts (\($auth.auth)), so it is refused rather than routed to an unknown account"
                 elif ($auth.auth | startswith("indeterminate")) then "Claude profile \(claude_profile_of($c)) could not be verified (\($auth.auth)); the bounded vendor probe established nothing, so this candidate is refused rather than assumed"
                 else "Claude profile \(claude_profile_of($c)) not authenticated (\($auth.auth)); setup \($auth.setup)" end)}
     elif prov($p) == null then {profile: $c, provider: $p, eligible: true, unranked: true, reason: "provider \($p) not in the quota snapshot"}

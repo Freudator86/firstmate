@@ -970,6 +970,23 @@ EOF
   pass "a pools-only Claude profile config keeps serving spawns that name no profile"
 }
 
+test_claude_unconfigured_pool_refusal_names_its_real_cause() {
+  local rec id out status
+  id=profile-claude-unconf-z23
+  rec=$(make_spawn_case profile-claude-unconf claude "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --claude-profile claude-max-a)
+  status=$?
+  expect_code 1 "$status" "a pool this home has not configured should refuse"
+  assert_contains "$out" "not configured in this home" "the refusal should name the per-home configuration requirement"
+  assert_not_contains "$out" "is not authenticated enough for worker launch" \
+    "an unconfigured pool must not be announced as an authentication state nothing measured"
+  [ ! -s "$LAUNCH_LOG" ] || fail "a refused spawn should not launch; launch log: $(cat "$LAUNCH_LOG")"
+  assert_absent "$HOME_DIR/state/$id.meta" "a refused spawn should leave no task record"
+  pass "an unconfigured Claude pool refuses by naming the configuration gap, not a measured login state"
+}
+
 test_claude_profile_refused_on_a_non_claude_spawn() {
   local rec id out status
   id=profile-codex-pool-z22
@@ -1563,6 +1580,7 @@ test_claude_permission_mode_invalid_refuses_before_endpoint_or_metadata
 test_non_claude_harness_ignores_claude_permission_mode
 test_non_claude_harness_ignores_config_dir
 test_claude_profile_refused_on_a_non_claude_spawn
+test_claude_unconfigured_pool_refusal_names_its_real_cause
 test_claude_task_launch_carries_control_channel_authority
 test_claude_secondmate_launch_omits_task_control_channel_authority
 test_claude_long_launch_is_delivered_intact

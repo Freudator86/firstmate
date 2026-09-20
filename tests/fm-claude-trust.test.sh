@@ -657,6 +657,39 @@ test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
   pass "fm-spawn.sh: a claude spawn pre-trusts its worktree and launches with the brief"
 }
 
+# A named Claude capacity pool selects its own store, so the registration must
+# follow the pool rather than firstmate's ambient store; otherwise the worker
+# reads a store with no entry for its worktree and stops on the trust dialog.
+test_named_pool_spawn_trusts_the_store_the_worker_reads() {
+  local case_dir home proj wt pool fakebin launch_log out
+  case_dir="$TMP_ROOT/spawn-pool"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  pool="$case_dir/pool-a"
+  launch_log="$case_dir/launch.log"
+  mkdir -p "$pool"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" claude)
+  fm_test_spawn_home "$home" claude
+  fm_git_worktree "$proj" "$wt" wt-pool
+  fm_test_spawn_brief "$home" poolspawn
+  mkdir -p "$home/config"
+  cat > "$home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$pool"}]}
+EOF
+  out=$(FM_FAKE_LAUNCH_LOG="$launch_log" \
+    fm_test_run_spawn "$home" "$wt" "$fakebin" poolspawn "$proj" claude \
+    --claude-profile claude-max-a --mode no-mistakes --yolo off)
+  expect_code 0 $? "the named-pool claude spawn must succeed: $out"
+  assert_trusted "$pool/.claude.json" "$wt" \
+    "the spawn registered trust somewhere other than the pool store the worker was launched against"
+  assert_grep "CLAUDE_CONFIG_DIR='$pool'" "$launch_log" \
+    "the launch command did not point the worker at the pool store"
+  [ ! -e "$home/user-home/.claude.json" ] \
+    || fail "the registration wrote firstmate's ambient store instead of the selected pool store"
+  pass "fm-spawn.sh: a named Claude pool is trusted in the same store the worker is launched against"
+}
+
 # A secondmate home is the second directory a claude launch starts in, and it is
 # as unseen by Claude as a fresh worktree. The standalone-clone shape is the one
 # that wedged in production: the trust step was skipped for every secondmate, so
@@ -838,6 +871,7 @@ test_corrupt_store_fails_closed
 test_missing_node_is_refused
 test_scope_refusal_stays_fail_closed_without_node
 test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief
+test_named_pool_spawn_trusts_the_store_the_worker_reads
 test_refused_spawn_leaves_no_task_state
 test_secondmate_standalone_clone_home_is_trusted
 test_secondmate_leased_worktree_home_is_trusted
