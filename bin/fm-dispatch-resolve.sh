@@ -305,6 +305,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
       (claude_auth_for(claude_profile_of($c))) as $auth |
       {profile: ($c + {claude_profile: claude_profile_of($c)}), provider: $p, auth: ($auth.auth // "unconfigured"), setup: ($auth.setup // "absent"), eligible: false,
        reason: (if $auth == null then "Claude profile \(claude_profile_of($c)) is not configured in this home; config/claude-profiles.json is per-home and never inherited, so install a local claude-profiles.json listing that pool"
+                elif ($auth.auth | startswith("indeterminate")) then "Claude profile \(claude_profile_of($c)) could not be verified (\($auth.auth)); the bounded vendor probe established nothing, so this candidate is refused rather than assumed"
                 else "Claude profile \(claude_profile_of($c)) not authenticated (\($auth.auth)); setup \($auth.setup)" end)}
     elif prov($p) == null then {profile: $c, provider: $p, eligible: true, unranked: true, reason: "provider \($p) not in the quota snapshot"}
     else

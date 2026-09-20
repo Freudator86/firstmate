@@ -175,21 +175,50 @@ That zero is a prepaid balance, not the subscription window, and is never headro
 
 ## Claude Code auth probe
 
-Verified 2026-09-20 on Claude Code 2.1.266.
+Verified 2026-09-20 on Claude Code 2.1.276.
 
 ```sh
 claude --version
 claude auth status   # stdin closed, single attempt, hard-bounded
 ```
 
+`claude --version` prints the semver at the start of its only line, with no leading command name:
+
+```
+2.1.276 (Claude Code)
+```
+
+`claude auth status` prints a JSON document. With a usable Claude session (exit 0):
+
+```
+{
+  "loggedIn": true,
+  "authMethod": "claude.ai",
+  "apiProvider": "firstParty",
+  ...
+}
+```
+
+With no usable session in the scoped `CLAUDE_CONFIG_DIR` and keychain context (exit 1):
+
+```
+{
+  "loggedIn": false,
+  "authMethod": "none",
+  "apiProvider": "firstParty",
+  ...
+}
+```
+
 Observed:
 
-- With a usable Claude session, stdout contains `loggedIn: true` and `authMethod: oauth`.
-- With no usable session in the scoped `CLAUDE_CONFIG_DIR` and keychain context, stdout contains `loggedIn: false` and `authMethod: none`.
-- Because the command reports the session state directly, `bin/fm-vendor-auth-probe.sh` reads only those `loggedIn` fields; any unrecognized output is `indeterminate`, never authenticated.
+- The `loggedIn` member alone discriminates; `authMethod` is `claude.ai` for a logged-in claude.ai session and `none` otherwise, and neither value is read.
+- The elided members carry the account email, org id, and store paths, so `bin/fm-vendor-auth-probe.sh` classifies the document and never prints, logs, or forwards any of it.
+- The probe strips whitespace before matching `"loggedIn":true` / `"loggedIn":false`, so the discriminator survives a change in the vendor's indentation; any unrecognized document is `indeterminate`, never authenticated.
+- The exit status tracks the verdict here (0 logged in, 1 not), and is still never read as one, per this file's standing rule.
 - The probe is run with the caller-selected `CLAUDE_CONFIG_DIR` in the environment, so named Claude profile pools can be checked without printing token values or launching the interactive TUI.
 
-These discriminator strings are un-owned vendor UI text.
+This JSON shape is un-owned vendor output.
 `bin/fm-vendor-auth-probe.sh` pins the verified version, reports `versionVerified=no` when the running CLI differs, and classifies unrecognized output as `indeterminate` rather than authenticated.
 Re-run the two commands above and update this section and the pinned version together when the vendor CLI changes.
 

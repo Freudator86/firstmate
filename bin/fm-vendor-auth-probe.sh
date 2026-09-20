@@ -28,9 +28,11 @@
 # docs/verification/dispatch-auth.md.
 #
 # Registered probes:
-#   claude `claude auth status` - Claude Code. Verified on 2.1.266: stdout
-#          contains `loggedIn: true` for a usable session and `loggedIn: false`
-#          for the no-session case. The exit status is never a verdict.
+#   claude `claude auth status` - Claude Code. Verified on 2.1.276: stdout is a
+#          JSON document whose `loggedIn` member is `true` for a usable session
+#          and `false` for the no-session case. Whitespace is stripped before
+#          matching, so the discriminator does not depend on the vendor's
+#          indentation. The exit status is never a verdict.
 #   grok   `grok models` - the standalone Grok Build CLI. Verified on grok
 #          0.2.117: the command exits 0 in BOTH the authenticated and the
 #          unauthenticated case, so only the literal first stdout line
@@ -66,7 +68,7 @@
 #                                  `alarm 0` both mean "no deadline".
 set -u
 
-VERIFIED_CLAUDE_VERSION=2.1.266
+VERIFIED_CLAUDE_VERSION=2.1.276
 VERIFIED_GROK_VERSION=0.2.117
 
 usage() {
@@ -157,7 +159,7 @@ vendor_semver() {  # <command> [version args...]
   local output cmd=$1
   shift
   output=$(fm_run_timed "$TIMEOUT" "$cmd" "$@" 2>/dev/null </dev/null) || { printf 'none\n'; return 0; }
-  printf '%s\n' "$output" | sed -nE 's/.*[^0-9]([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1 | grep . || printf 'none\n'
+  printf '%s\n' "$output" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 | grep . || printf 'none\n'
 }
 
 claude_version() {
@@ -171,9 +173,9 @@ probe_claude() {
     printf 'timeout\n'
     return 0
   fi
-  case "$output" in
-    *'loggedIn: true'*) printf 'authenticated\n' ;;
-    *'loggedIn: false'*) printf 'unauthenticated\n' ;;
+  case "$(printf '%s' "$output" | tr -d ' \t\n')" in
+    *'"loggedIn":true'*) printf 'authenticated\n' ;;
+    *'"loggedIn":false'*) printf 'unauthenticated\n' ;;
     *) printf 'indeterminate\n' ;;
   esac
 }

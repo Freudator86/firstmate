@@ -158,16 +158,15 @@ cat > "$FAKEBIN/claude" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   --version)
-    printf 'claude 2.1.266\n'
+    printf '2.1.276 (Claude Code)\n'
     exit 0
     ;;
   auth)
     if [ "${2:-}" = status ]; then
       case "${CLAUDE_CONFIG_DIR:-}" in
-        */claude-max-b) printf 'loggedIn: false\nauthMethod: none\n' ;;
-        *) printf 'loggedIn: true\nauthMethod: oauth\n' ;;
+        */claude-max-b) printf '{\n  "loggedIn": false,\n  "authMethod": "none"\n}\n'; exit 1 ;;
+        *) printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n'; exit 0 ;;
       esac
-      exit 0
     fi
     ;;
 esac

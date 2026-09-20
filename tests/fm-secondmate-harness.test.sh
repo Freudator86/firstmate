@@ -449,8 +449,8 @@ SH
   cat > "$fakebin/claude" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  --version) printf 'claude 2.1.266\n'; exit 0 ;;
-  auth) [ "${2:-}" != status ] || { printf 'loggedIn: true\nauthMethod: oauth\n'; exit 0; } ;;
+  --version) printf '2.1.276 (Claude Code)\n'; exit 0 ;;
+  auth) [ "${2:-}" != status ] || { printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n'; exit 0; } ;;
 esac
 exit 0
 SH
@@ -703,8 +703,8 @@ SH
   cat > "$fakebin/claude" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  --version) printf 'claude 2.1.266\n'; exit 0 ;;
-  auth) [ "${2:-}" != status ] || { printf 'loggedIn: true\nauthMethod: oauth\n'; exit 0; } ;;
+  --version) printf '2.1.276 (Claude Code)\n'; exit 0 ;;
+  auth) [ "${2:-}" != status ] || { printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n'; exit 0; } ;;
 esac
 exit 0
 SH

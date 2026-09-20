@@ -99,8 +99,16 @@ case "$cmd" in
     line=$(render_one "$p")
     printf '%s\n' "$line"
     case "$line" in *' auth=authenticated '*) exit 0 ;; esac
-    case "$line" in *' setup=available:'*) printf 'setup: Claude setup-token material is available for profile %s; run the credential installer before launching this profile.\n' "$profile" >&2 ;;
-      *) printf 'setup: Claude setup-token material is absent for profile %s; add setup_token_file in config/claude-profiles.json or authenticate Claude interactively.\n' "$profile" >&2 ;;
+    state=${line#* auth=}; state=${state%% *}
+    case "$state" in
+      indeterminate:*)
+        printf 'auth: Claude authentication for profile %s could not be verified (%s); the bounded vendor probe established nothing, so this launch is refused rather than assumed. Check that the claude CLI is installed and answers `claude auth status` for this profile before retrying.\n' "$profile" "$state" >&2
+        ;;
+      *)
+        case "$line" in *' setup=available:'*) printf 'setup: Claude setup-token material is available for profile %s; run the credential installer before launching this profile.\n' "$profile" >&2 ;;
+          *) printf 'setup: Claude setup-token material is absent for profile %s; add setup_token_file in config/claude-profiles.json or authenticate Claude interactively.\n' "$profile" >&2 ;;
+        esac
+        ;;
     esac
     exit 1
     ;;
