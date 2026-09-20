@@ -1,0 +1,11 @@
+--- tests/fm-remote-home-provision.test.sh run against the BASE (pre-fix) bin/ ---
+Please make sure you have the correct access rights
+and the repository exists.
+error: could not clone the remote Firstmate home
+exit=1
+--- tests/fm-remote-code-root-ownership.test.sh run against the BASE (pre-fix) bin/ ---
+not ok - sync could not import the parent's commit from an unowned code root: error: remote home could not import 34febf01c31e89f30d9968843b07053a34096b06 from this host's Firstmate copy or the home's origin; run /updatefirstmate to refresh this host's copy, or push that commit first
+exit=1
+--- tests/fm-remote-secondmate-lifecycle-e2e.test.sh run against the BASE (pre-fix) bin/ ---
+not ok - remote charter did not use its host-local steering inbox
+exit=1

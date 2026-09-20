@@ -1,0 +1,53 @@
+### AFTER FIX (branch head 4abbe53)
+code root under test: /home/quartermaster/.no-mistakes/worktrees/d629afe4b711/01M303T5PDJJVT4609QXQNG6F0 (4abbe53)
+parent home: /tmp/fm-steer-drive.8CZ7QC/parent
+remote home (other host): /tmp/fm-steer-drive.8CZ7QC/remote-home
+
+== captain seeds a remote secondmate onto the build host
+provisioned: /tmp/fm-steer-drive.8CZ7QC/remote-home projects=0
+home=remote-mac:/tmp/fm-steer-drive.8CZ7QC/remote-home
+
+== the steering inbox the seeded charter tells the mate to read
+42:Firstmate steers you through durable message files in '/tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox'.
+43:When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list '/tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox'/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: `mv '/tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox'/NNN.msg '/tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox'/handled/`.
+
+== captain launches the mate on that host
+spawned ios harness=codex kind=secondmate mode=secondmate yolo=off window=remote:ios worktree=/tmp/fm-steer-drive.8CZ7QC/remote-home remote=remote-mac backend=herdr
+
+== the command the remote agent pane was actually launched with
+export COMPACT_ADVISER_DISABLE=1; FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_PUBLIC_FOLLOWUP_PRIMARY_HO
+ME='/tmp/fm-steer-drive.8CZ7QC/remote-root' FM_HOME='/tmp/fm-steer-drive.8CZ7QC/remote-home' FM_TRACE_CONTEXT=off FM_SUPERVISION_MODEL=persistent env -u CURSOR_
+AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI codex --dangerously-bypass-approvals-and-sandbox "$('/tmp/fm-steer-drive.8CZ7QC/remote-root/bin/fm-operational-input.sh
+' encode launch-brief < '/tmp/fm-steer-drive.8CZ7QC/remote-home/data/.parent-route/ios/launch-brief.md')"
+
+== the prompt file that launch command feeds the agent: /tmp/fm-steer-drive.8CZ7QC/remote-home/data/.parent-route/ios/launch-brief.md
+# Current secondmate launch route
+This launch-time route contract supersedes any conflicting instruction-inbox path in the standing charter below.
+Your firstmate instruction inbox for this launch is '/tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox'; this exact path belongs to this routed secondmate endpoint, so read and acknowledge its messages under the charter's own instruction-inbox procedure and do not substitute another home or the charter's older path.
+
+
+== inbox path the launched agent is told to read: /tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox
+
+== captain routes a request to the mate
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+== the doorbell the mate's pane received
+Firstmate instruction waiting: list '/tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox'/handled/. --session fm-remote
+
+== where the durable record actually landed
+/tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox/001.msg
+
+== the mate now follows its launch instructions literally
+read /tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox/001.msg:
+schema=fm-task-inbox.v1
+at=2026-09-20T20:25:50Z
+--
+[fm-from-firstmate]⁣corr=d4cb4e64a8a191e5 Run the alpha smoke check and report the result.acknowledged -> /tmp/fm-steer-drive.8CZ7QC/remote-home/state/parent-route/ios.inbox/handled/001.msg
+
+RESULT: the mate found and acknowledged the captain request at the path it was told to read.

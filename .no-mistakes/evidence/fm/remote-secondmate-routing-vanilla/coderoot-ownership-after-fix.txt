@@ -1,0 +1,23 @@
+### AFTER FIX (branch head 4abbe53)
+code root under test: /home/quartermaster/.no-mistakes/worktrees/d629afe4b711/01M303T5PDJJVT4609QXQNG6F0
+
+== what plain git does with that code root as this agent account (the real refusal)
+fatal: detected dubious ownership in repository at '/tmp/fm-own-drive.FlizUD/shared-checkout/.git'
+To add an exception for this directory, call:
+
+
+== operator provisions the remote secondmate home on this host
+provisioned: /tmp/fm-own-drive.FlizUD/remote-home projects=0
+home exists: /tmp/fm-own-drive.FlizUD/remote-home (HEAD 7422719)
+
+== the parent's code root advances, and the operator syncs the mate to it
+synced: 615fe7e7c68f44f32007654cf620c45dcd9f225d instr=AGENTS.md
+home HEAD now: 615fe7e / code root HEAD: 615fe7e
+
+== the operator runs the remote update leg (code root refresh, then mate follows)
+synced: 834adb516a95e67d8e0f26e2a23be6433ffb0364 instr=AGENTS.md
+code root HEAD after update: 834adb5 (origin tip 834adb5)
+
+== afterwards the code root is still refused - no durable exception was left behind
+fatal: detected dubious ownership in repository at '/tmp/fm-own-drive.FlizUD/shared-checkout'
+To add an exception for this directory, call:

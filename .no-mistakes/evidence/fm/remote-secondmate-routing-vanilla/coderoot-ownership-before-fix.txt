@@ -1,0 +1,19 @@
+### BEFORE FIX (base a09090d)
+code root under test: /tmp/fm-base-root
+
+== what plain git does with that code root as this agent account (the real refusal)
+fatal: detected dubious ownership in repository at '/tmp/fm-own-drive.GY3E2z/shared-checkout/.git'
+To add an exception for this directory, call:
+
+
+== operator provisions the remote secondmate home on this host
+fatal: detected dubious ownership in repository at '/tmp/fm-own-drive.GY3E2z/shared-checkout/.git'
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory /tmp/fm-own-drive.GY3E2z/shared-checkout/.git
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+error: could not clone the remote Firstmate home
+PROVISIONING FAILED - no remote secondmate home can exist on this host
