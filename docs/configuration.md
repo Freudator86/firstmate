@@ -455,6 +455,8 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 
 `id` is required and must match `^[a-z0-9]+(-[a-z0-9]+)*$`; every other field is optional.
 `config_dir` selects the Claude credential/config directory for that pool.
+A named (non-`default`) pool is only honored on a platform where separating Anthropic accounts by `CLAUDE_CONFIG_DIR` has been verified first-hand, which today means Linux; elsewhere `fm-claude-auth.sh` reports `unsupported:pool-separation-unverified` and every caller refuses, because a shared credential keychain could answer for a different account than the pool names ([dispatch-auth.md](verification/dispatch-auth.md#account-separation-by-claude_config_dir) owns that measurement and how to extend it).
+The `default` profile names the ambient store the launch would have used anyway and is unaffected on every platform.
 Firstmate synthesizes a `default` profile using `CLAUDE_CONFIG_DIR` or `$HOME/.claude` whenever the file does not list one, so a pools-only file still answers spawns that name no profile - secondmates, relaunches of records written before this file existed, and manual `--harness claude`; an explicit `default` entry overrides the synthesized one.
 `setup_token_file` is a presence probe for local setup-token material on the fleet credential path only; the script reports available or absent and never reads or prints the value.
 `fm-spawn.sh --claude-profile <id>` refuses a Claude launch before endpoint creation unless the bounded Claude vendor probe reports an authenticated session with that profile's `CLAUDE_CONFIG_DIR` scoped into the probe.
@@ -505,7 +507,7 @@ The resolver supplies the fixed neutral Choice option `No listed rule applies to
 `approval` accepts only `"captain"` and means a task the rule matches is never dispatched from the tool's answer alone.
 A rule `floor` names the quota-axi `provider` and `scope` whose `effectivePercentRemaining` must be at least `min_percent` for the rule's profiles to apply.
 A known percentage below it makes the tool resolve among `default` instead; an absent or unknown row or unmeasured provider makes the floor unverifiable and escalates without authorizing default routing.
-A profile `provider` optionally names the quota-axi provider family whose rows apply to that profile; `claude_profile` names the local Claude profile to preflight when `harness` is `claude`, and omission means `default`.
+A profile `provider` optionally names the quota-axi provider family whose rows apply to that profile; `claude_profile` names the local Claude profile to preflight, belongs only on a profile whose `harness` is `claude`, and its omission means `default`.
 When present, profile and rule-floor provider IDs and `claude_profile` must match the strict whole-string pattern `^[a-z0-9]+(-[a-z0-9]+)*\z`.
 Bootstrap validates resolver-only `approval`, `floor`, and present `provider` values only while typed resolution is active; without the key those inert fields and the pre-existing verified-harness baseline preserve bootstrap behavior.
 Typed resolution additively recognizes `gemini` because AGENTS.md section 4 verifies it for crewmate and scout dispatch.

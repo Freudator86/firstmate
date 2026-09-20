@@ -14,6 +14,13 @@
 # pools-only file still answers a spawn that names no profile; an explicit
 # `default` entry overrides the synthesized one.
 # setup_token_file is a presence probe; its value is never read into output.
+#
+# A named (non-default) profile is a per-account capacity pool, which rests on
+# CLAUDE_CONFIG_DIR deciding which Anthropic account answers. That separation is
+# verified first-hand only on Linux (docs/verification/dispatch-auth.md), so a
+# named profile reports `unsupported:pool-separation-unverified` on every other
+# platform instead of a probe verdict that a shared credential keychain could
+# answer from the wrong account. The `default` profile is unaffected.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,6 +29,7 @@ FM_HOME="${FM_HOME:-$FM_ROOT}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 PROFILE_FILE="$CONFIG/claude-profiles.json"
 ID_RE='^[a-z0-9]+(-[a-z0-9]+)*$'
+POOL_SEPARATION_VERIFIED_PLATFORM=Linux
 
 die() { printf 'error: %s\n' "$1" >&2; exit 2; }
 need_jq() { command -v jq >/dev/null 2>&1 || die 'jq required'; }
@@ -71,13 +79,21 @@ auth_state() {
   esac
 }
 
+pool_separation_verified() {
+  [ "$(uname -s 2>/dev/null)" = "$POOL_SEPARATION_VERIFIED_PLATFORM" ]
+}
+
 render_one() {
   local p=$1 id dir setup_file auth setup
   id=$(jq -r '.id' <<<"$p")
   dir=$(jq -r '.config_dir // empty' <<<"$p")
   setup_file=$(jq -r '.setup_token_file // empty' <<<"$p")
   [ -n "$dir" ] || dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
-  auth=$(auth_state "$dir")
+  if [ "$id" != default ] && ! pool_separation_verified; then
+    auth=unsupported:pool-separation-unverified
+  else
+    auth=$(auth_state "$dir")
+  fi
   setup=$(setup_state "$setup_file")
   printf 'profile=%s auth=%s setup=%s config_dir=%s\n' "$id" "$auth" "$setup" "$dir"
 }
@@ -101,6 +117,9 @@ case "$cmd" in
     case "$line" in *' auth=authenticated '*) exit 0 ;; esac
     state=${line#* auth=}; state=${state%% *}
     case "$state" in
+      unsupported:*)
+        printf 'auth: Claude profile %s is a named capacity pool, and separating accounts by CLAUDE_CONFIG_DIR is verified first-hand only on %s (docs/verification/dispatch-auth.md). On this platform a shared credential store can answer for a different account than the pool names, so named pools are refused rather than silently spending the wrong account. Use the default profile here, or record a first-hand measurement for this platform before enabling named pools on it.\n' "$profile" "$POOL_SEPARATION_VERIFIED_PLATFORM" >&2
+        ;;
       indeterminate:*)
         printf 'auth: Claude authentication for profile %s could not be verified (%s); the bounded vendor probe established nothing, so this launch is refused rather than assumed. Check that the claude CLI is installed and answers `claude auth status` for this profile before retrying.\n' "$profile" "$state" >&2
         ;;

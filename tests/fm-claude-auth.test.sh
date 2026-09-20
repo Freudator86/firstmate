@@ -34,6 +34,17 @@ exit 2
 SH
 chmod +x "$FAKEBIN/claude"
 
+REAL_UNAME=$(command -v uname)
+cat > "$FAKEBIN/uname" <<SH
+#!/usr/bin/env bash
+if [ -n "\${FM_FAKE_UNAME:-}" ] && [ "\${1:-}" = -s ]; then
+  printf '%s\\n' "\$FM_FAKE_UNAME"
+  exit 0
+fi
+exec "$REAL_UNAME" "\$@"
+SH
+chmod +x "$FAKEBIN/uname"
+
 write_creds() {
   local dir=$1 secret=${2:-secret-value}
   mkdir -p "$dir"
@@ -153,6 +164,27 @@ assert_contains "$out" 'auth=indeterminate:vendor-probe' "the unclassifiable sta
 assert_contains "$out" 'could not be verified' "an indeterminate probe should say the state was never established"
 assert_not_contains "$out" 'authenticate Claude interactively' "an indeterminate probe must not send the operator to re-login"
 pass "fm-claude-auth: an indeterminate probe refuses without claiming the profile is logged out"
+
+case_dir="$TMP_ROOT/unverified-platform"
+make_home "$case_dir/home"
+write_creds "$case_dir/a"
+mkdir -p "$case_dir/ambient"
+write_creds "$case_dir/ambient"
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a"}]}
+EOF
+out=$(PATH="$FAKEBIN:$PATH" FM_FAKE_UNAME=Darwin CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
+expect_code 1 "$status" "a named pool must refuse where account separation is unverified"
+assert_contains "$out" 'auth=unsupported:pool-separation-unverified' "the platform limit should be reported as its own state"
+assert_contains "$out" 'verified first-hand only on Linux' "the refusal should name the verified platform"
+assert_not_contains "$out" 'auth=authenticated' "an unverified platform must not yield an authenticated verdict"
+out=$(PATH="$FAKEBIN:$PATH" FM_FAKE_UNAME=Darwin CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
+expect_code 0 "$status" "the default profile must keep working on every platform: $out"
+assert_contains "$out" 'profile=default auth=authenticated' "the ambient default profile should still be probed normally"
+out=$(PATH="$FAKEBIN:$PATH" CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
+expect_code 0 "$status" "a named pool must still work on the verified platform: $out"
+assert_contains "$out" 'auth=authenticated' "the verified platform should still probe named pools"
+pass "fm-claude-auth: named pools are refused where CLAUDE_CONFIG_DIR account separation is unverified"
 
 case_dir="$TMP_ROOT/malformed"
 make_home "$case_dir/home"

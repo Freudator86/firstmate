@@ -299,6 +299,7 @@ fm_test_make_spawn_fakebin() {
   shift
   fakebin=$(fm_fakebin "$dir")
   fm_test_fake_tmux_spawn "$fakebin"
+  fm_fake_exit0 "$fakebin" treehouse "$@"
   cat > "$fakebin/claude" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
@@ -320,7 +321,6 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/claude"
-  fm_fake_exit0 "$fakebin" treehouse "$@"
   printf '%s\n' "$fakebin"
 }
 
