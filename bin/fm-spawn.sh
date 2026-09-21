@@ -2238,6 +2238,14 @@ if [ "$HARNESS" != claude ] && [ "$CLAUDE_PROFILE_SET" -eq 1 ]; then
   printf 'error: --claude-profile names a Claude capacity pool, but this spawn resolved harness %s; drop the flag or spawn on claude\n' "$HARNESS" >&2
   exit 1
 fi
+if [ "$HARNESS" = claude ] && [ "$RAW_LAUNCH" = 1 ]; then
+  case "$LAUNCH" in
+    CLAUDE_CONFIG_DIR=* | *' CLAUDE_CONFIG_DIR='*)
+      printf 'error: the raw launch command sets CLAUDE_CONFIG_DIR itself, which would take effect after the store the Claude profile preflight checked; that worker would use an unchecked account while its record named the checked one. Drop the assignment from the command and select the store with --claude-profile, or launch it on a non-claude command.\n' >&2
+      exit 1
+      ;;
+  esac
+fi
 if [ "$HARNESS" = claude ]; then
   CLAUDE_PROFILE=${CLAUDE_PROFILE:-default}
   CLAUDE_AUTH_OUT=$("$FM_ROOT/bin/fm-claude-auth.sh" check --profile "$CLAUDE_PROFILE" 2>&1) || {

@@ -295,6 +295,39 @@ expect_code 1 "$status" "repointing the store at another directory must invalida
 assert_contains "$out" 'auth=unattested:' "a repointed store must not stay launch-ready"
 pass "fm-claude-auth: a named pool stays ready across vendor updates and refuses on a changed store or a superseded setup contract"
 
+case_dir="$TMP_ROOT/aliased-stores"
+make_home "$case_dir/home"
+write_creds "$case_dir/shared"
+fm_test_attest_claude_pool "$case_dir/shared"
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/shared"},{"id":"claude-max-b","config_dir":"$case_dir/shared/"}]}
+EOF
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" evidence 2>&1); status=$?
+expect_code 2 "$status" "two pools naming one store must make the profile file invalid"
+assert_contains "$out" 'profiles claude-max-a and claude-max-b name the same Claude store' "the diagnostic should name both offending pools"
+assert_not_contains "$out" 'auth=authenticated' "aliased pools must never both be cleared for launch"
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-b 2>&1); status=$?
+expect_code 2 "$status" "checking an aliased pool must fail as a configuration error"
+
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/ambient"}]}
+EOF
+mkdir -p "$case_dir/ambient"
+out=$(PATH="$FAKEBIN:$PATH" CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case_dir/home" "$AUTH" evidence 2>&1); status=$?
+expect_code 2 "$status" "a named pool naming the ambient default store must be rejected"
+assert_contains "$out" 'name the same Claude store' "aliasing the synthesized default should be named the same way"
+assert_contains "$out" 'default' "the diagnostic should name the default profile it collides with"
+pass "fm-claude-auth: two profiles may not name one Claude store, so a pool can never spend another account"
+
+case_dir="$TMP_ROOT/help"
+out=$(PATH="$FAKEBIN:$PATH" "$AUTH" check --help 2>&1); status=$?
+expect_code 0 "$status" "check --help should succeed"
+assert_contains "$out" 'attest --profile <id> --confirm-setup-complete' "help should advertise the attest command"
+assert_contains "$out" 'unattested' "help should explain the verdict the command it advertises clears"
+assert_contains "$out" 'POOL_ATTESTATION_CONTRACT' "help should reach the attestation staleness rules"
+assert_not_contains "$out" 'set -u' "help should stop at the end of the header, not spill into the script"
+pass "fm-claude-auth: --help documents every subcommand it advertises"
+
 case_dir="$TMP_ROOT/malformed"
 make_home "$case_dir/home"
 printf '%s\n' '{"profiles":[{"id":"claude-max-a",}]}' > "$case_dir/home/config/claude-profiles.json"

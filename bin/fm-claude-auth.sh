@@ -9,8 +9,9 @@
 # Local config lives at config/claude-profiles.json in the active FM_HOME.
 # Schema:
 #   {"profiles":[{"id":"claude-max-a","config_dir":"/abs/path/to/.claude-a","setup_token_file":"/secret/path"}]}
-# Every named (non-default) profile must declare config_dir, since a named pool
-# that fell back to the ambient store would alias the default account. Only the
+# Every named (non-default) profile must declare config_dir, and no two profiles
+# may name the same store, since a pool that shared another store would spend
+# that account while every operator-facing line reported its own. Only the
 # `default` profile may omit it; it then defaults to this process's
 # CLAUDE_CONFIG_DIR, and when that is unset it is ambient, reported as an empty
 # config_dir, probed with the variable unset, and launched without one, which
@@ -71,8 +72,14 @@ json_profiles() {
       elif any(.profiles[]; .id != "default" and (has("config_dir") | not)) then error("named profile " + ([.profiles[] | select(.id != "default" and (has("config_dir") | not)) | .id] | first) + " needs its own config_dir, because a named capacity pool must never fall back to the ambient default store")
       elif any(.profiles[]; has("config_dir") and ((.config_dir | type) != "string" or (.config_dir | length) == 0 or (.config_dir | startswith("/") | not))) then error("profile config_dir must be an absolute path")
       elif any(.profiles[]; has("setup_token_file") and ((.setup_token_file | type) != "string" or (.setup_token_file | length) == 0 or (.setup_token_file | startswith("/") | not))) then error("profile setup_token_file must be an absolute path")
-      elif any(.profiles[]; .id == "default") then .profiles
-      else .profiles + [{id: "default"} + (if $dir == "" then {} else {config_dir: $dir} end)] end' "$PROFILE_FILE" 2>&1) || {
+      else (if any(.profiles[]; .id == "default") then .profiles
+            else .profiles + [{id: "default"} + (if $dir == "" then {} else {config_dir: $dir} end)] end) as $all
+        | ([$all[] | select(has("config_dir")) | {id, store: (.config_dir | sub("/+$"; ""))}]
+           | group_by(.store) | map(select(length > 1)) | first) as $clash
+        | if $clash != null
+          then error("profiles " + ($clash | map(.id) | join(" and ")) + " name the same Claude store " + $clash[0].store + "; each capacity pool needs its own config_dir, or firstmate would spend one account while reporting another")
+          else $all end
+      end' "$PROFILE_FILE" 2>&1) || {
       out=${out%%$'\n'*}
       die "config/claude-profiles.json is malformed: ${out#jq: error (at *): }"
     }
@@ -168,7 +175,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --profile) [ $# -ge 2 ] || die '--profile needs a value'; profile=$2; shift 2 ;;
     --confirm-setup-complete) confirm_setup=1; shift ;;
-    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
