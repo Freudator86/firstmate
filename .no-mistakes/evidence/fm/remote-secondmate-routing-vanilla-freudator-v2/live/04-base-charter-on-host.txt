@@ -1,0 +1,14 @@
+### Charter PUBLISHED ON THE HOST by the base-commit (dee119b) seed, instruction-inbox section:
+# Firstmate instruction inbox
+Firstmate steers you through durable message files in '/tmp/fm-live-probe-01M31/parent/state/probe-oldseed.inbox'.
+When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list '/tmp/fm-live-probe-01M31/parent/state/probe-oldseed.inbox'/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: `mv '/tmp/fm-live-probe-01M31/parent/state/probe-oldseed.inbox'/NNN.msg '/tmp/fm-live-probe-01M31/parent/state/probe-oldseed.inbox'/handled/`.
+The move IS the acknowledgement: without it firstmate rings again and eventually treats you as stuck. An empty or absent inbox needs no action.
+
+# Escalation to main firstmate
+--- parent-home paths in charter:
+2
+--- does that path exist on the host?
+ls: cannot access '/tmp/fm-live-probe-01M31/parent/state/probe-oldseed.inbox': No such file or directory
+--- the inbox fm-send delivers to (remote route):
+ls: cannot access '/home/fmremote/fm-home-probe-old/state/parent-route/probe-oldseed.inbox': No such file or directory
+9830194054e2f21a1890179d644ebd120adf9ed26948fb95b41e44f193129924  /home/fmremote/fm-home-probe-old/data/charter.md

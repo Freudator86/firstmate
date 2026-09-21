@@ -1,0 +1,7 @@
+$ FM_HOME=/tmp/fm-live-probe-01M31/parent bin/fm-teardown.sh probe-ak-fresh
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+teardown probe-ak-fresh complete (remote ak-secondmate:/home/fmremote/fm-home-probe)
+teardown probe-ak-fresh exit: 0
+$ FM_HOME=/tmp/fm-live-probe-01M31/parent bin/fm-teardown.sh probe-oldseed
+error: teardown refused: task record is not a regular file at /tmp/fm-live-probe-01M31/parent/state/probe-oldseed.meta
+teardown probe-oldseed exit: 1

@@ -1,0 +1,23 @@
+# sandbox parent state/ was created 0775; the process-event runner requires a private dir. chmod 700 applied, then:
+$ FM_HOME=/tmp/fm-live-probe-01M31/parent FM_PROCEVENT_CLAIM_ROOT=/tmp/fm-live-probe-01M31/claims bin/fm-procevent-remote-reply.sh arm probe-ak-fresh
+registered: remote-reply-probe-ak-fresh (remote-reply)
+armed: remote-reply-probe-ak-fresh offset=0
+arm exit: 0
+window=remote:probe-ak-fresh
+endpoint_task_id=probe-ak-fresh
+worktree=/home/fmremote/fm-home-probe
+project=/home/fmremote/firstmate-probe-ad500bf
+harness=claude
+kind=secondmate
+mode=secondmate
+yolo=off
+tasktmp=
+model=
+effort=
+home=/home/fmremote/fm-home-probe
+projects=
+remote_host=ak-secondmate
+remote_root=/home/fmremote/firstmate-probe-ad500bf
+remote_backend=herdr
+remote_herdr_session=fm-remote
+remote_target=fm-remote:w3:p2

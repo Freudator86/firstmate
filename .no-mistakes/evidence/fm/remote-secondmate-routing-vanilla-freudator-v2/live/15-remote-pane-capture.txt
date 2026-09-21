@@ -1,0 +1,23 @@
+  '/home/fmremote/fm-home-probe/state/parent-route/pr
+  obe-ak-fresh.inbox'/*.msg and, in numeric order,
+  read and act on each, then mv each handled file to
+  '/home/fmremote/fm-home-probe/state/parent-route/pr
+  obe-ak-fresh.inbox'/handled/.
+
+  Read 1 file, ran 3 shell commands
+
+● Reply appended with the correlation token intact.
+  Now acknowledging the handled instruction message.
+
+  Ran 1 shell command
+
+● Done — inbox is empty (only handled/ remains). Per
+  charter, going idle now and waiting silently for the
+  next routed request.
+
+✻ Crunched for 20s · done 8:09 AM
+
+──────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ←…

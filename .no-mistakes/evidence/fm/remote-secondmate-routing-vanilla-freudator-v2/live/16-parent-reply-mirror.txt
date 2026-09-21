@@ -1,0 +1,13 @@
+$ FM_HOME=/tmp/fm-live-probe-01M31/parent bin/fm-procevent.sh start remote-reply-probe-ak-fresh   # one-shot run of the reply source the sandbox has no watcher for
+autohandled: remote-reply-probe-ak-fresh
+cannot retire terminal source; it remains registered: remote-reply-probe-ak-fresh
+captured: /tmp/fm-live-probe-01M31/parent/state/procevent-inbox/remote-reply-probe-ak-fresh.1.result
+start exit: 0
+
+### Parent status stream:
+done [corr=609fd3ad172c8aeb] [at=1789978162]: LIVEPROOF-01M31 (via-helper)
+### Parent pending-reply record:
+corr_id=609fd3ad172c8aeb
+phase=resolved
+resolved_epoch=1789978189
+resolved_via=helper

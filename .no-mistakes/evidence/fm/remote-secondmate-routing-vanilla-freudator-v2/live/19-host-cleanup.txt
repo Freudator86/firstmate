@@ -1,0 +1,20 @@
+lrwxrwxrwx 1 fmremote fmremote 68 Sep 21 08:10 /home/fmremote/.local/bin/fm-remote-entrypoint.sh -> /home/fmremote/firstmate-routing-vanilla/bin/fm-remote-entrypoint.sh
+--- home dir after cleanup ---
+drwx------  3 fmremote fmremote  4096 Sep 21 08:03 .firstmate
+drwxr-xr-x  2 fmremote fmremote  4096 Sep 21 08:07 .firstmate-provision-locks
+drwxrwxr-x 18 fmremote fmremote  4096 Sep 20 19:06 firstmate-routing-vanilla
+drwxrwxr-x 22 fmremote fmremote  4096 Sep 21 00:35 fm-home
+--- original code root preserved ---
+461238887a744bb98b2a0ca57e534df003f23955
+fm/remote-secondmate-routing-vanilla
+0
+--- ordinary home intact ---
+throwaway-ak-vanilla
+7684c7cf7061ed34bbee90465c496c211ad58ef8fb5b7d7d5048cdeee70c29a5  /home/fmremote/fm-home/data/charter.md
+001.msg
+002.msg
+003.msg
+004.msg
+--- panes ---
+"cwd":"/home/fmremote/fm-home"
+"pane_id":"w1:p2"

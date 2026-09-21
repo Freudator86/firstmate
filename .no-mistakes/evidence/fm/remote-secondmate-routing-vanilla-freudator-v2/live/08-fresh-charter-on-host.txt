@@ -1,0 +1,15 @@
+### Parent brief (source of truth) names the PARENT inbox:
+42:Firstmate steers you through durable message files in '/tmp/fm-live-probe-01M31/parent/state/probe-ak-fresh.inbox'.
+
+### Charter published into the brand-new remote home /home/fmremote/fm-home-probe:
+# Firstmate instruction inbox
+Firstmate steers you through durable message files in '/home/fmremote/fm-home-probe/state/parent-route/probe-ak-fresh.inbox'.
+When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list '/home/fmremote/fm-home-probe/state/parent-route/probe-ak-fresh.inbox'/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: `mv '/home/fmremote/fm-home-probe/state/parent-route/probe-ak-fresh.inbox'/NNN.msg '/home/fmremote/fm-home-probe/state/parent-route/probe-ak-fresh.inbox'/handled/`.
+The move IS the acknowledgement: without it firstmate rings again and eventually treats you as stuck. An empty or absent inbox needs no action.
+
+# Escalation to main firstmate
+--- parent-home paths left in charter:
+0
+--- parent-replies channel:
+22:Nobody reads this chat: the captain and the main firstmate see only what is appended to '/home/fmremote/fm-home-probe/state/parent-replies.status', and a captain-facing sentence that is not appended there has not been sent.
+49:   `echo "{state} [at=<epoch>]: {one short line}" >> '/home/fmremote/fm-home-probe/state/parent-replies.status'`

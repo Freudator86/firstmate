@@ -1,0 +1,5 @@
+$ FM_HOME=/tmp/fm-live-probe-01M31/parent bin/fm-spawn.sh probe-ak-fresh --secondmate
+warning: remote secondmate probe-ak-fresh sync skipped before launch: primary default-branch commit cannot be resolved
+error: process-event state root is not a private directory
+error: remote secondmate probe-ak-fresh launched, but its reply source could not be armed; endpoint metadata is preserved
+spawn exit: 1

@@ -1,0 +1,4 @@
+$ FM_HOME=/tmp/fm-live-probe-01M31/parent bin/fm-remote-home-seed.sh probe-ak-fresh ak-secondmate /home/fmremote/firstmate-probe-ad500bf /home/fmremote/fm-home-probe --no-projects   # code at ad500bf6739018e36174da53a3b23d9a58e7e710
+provisioned: /home/fmremote/fm-home-probe projects=0
+home=ak-secondmate:/home/fmremote/fm-home-probe
+fresh seed exit: 0

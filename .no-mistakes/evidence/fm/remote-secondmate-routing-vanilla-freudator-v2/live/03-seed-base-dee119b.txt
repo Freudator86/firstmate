@@ -1,0 +1,4 @@
+$ FM_HOME=$P/parent base-code(dee119b tree)/bin/fm-remote-home-seed.sh probe-oldseed ak-secondmate /home/fmremote/firstmate-probe-ad500bf /home/fmremote/fm-home-probe-old --no-projects
+provisioned: /home/fmremote/fm-home-probe-old projects=0
+home=ak-secondmate:/home/fmremote/fm-home-probe-old
+pre-fix seed exit: 0

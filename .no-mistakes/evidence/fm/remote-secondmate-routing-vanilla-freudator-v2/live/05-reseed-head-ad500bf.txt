@@ -1,0 +1,8 @@
+$ FM_HOME=/tmp/fm-live-probe-01M31/parent bin/fm-remote-home-seed.sh probe-oldseed ak-secondmate /home/fmremote/firstmate-probe-ad500bf /home/fmremote/fm-home-probe-old --no-projects   # code at ad500bf6739018e36174da53a3b23d9a58e7e710
+error: remote provisioning failed; registry restored
+reseed (ad500bf) exit: 1
+### attempt 1 (above) failed: 'remote provisioning failed; registry restored' with empty remote output; a worker from the ordinary route's root (firstmate-routing-vanilla) had replaced the probe worker at 08:05:42
+$ FM_HOME=/tmp/fm-live-probe-01M31/parent bin/fm-remote-home-seed.sh probe-oldseed ak-secondmate /home/fmremote/firstmate-probe-ad500bf /home/fmremote/fm-home-probe-old --no-projects   # code at ad500bf6739018e36174da53a3b23d9a58e7e710 (attempt 2)
+provisioned: /home/fmremote/fm-home-probe-old projects=0
+home=ak-secondmate:/home/fmremote/fm-home-probe-old
+reseed (ad500bf) exit: 0

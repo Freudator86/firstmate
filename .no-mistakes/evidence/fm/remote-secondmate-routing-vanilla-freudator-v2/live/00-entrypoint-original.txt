@@ -1,0 +1,6 @@
+# Entrypoint symlink target recorded BEFORE any change
+/home/fmremote/firstmate-routing-vanilla/bin/fm-remote-entrypoint.sh
+lrwxrwxrwx 1 fmremote fmremote 68 Sep 21 00:52 /home/fmremote/.local/bin/fm-remote-entrypoint.sh -> /home/fmremote/firstmate-routing-vanilla/bin/fm-remote-entrypoint.sh
+vanilla root HEAD: 461238887a744bb98b2a0ca57e534df003f23955 branch=fm/remote-secondmate-routing-vanilla dirty=0
+ls: cannot access '/home/fmremote/firstmate-probe*': No such file or directory
+ls: cannot access '/home/fmremote/fm-home-probe*': No such file or directory

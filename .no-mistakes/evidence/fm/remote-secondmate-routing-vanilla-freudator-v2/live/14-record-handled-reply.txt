@@ -1,0 +1,25 @@
+### Charter (published on host) names this steering inbox:
+durable message files in '/home/fmremote/fm-home-probe/state/parent-route/probe-ak-fresh.inbox'
+
+### Remote inbox tree after fm-send (records + handled/):
+/home/fmremote/fm-home-probe/state/parent-route/probe-ak-fresh.inbox
+./handled/001.msg
+--- ./handled/001.msg
+schema=fm-task-inbox.v1
+at=2026-09-21T08:09:07Z
+--
+[fm-from-firstmate]⁣corr=609fd3ad172c8aeb Routing proof LIVEPROOF-01M31: reply with exactly one short line that contains the token LIVEPROOF-01M31 and nothing else.
+
+### Remote parent channel (the mate's reply log):
+done [corr=609fd3ad172c8aeb] [at=1789978162]: LIVEPROOF-01M31 (via-helper)
+
+### Parent pending-reply record:
+corr_id=609fd3ad172c8aeb
+task_id=probe-ak-fresh
+phase=awaiting_report
+resolved_epoch=
+resolved_via=
+delivered_epoch=1789978149
+
+### Parent status stream:
+cat: /tmp/fm-live-probe-01M31/parent/state/probe-ak-fresh.status: No such file or directory
