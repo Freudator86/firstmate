@@ -1,0 +1,16 @@
+# Round 2: onboarding gate, live against claude 2.1.276 (Claude Code) on Linux; lab session fm-lab-onbgate-1187105-18434
+# ambient ~/.claude.json onboarding flag (read-only):
+{"hasCompletedOnboarding":null}
+
+=== S1: default profile, ambient store (logged in, onboarding incomplete) ===
+$ fm-claude-auth.sh check --profile default
+profile=default auth=unonboarded:first-run-onboarding-incomplete setup=absent config_dir=
+setup: Claude profile default is logged in, but its store (/home/quartermaster/.claude.json) has not completed Claude's first-run onboarding (unonboarded:first-run-onboarding-incomplete), so a worker would open on the interactive text-style/theme screen firstmate cannot answer; the launch is refused rather than wedged. Run claude interactively once for this profile and finish the onboarding, then retry.
+exit=1
+$ fm-spawn.sh ta <proj> --harness claude --mode local-only --yolo off --backend herdr
+error: Claude profile default is not ready for worker launch; refusing before launch. profile=default auth=unonboarded:first-run-onboarding-incomplete setup=absent config_dir=
+setup: Claude profile default is logged in, but its store (/home/quartermaster/.claude.json) has not completed Claude's first-run onboarding (unonboarded:first-run-onboarding-incomplete), so a worker would open on the interactive text-style/theme screen firstmate cannot answer; the launch is refused rather than wedged. Run claude interactively once for this profile and finish the onboarding, then retry.
+exit=1
+meta: none
+lab panes: []
+treehouse slots for this scratch project: 0

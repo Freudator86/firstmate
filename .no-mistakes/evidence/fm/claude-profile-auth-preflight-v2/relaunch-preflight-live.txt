@@ -1,0 +1,11 @@
+# default profile's store now points at an unauthenticated scratch store; the running td worker recorded claude_profile=default
+$ fm-control.sh td relaunch --note 'preflight check'
+error: Claude profile default is not ready for the replacement worker, so relaunching td onto it would stop the running agent for a launch that must be refused; restore that pool's login with bin/fm-claude-auth.sh before relaunching. profile=default auth=unauthenticated:vendor-probe setup=absent config_dir=<scratch>/pool-c
+setup: Claude setup-token material is absent for profile default; add setup_token_file in config/claude-profiles.json or authenticate Claude interactively.
+exit=1
+# pane after refused relaunch:
+{"pane_id":"w1:p2","agent":"claude"}
+harness=claude
+claude_profile=default
+herdr_pane_id=w1:p2
+(no relaunch journal left)

@@ -1,0 +1,38 @@
+$ cat config/claude-profiles.json
+{"profiles":[
+ {"id":"claude-max-a","config_dir":"<scratch>/alias-of-ambient"},
+ {"id":"claude-max-b","config_dir":"<scratch>/pool-b","setup_token_file":"<scratch>/secret/token"}
+]}
+
+$ FM_HOME=<home> bin/fm-claude-auth.sh check --profile default
+profile=default auth=authenticated setup=absent config_dir=
+exit=0
+
+$ FM_HOME=<home> bin/fm-claude-auth.sh check --profile claude-max-a
+profile=claude-max-a auth=unattested:setup-not-attested setup=absent config_dir=<scratch>/alias-of-ambient
+setup: Claude profile claude-max-a is logged in, but its one-time interactive first-run setup for <scratch>/alias-of-ambient has not been attested (unattested:setup-not-attested). Claude records the Bypass Permissions disclaimer and the external-CLAUDE.md-import consent in that store, and firstmate cannot answer either dialog, so the launch is refused rather than wedged. Complete the per-pool setup in docs/configuration.md "Claude profiles", then run: /home/quartermaster/.no-mistakes/worktrees/d629afe4b711/01M31FTR20PH923DNZQYH8HJT4/bin/fm-claude-auth.sh attest --profile claude-max-a --confirm-setup-complete
+exit=1
+
+$ FM_HOME=<home> bin/fm-claude-auth.sh check --profile claude-max-b
+profile=claude-max-b auth=unauthenticated:vendor-probe setup=available:file config_dir=<scratch>/pool-b
+setup: Claude setup-token material is available for profile claude-max-b; run the credential installer before launching this profile.
+exit=1
+
+$ FM_HOME=<home> bin/fm-claude-auth.sh check --profile nonexistent
+error: Claude profile not configured in this home: nonexistent; config/claude-profiles.json is per-home and is never inherited between firstmate homes, so install this home's own file listing nonexistent with locally valid paths through the authorized credential path
+exit=2
+
+$ bin/fm-claude-auth.sh evidence
+profile=claude-max-a auth=unattested:setup-not-attested setup=absent config_dir=<scratch>/alias-of-ambient
+profile=claude-max-b auth=unauthenticated:vendor-probe setup=available:file config_dir=<scratch>/pool-b
+profile=default auth=authenticated setup=absent config_dir=
+exit=0
+
+$ bin/fm-claude-auth.sh attest --profile claude-max-b --confirm-setup-complete   (unauthenticated pool)
+error: profile claude-max-b does not probe as authenticated (unauthenticated:vendor-probe), so its interactive setup cannot have been completed; log that pool in first
+exit=2
+.
+..
+.claude.json
+.claude.json.lock
+backups

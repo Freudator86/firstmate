@@ -1,0 +1,16 @@
+=== S2: default profile on a logged-in store whose .claude.json lacks hasCompletedOnboarding ===
+store: <scratch>/store-fresh (.credentials.json -> ambient login, .claude.json = {})
+$ CLAUDE_CONFIG_DIR=<scratch>/store-fresh fm-spawn.sh tb <proj> --harness claude ...
+error: Claude profile default is not ready for worker launch; refusing before launch. profile=default auth=unonboarded:first-run-onboarding-incomplete setup=absent config_dir=<scratch>/store-fresh
+setup: Claude profile default is logged in, but its store (<scratch>/store-fresh) has not completed Claude's first-run onboarding (unonboarded:first-run-onboarding-incomplete), so a worker would open on the interactive text-style/theme screen firstmate cannot answer; the launch is refused rather than wedged. Run claude interactively once for this profile with CLAUDE_CONFIG_DIR=<scratch>/store-fresh and finish the onboarding, then retry.
+exit=1
+meta: none
+
+=== S3: default profile on a store with no login at all (regression) ===
+$ CLAUDE_CONFIG_DIR=<scratch>/store-empty fm-spawn.sh tb <proj> --harness claude ...
+error: Claude profile default is not ready for worker launch; refusing before launch. profile=default auth=unauthenticated:vendor-probe setup=absent config_dir=<scratch>/store-empty
+setup: Claude setup-token material is absent for profile default; add setup_token_file in config/claude-profiles.json or authenticate Claude interactively.
+exit=1
+meta: none
+lab panes after refusals: []
+treehouse slots for this scratch project: 0

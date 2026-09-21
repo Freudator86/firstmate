@@ -1,0 +1,13 @@
+=== S4b: default profile on a logged-in, onboarded store whose operator accepted the Bypass disclaimer ===
+store: <scratch>/store-accepted (.credentials.json -> ambient login, .claude.json = {"hasCompletedOnboarding":true,"theme":"dark"}, settings.json = {"skipDangerousModePermissionPrompt":true})
+$ CLAUDE_CONFIG_DIR=<scratch>/store-accepted fm-spawn.sh td <proj> --harness claude --mode local-only --yolo off --backend herdr
+warning: <scratch>/home/data/td/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: td ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned td harness=claude kind=ship mode=local-only yolo=off window=fm-lab-onbgate-1187105-18434:w1:p3 worktree=/home/quartermaster/.treehouse/proj-5f2cb2/2/proj
+exit=0
+meta:
+worktree=/home/quartermaster/.treehouse/proj-5f2cb2/2/proj
+harness=claude
+claude_profile=default
+backend=herdr
+herdr_pane_id=w1:p3

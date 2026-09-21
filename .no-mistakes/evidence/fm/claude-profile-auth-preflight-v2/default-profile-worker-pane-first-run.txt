@@ -1,0 +1,48 @@
+quartermaster@quartermaster:<scratch>/proj$ treehouse get
+🌳 Setting up worktree...
+🌳 Entered worktree at ~/.treehouse/proj-836734/1/proj. Type 'exit' to return.
+quartermaster@quartermaster:~/.treehouse/proj-836734/1/proj$ export GOTMPDIR=/tmp/fm-td/gotmp
+quartermaster@quartermaster:~/.treehouse/proj-836734/1/proj$ export COMPACT_ADVISER_DISABLE=1
+quartermaster@quartermaster:~/.treehouse/proj-836734/1/proj$ export FM_TASK_ID=td
+quartermaster@quartermaster:~/.treehouse/proj-836734/1/proj$ . '/tmp/fm-td+7e84b9ba779db14f05225cd46c8653e7028d50a518d36
+5fd7355e01d1f7ef815/launch.s1789978214.3895215.18951.sh'
+Welcome to Claude Code v2.1.276
+..........................................................
+
+     *                                       █████▓▓░
+                                 *         ███▓░     ░░
+            ░░░░░░                        ███▓░
+    ░░░   ░░░░░░░░░░                      ███▓░
+   ░░░░░░░░░░░░░░░░░░░    *                ██▓░░      ▓
+                                             ░▓▓███▓▓░
+ *                                 ░░░░
+                                 ░░░░░░░░
+                               ░░░░░░░░░░░░░░░░
+       █████████                                        *
+      ██▄█████▄██                        *
+       █████████      *
+.......█ █   █ █..........................................
+
+ Let's get started.
+
+ Choose the text style that looks best with your terminal
+ To change this later, run /theme
+
+   1. Auto (match terminal)
+ ❯ 2. Dark mode ✔
+   3. Light mode
+   4. Dark mode (colorblind-friendly)
+   5. Light mode (colorblind-friendly)
+   6. Dark mode (ANSI colors only)
+   7. Light mode (ANSI colors only)
+
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1  function greet() {
+  2 -  console.log("Hello, World!");
+  2 +  console.log("Hello, Claude!");
+  3  }
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  Syntax theme: Monokai Extended (ctrl+t to disable)# ambient store onboarding state (read-only jq of ~/.claude.json)
+{"hasCompletedOnboarding":null,"lastOnboardingVersion":null}
+# preflight verdict for the same store
+profile=default auth=authenticated setup=absent config_dir=

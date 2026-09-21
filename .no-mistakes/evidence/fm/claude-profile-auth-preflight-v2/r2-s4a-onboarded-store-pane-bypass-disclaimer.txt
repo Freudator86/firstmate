@@ -1,0 +1,27 @@
+# pane w1:p2 (task tc) ~60s after spawn on <scratch>/store-onboarded: onboarding screen NOT shown; the next first-run gate, the
+# machine-scoped Bypass Permissions disclaimer, is shown because this scratch store never accepted it (documented limit, docs/verification/dispatch-auth.md#claude-bypass-permissions-acceptance)
+quartermaster@quartermaster:<scratch>/proj$ treehouse get
+🌳 Setting up worktree...
+🌳 Entered worktree at ~/.treehouse/proj-5f2cb2/1/proj. Type 'exit' to return.
+quartermaster@quartermaster:~/.treehouse/proj-5f2cb2/1/proj$ export GOTMPDIR=/tmp/fm-tc/gotmp
+quartermaster@quartermaster:~/.treehouse/proj-5f2cb2/1/proj$ export COMPACT_ADVISER_DISABLE=1
+quartermaster@quartermaster:~/.treehouse/proj-5f2cb2/1/proj$ export FM_TASK_ID=tc
+quartermaster@quartermaster:~/.treehouse/proj-5f2cb2/1/proj$ . '/tmp/fm-tc+b4bf023195ab72bf25343d27d07d7ff54bbf3419c9684
+5a93e3f45dd73fa4a56/launch.s1789979771.1209591.2687.sh'
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  WARNING: Claude Code running in Bypass Permissions mode
+
+  In Bypass Permissions mode, Claude Code will not ask for your approval before running potentially dangerous
+  commands.
+  This mode should only be used in a sandboxed container/VM that has restricted internet access and can easily be
+  restored if damaged.
+
+  By proceeding, you accept all responsibility for actions taken while running in Bypass Permissions mode.
+
+  https://code.claude.com/docs/en/security
+
+  ❯ No, exit
+    Yes, I accept
+
+  Enter to confirm · Esc to cancel

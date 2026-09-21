@@ -1,0 +1,33 @@
+=== S5: named pool claude-max-a: logged in + attested, but its store has not finished onboarding ===
+config/claude-profiles.json: {"profiles":[{"id":"claude-max-a","config_dir":"<scratch>/pool-a"}]}
+$ fm-claude-auth.sh attest --profile claude-max-a --confirm-setup-complete
+attested profile=claude-max-a config_dir=<scratch>/pool-a contract=1
+exit=0
+pool-a/.claude.json: {
+  "firstStartTime": "2026-09-21T08:37:16.872Z",
+  "firstStartVersion": "2.1.276",
+  "machineID": "002486d492b151849833a0eb28e5060c313598735c22fee4c25f30f78674ba9c",
+  "opusProMigrationComplete": true,
+  "sonnet1m45MigrationComplete": true,
+  "seenNotifications": {},
+  "hasResetAutoModeOptInForDefaultOffer": true,
+  "migrationVersion": 14
+}
+$ fm-claude-auth.sh check --profile claude-max-a
+profile=claude-max-a auth=unonboarded:first-run-onboarding-incomplete setup=absent config_dir=<scratch>/pool-a
+setup: Claude profile claude-max-a is logged in, but its store (<scratch>/pool-a) has not completed Claude's first-run onboarding (unonboarded:first-run-onboarding-incomplete), so a worker would open on the interactive text-style/theme screen firstmate cannot answer; the launch is refused rather than wedged. Run claude interactively once for this profile with CLAUDE_CONFIG_DIR=<scratch>/pool-a and finish the onboarding, then retry.
+exit=1
+$ fm-spawn.sh te <proj> --harness claude --claude-profile claude-max-a ...
+error: Claude profile claude-max-a is not ready for worker launch; refusing before launch. profile=claude-max-a auth=unonboarded:first-run-onboarding-incomplete setup=absent config_dir=<scratch>/pool-a
+setup: Claude profile claude-max-a is logged in, but its store (<scratch>/pool-a) has not completed Claude's first-run onboarding (unonboarded:first-run-onboarding-incomplete), so a worker would open on the interactive text-style/theme screen firstmate cannot answer; the launch is refused rather than wedged. Run claude interactively once for this profile with CLAUDE_CONFIG_DIR=<scratch>/pool-a and finish the onboarding, then retry.
+exit=1
+meta: none
+$ fm-claude-auth.sh evidence   (all profiles incl. synthesized ambient default)
+profile=claude-max-a auth=unonboarded:first-run-onboarding-incomplete setup=absent config_dir=<scratch>/pool-a
+profile=default auth=unonboarded:first-run-onboarding-incomplete setup=absent config_dir=
+exit=0
+
+--- operator completes onboarding for the pool (hasCompletedOnboarding=true) ---
+$ fm-claude-auth.sh check --profile claude-max-a
+profile=claude-max-a auth=authenticated setup=absent config_dir=<scratch>/pool-a
+exit=0
