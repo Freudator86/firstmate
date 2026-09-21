@@ -1,0 +1,14 @@
+$ FM_HOME=<lab> bin/fm-dispatch-resolve.sh --project pager bug.md
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 798   tokens: 1412/387
+  rule: rule_4 (A simple bug fix with a stated root cause.)   confidence: 1.0
+  probabilities: rule_3=0.0 default=0.0 rule_4=1.0 rule_2=0.0 rule_1=0.0
+  classification: intent=bugfix(0.87) domain=project_code(0.52) difficulty=low(1.0) risk=low(0.94) model_class=standard(0.69) escalation=no(1.0)
+  note: rule matched
+  note: 1 eligible candidate(s) unranked (kimi)
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=-0.4627  runway=projected_exhaustion  -> eligible
+  candidate: cursor:cursor-grok-4.6-medium  provider=cursor  scope=all_models  remaining=91%  spendPriority=0.7597  runway=through_reset  -> eligible
+  candidate: kimi:kimi-code/k3  provider=kimi  -> eligible, unranked: provider kimi unmeasured (unknown): disclosed uncertainty
+  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'
+exit=0

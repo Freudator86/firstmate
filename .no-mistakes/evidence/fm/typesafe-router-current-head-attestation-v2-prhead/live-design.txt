@@ -1,0 +1,10 @@
+$ FM_HOME=<lab> bin/fm-dispatch-resolve.sh --project pager design.md
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 734   tokens: 1414/392
+  rule: rule_3 (Genuinely very difficult design or planning work.)   confidence: 1.0
+  probabilities: rule_2=0.0 default=0.0 rule_4=0.0 rule_1=0.0 rule_3=1.0
+  classification: intent=design(0.97) domain=infrastructure(0.73) difficulty=xhigh(0.95) risk=high(0.97) model_class=strong_reasoning(0.99) escalation=yes(0.55)
+  reason: rule requires the captain's explicit approval before dispatch
+  candidate: claude:fable  provider=claude  scope=model:fable  remaining=15%  spendPriority=-0.79  runway=projected_exhaustion  bounds=all_models:79%/projected_exhaustion,model:fable:15%/projected_exhaustion  -> eligible
+exit=0

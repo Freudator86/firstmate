@@ -1,0 +1,11 @@
+$ FM_HOME=<lab> bin/fm-dispatch-resolve.sh --project pager sensitive.md
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 756   tokens: 1419/385
+  rule: default (No listed rule applies to this task.)   confidence: 1.0
+  probabilities: rule_1=0.0 rule_4=0.0 rule_3=0.0 rule_2=0.0 default=1.0
+  classification: intent=operations(0.89) domain=github(0.59) difficulty=xhigh(0.43) risk=sensitive(1.0) model_class=standard(0.36) escalation=yes(1.0)
+  reason: classifier recommends escalation before dispatch
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=-0.4627  runway=projected_exhaustion  -> eligible
+  candidate: cursor:cursor-grok-4.6-high  provider=cursor  scope=all_models  remaining=91%  spendPriority=0.7597  runway=through_reset  -> eligible
+exit=0
