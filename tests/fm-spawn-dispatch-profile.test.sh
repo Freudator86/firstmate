@@ -895,6 +895,27 @@ test_claude_rejects_unauthenticated_profile_before_launch() {
   pass "claude spawn refuses an unauthenticated profile before endpoint launch"
 }
 
+test_claude_rejects_first_run_onboarding_before_launch() {
+  local rec id out status
+  id=profile-claude-onboard-z16
+  rec=$(make_spawn_case profile-claude-onboard claude "$id")
+  read_case_record "$rec"
+
+  # Logged in, but the ambient store never finished Claude's first-run
+  # onboarding, exactly as a fresh ~/.claude.json leaves it.
+  mkdir -p "$HOME_DIR/user-home"
+  printf '%s\n' '{"hasCompletedOnboarding":null}' > "$HOME_DIR/user-home/.claude.json"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude)
+  status=$?
+  expect_code 1 "$status" "a claude profile that has not finished first-run onboarding should be rejected"
+  assert_contains "$out" "Claude profile default is not ready for worker launch" \
+    "spawn should refuse before launching into Claude's first-run onboarding"
+  assert_contains "$out" "auth=unonboarded:first-run-onboarding-incomplete" "the refusal should name the onboarding cause"
+  [ ! -s "$LAUNCH_LOG" ] || fail "un-onboarded profile should not launch; launch log: $(cat "$LAUNCH_LOG")"
+  assert_absent "$HOME_DIR/state/$id.meta" "un-onboarded profile should refuse before task metadata publication"
+  pass "claude spawn refuses a logged-in profile whose first-run onboarding is incomplete"
+}
+
 test_claude_forwards_firstmate_config_dir_when_set() {
   local rec id out status launch
   id=profile-claude-cfgdir-z17
@@ -1648,6 +1669,7 @@ test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata
 test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity
 test_batch_forwards_shared_profile_flags
 test_claude_rejects_unauthenticated_profile_before_launch
+test_claude_rejects_first_run_onboarding_before_launch
 test_claude_forwards_firstmate_config_dir_when_set
 test_lavish_server_address_is_exported_to_worker_launch
 test_lavish_absent_config_preserves_destination_ambient

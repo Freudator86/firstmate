@@ -566,6 +566,14 @@ fm_test_attest_claude_pool() {  # <config-dir> [contract]
     printf 'claude_version=2.1.276\n'
     printf 'attested_at=2026-09-21T00:00:00Z\n'
   } > "$dir/.fm-pool-ready"
+  fm_test_onboard_claude_store "$dir"
+}
+
+# Marks a Claude store's first-run onboarding complete, as Claude itself does
+# once the interactive onboarding finishes; bin/fm-claude-auth.sh reads it.
+fm_test_onboard_claude_store() {  # <config-dir-or-HOME>
+  mkdir -p "$1"
+  printf '{"hasCompletedOnboarding":true}\n' > "$1/.claude.json"
 }
 
 assert_contains() {

@@ -26,6 +26,12 @@
 # first-run setup has not been attested reports `unattested:...`, because
 # Claude's Bypass Permissions and external-CLAUDE.md-import consents live in
 # the pool's own store and firstmate's key plane cannot answer either dialog.
+# Any profile, the default included, that is logged in but whose store has not
+# finished Claude's first-run onboarding (hasCompletedOnboarding in the store's
+# .claude.json, which is ${config_dir:-$HOME}/.claude.json) reports
+# `unonboarded:first-run-onboarding-incomplete`: an interactive launch would
+# open on the text-style/theme onboarding screen, which firstmate's key plane
+# cannot drive, so the worker would sit there instead of reading its brief.
 # `attest` records that the operator completed the documented setup for that
 # store; it is refused unless the pool probes authenticated, and it is read back
 # as stale when the canonical store it names is no longer the store being
@@ -148,6 +154,13 @@ pool_ready_state() {
   printf 'ready'
 }
 
+onboarding_state() {
+  local dir=$1
+  jq -e '.hasCompletedOnboarding == true' "${dir:-${HOME:-}}/.claude.json" >/dev/null 2>&1 \
+    && { printf 'ready'; return; }
+  printf 'unonboarded:first-run-onboarding-incomplete'
+}
+
 render_one() {
   local p=$1 id dir setup_file auth setup line ready
   id=$(jq -r '.id' <<<"$p")
@@ -161,6 +174,10 @@ render_one() {
     auth=$(auth_state "$line")
     if [ "$id" != default ] && [ "$auth" = authenticated ]; then
       ready=$(pool_ready_state "$dir")
+      [ "$ready" = ready ] || auth=$ready
+    fi
+    if [ "$auth" = authenticated ]; then
+      ready=$(onboarding_state "$dir")
       [ "$ready" = ready ] || auth=$ready
     fi
   fi
@@ -192,6 +209,9 @@ case "$cmd" in
     case "$state" in
       unsupported:*)
         printf 'auth: Claude profile %s is a named capacity pool, and separating accounts by CLAUDE_CONFIG_DIR is verified first-hand only on %s (docs/verification/dispatch-auth.md). On this platform a shared credential store can answer for a different account than the pool names, so named pools are refused rather than silently spending the wrong account. Use the default profile here, or record a first-hand measurement for this platform before enabling named pools on it.\n' "$profile" "$POOL_SEPARATION_VERIFIED_PLATFORM" >&2
+        ;;
+      unonboarded:*)
+        printf 'setup: Claude profile %s is logged in, but its store (%s) has not completed Claude'"'"'s first-run onboarding (%s), so a worker would open on the interactive text-style/theme screen firstmate cannot answer; the launch is refused rather than wedged. Run claude interactively once for this profile%s and finish the onboarding, then retry.\n' "$profile" "${dir_of_line:-${HOME:-~}/.claude.json}" "$state" "${dir_of_line:+ with CLAUDE_CONFIG_DIR=$dir_of_line}" >&2
         ;;
       unattested:contract-*)
         printf 'setup: Claude profile %s was attested for %s under an earlier firstmate setup contract (%s); the one-time interactive steps it stands for have changed, so the pool needs renewed confirmation before it can launch. Re-read docs/configuration.md "Claude profiles", complete anything new, then run: %s attest --profile %s --confirm-setup-complete\n' "$profile" "$dir_of_line" "$state" "$0" "$profile" >&2

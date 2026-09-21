@@ -25,6 +25,7 @@ QUOTA="$TMP_ROOT/quota.json"
 BASE_PATH=$PATH
 mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN" "$HOME_DIR/claude-default"
 printf '%s\n' '{"claudeAiOauth":{"refreshToken":"dispatch-test-refresh-secret"}}' > "$HOME_DIR/claude-default/.credentials.json"
+fm_test_onboard_claude_store "$HOME_DIR/claude-default"
 cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
 {"profiles":[{"id":"default","config_dir":"$HOME_DIR/claude-default"}]}
 EOF

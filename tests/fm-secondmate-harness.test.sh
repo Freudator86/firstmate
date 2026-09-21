@@ -478,6 +478,8 @@ spawn_secondmate() {
   local world=$1 id=$2 home=$3 harness=${4:-} fakebin
   mkdir -p "$world/home/state" "$world/home/data"
   fakebin=$(make_noop_tmux "$world/tmux-$id")
+  # A claude secondmate is refused until its store finished first-run onboarding.
+  [ -e "$world/home/user-home/.claude.json" ] || fm_test_onboard_claude_store "$world/home/user-home"
   # An empty harness must contribute zero args, not an empty positional; build the
   # arg list explicitly so the optional harness is omitted cleanly.
   local spawn_args=("$id" "$home")
@@ -720,6 +722,8 @@ spawn_secondmate_capture() {
   shift 4
   mkdir -p "$world/home/state" "$world/home/data"
   fakebin=$(make_launch_capturing_tmux "$world/tmux-$id")
+  # A claude secondmate is refused until its store finished first-run onboarding.
+  [ -e "$world/home/user-home/.claude.json" ] || fm_test_onboard_claude_store "$world/home/user-home"
   : > "$launchlog"
   PATH="$fakebin:$BLIND_BIN:$BASE_PATH" TMUX='' CLAUDECODE=1 \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$world/home" HOME="$world/home/user-home" CLAUDE_CONFIG_DIR='' \

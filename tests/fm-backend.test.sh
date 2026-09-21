@@ -44,6 +44,21 @@ TMP_ROOT=$(fm_test_tmproot fm-backend-tests)
 # and adds no launch prefix, since fm-spawn only prefixes a non-empty value.
 SPAWN_HOME="$TMP_ROOT/user-home"
 mkdir -p "$SPAWN_HOME"
+# A claude spawn is refused unless the default profile's ambient store probes
+# logged in and has finished first-run onboarding (bin/fm-claude-auth.sh).
+fm_test_onboard_claude_store "$SPAWN_HOME"
+
+fake_logged_in_claude() {  # <fakebin>
+  cat > "$1/claude" <<'SH'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  --version*) printf '2.1.276 (Claude Code)\n' ;;
+  'auth status') printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n' ;;
+esac
+exit 0
+SH
+  chmod +x "$1/claude"
+}
 
 write_spawn_brief() {  # <file> <id>
   cat > "$1" <<EOF
@@ -805,6 +820,7 @@ exit 0
 SH
   chmod +x "$fb/tmux"
   fm_fake_exit0 "$fb" treehouse
+  fake_logged_in_claude "$fb"
   printf '%s\n' "$fb"
 }
 
@@ -875,6 +891,7 @@ exit 0
 SH
   chmod +x "$fb/tmux"
   fm_fake_exit0 "$fb" treehouse
+  fake_logged_in_claude "$fb"
   printf '%s\n' "$fb"
 }
 

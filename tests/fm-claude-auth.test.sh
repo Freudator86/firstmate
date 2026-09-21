@@ -50,6 +50,7 @@ write_creds() {
   local dir=$1 secret=${2:-secret-value}
   mkdir -p "$dir"
   printf '{"claudeAiOauth":{"accessToken":"%s","refreshToken":"refresh-secret"}}\n' "$secret" > "$dir/.credentials.json"
+  fm_test_onboard_claude_store "$dir"
 }
 
 make_home() {
@@ -143,6 +144,25 @@ out=$(PATH="$FAKEBIN:$PATH" CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case
 assert_equals 2 "$(printf '%s\n' "$out" | grep -c '^profile=')" "an explicit default must not be duplicated by the synthesized one"
 pass "fm-claude-auth: an explicit default entry overrides the synthesized one"
 
+case_dir="$TMP_ROOT/first-run-onboarding"
+make_home "$case_dir/home"
+write_creds "$case_dir/ambient"
+printf '%s\n' '{"hasCompletedOnboarding":null}' > "$case_dir/ambient/.claude.json"
+mkdir -p "$case_dir/user-home"
+out=$(PATH="$FAKEBIN:$PATH" CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
+expect_code 1 "$status" "a logged-in store that has not finished first-run onboarding must not pass: $out"
+assert_contains "$out" "profile=default auth=unonboarded:first-run-onboarding-incomplete setup=absent config_dir=$case_dir/ambient" "onboarding verdict missing"
+assert_contains "$out" "first-run onboarding" "the refusal should route to finishing onboarding"
+rm -f "$case_dir/ambient/.claude.json"
+printf '%s\n' '{"hasCompletedOnboarding":true}' > "$case_dir/user-home/.claude.json"
+out=$(PATH="$FAKEBIN:$PATH" HOME="$case_dir/user-home" CLAUDE_CONFIG_DIR= FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
+expect_code 0 "$status" "an ambient default reads onboarding from \$HOME/.claude.json: $out"
+rm -f "$case_dir/user-home/.claude.json"
+out=$(PATH="$FAKEBIN:$PATH" HOME="$case_dir/user-home" CLAUDE_CONFIG_DIR= FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
+expect_code 1 "$status" "an ambient default without \$HOME/.claude.json has never onboarded: $out"
+assert_contains "$out" "auth=unonboarded:first-run-onboarding-incomplete" "ambient onboarding verdict missing"
+pass "fm-claude-auth: a logged-in profile that has not finished first-run onboarding is refused"
+
 case_dir="$TMP_ROOT/missing-config-dir"
 make_home "$case_dir/home"
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
@@ -194,7 +214,8 @@ pass "fm-claude-auth: named pools are refused where CLAUDE_CONFIG_DIR account se
 
 case_dir="$TMP_ROOT/ambient-default"
 make_home "$case_dir/home"
-out=$(env -u CLAUDE_CONFIG_DIR PATH="$FAKEBIN:$PATH" FM_FAKE_CLAUDE_ENV_LOG="$case_dir/env.log" FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
+fm_test_onboard_claude_store "$case_dir/user-home"
+out=$(env -u CLAUDE_CONFIG_DIR PATH="$FAKEBIN:$PATH" HOME="$case_dir/user-home" FM_FAKE_CLAUDE_ENV_LOG="$case_dir/env.log" FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
 expect_code 0 "$status" "the ambient default should pass: $out"
 assert_contains "$out" "profile=default auth=authenticated setup=absent config_dir=" "the ambient default should report its row"
 case "$out" in *"config_dir=$case_dir"*|*'config_dir=/'*) fail "the ambient default must report no config dir when CLAUDE_CONFIG_DIR is unset: $out" ;; esac
@@ -281,6 +302,7 @@ assert_contains "$out" 'auth=unattested:attested-for-another-store' "a transplan
 
 rm -rf "$case_dir/link-target" "$case_dir/linked"
 mkdir -p "$case_dir/link-target" "$case_dir/other-target"
+fm_test_onboard_claude_store "$case_dir/link-target"
 ln -s "$case_dir/link-target" "$case_dir/linked"
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
 {"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/linked"}]}
