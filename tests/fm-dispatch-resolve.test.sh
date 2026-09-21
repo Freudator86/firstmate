@@ -501,6 +501,14 @@ assert_not_contains "$out" "  profile: --harness 'claude'" "an unattested pool m
 assert_contains "$out" "  profile: --harness 'codex'" "routing should fall through to a ready runtime"
 fm_test_attest_claude_pool "$HOME_DIR/claude-max-a"
 
+printf '{}\n' > "$HOME_DIR/claude-max-a/.claude.json"
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
+assert_contains "$out" 'auth=unonboarded:first-run-onboarding-incomplete' "a logged-in, attested pool that never finished onboarding reports it"
+assert_contains "$out" 'not eligible: Claude profile claude-max-a is logged in but its store has not completed the Claude first-run onboarding' "an unonboarded pool should be excluded with its own reason"
+assert_not_contains "$out" "  profile: --harness 'claude'" "an unonboarded pool must never be selected"
+assert_contains "$out" "  profile: --harness 'codex'" "routing should fall through to a ready runtime instead of an onboarding screen"
+fm_test_onboard_claude_store "$HOME_DIR/claude-max-a"
+
 printf '%s\n' '{"profiles":[{"id":"claude-max-a","config_dir":"'"$HOME_DIR"'/claude-max-a"},{"id":"claude-max-b"}]}' > "$HOME_DIR/config/claude-profiles.json"
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
 assert_contains "$out" '  status: error' "a named pool without config_dir is a configuration error outcome"
