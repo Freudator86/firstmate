@@ -22,7 +22,7 @@ set_mtime() { # <epoch> <path>
 
 age() { # <path>...
   local path now
-  now=$(( $(date +%s) - 120 ))
+  now=$(( $(date +%s) - 400 ))
   for path in "$@"; do set_mtime "$now" "$path"; done
 }
 
@@ -37,8 +37,12 @@ SH
   cat > "$fake/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  display-message) printf '%%1\n' ;;
+  display-message)
+    case "$*" in *pane_current_command*) printf 'zsh\n' ;; *) printf '%%1\n' ;; esac
+    ;;
   capture-pane) printf 'idle\n> \n' ;;
+  list-windows) printf '%s\n' "${FM_TMUX_WINDOWS:-fm-child}" ;;
+  kill-window) printf '%s\n' "$*" >> "${FM_TMUX_KILL_LOG:-/dev/null}" ;;
 esac
 SH
   local tool
@@ -100,8 +104,10 @@ run_reconcile() { # <home> [--startup]
   local home=$1 option=${2:-}
   PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \
-    FM_FORGE_LOG="$WORLD/forge.log" "$RECON" scan ${option:+"$option"}
+    FM_INACTIVE_RECONCILE_SECS=60 FM_WINDOW_HOUSEKEEPING_SECS=300 \
+    FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \
+    FM_FORGE_LOG="$WORLD/forge.log" FM_TMUX_KILL_LOG="$WORLD/tmux-kill.log" FM_TMUX_WINDOWS="${FM_TMUX_WINDOWS:-fm-child}" \
+    "$RECON" scan ${option:+"$option"}
 }
 
 # The teardown-side entry point: deliver one child's terminal ledger line for a
@@ -901,6 +907,49 @@ SH
   pass "reconciliation state reads set no-forge mode"
 }
 
+test_finished_window_housekeeping_closes_only_dead_terminal_endpoint() {
+  make_world finished-window-close
+  write_child "$MAIN" child 'done: PR https://example.test/owner/repo/pull/1 checks green'
+  mkdir -p "$MAIN/projects/child"
+  FM_FAKE_CREW_STATE='done' run_reconcile "$MAIN" --startup >/dev/null
+  grep -Fq 'kill-window -t =firstmate:=fm-child' "$WORLD/tmux-kill.log" \
+    || fail "finished-window housekeeping did not close the dead terminal endpoint: $(cat "$WORLD/tmux-kill.log" 2>/dev/null)"
+  [ -f "$MAIN/state/child.meta" ] || fail "finished-window housekeeping removed task metadata"
+  [ -d "$MAIN/projects/child" ] || fail "finished-window housekeeping touched the task worktree"
+  FM_FAKE_CREW_STATE='done' run_reconcile "$MAIN" --startup >/dev/null
+  [ "$(wc -l < "$WORLD/tmux-kill.log" | tr -d ' ')" = 1 ] \
+    || fail "finished-window housekeeping ignored its hourly cadence"
+  pass "finished-window housekeeping closes a stale dead terminal endpoint without removing records"
+}
+
+test_finished_window_housekeeping_preserves_active_gated_and_unverified_records() {
+  make_world finished-window-preserve
+  write_child "$MAIN" child 'done: PR https://example.test/owner/repo/pull/1 checks green'
+  mkdir -p "$MAIN/projects/child"
+  FM_FAKE_CREW_STATE='working' run_reconcile "$MAIN" --startup >/dev/null
+  [ ! -s "$WORLD/tmux-kill.log" ] || fail "housekeeping closed active work"
+  rm -f "$MAIN/state/.finished-window-housekeeping" "$MAIN/state/.finished-window-housekeeping.cursor"
+  FM_FAKE_CREW_STATE='parked' run_reconcile "$MAIN" --startup >/dev/null
+  [ ! -s "$WORLD/tmux-kill.log" ] || fail "housekeeping closed parked work"
+  rm -f "$MAIN/state/.finished-window-housekeeping" "$MAIN/state/.finished-window-housekeeping.cursor"
+  printf 'needs-decision [key=pick]: choose\n' >> "$MAIN/state/child.status"
+  age "$MAIN/state/child.status"
+  FM_FAKE_CREW_STATE='done' run_reconcile "$MAIN" --startup >/dev/null
+  [ ! -s "$WORLD/tmux-kill.log" ] || fail "housekeeping closed an open decision"
+  rm -f "$MAIN/state/.finished-window-housekeeping" "$MAIN/state/.finished-window-housekeeping.cursor"
+  fm_write_meta "$MAIN/state/z-child.meta" \
+    "window=firstmate:fm-z-child" "worktree=$MAIN/projects/z-child" "project=alpha" \
+    'backend=zellij' 'harness=codex' 'kind=ship' 'spawn_gen=z1'
+  mkdir -p "$MAIN/projects/z-child"
+  printf 'done: complete\n' > "$MAIN/state/z-child.status"
+  age "$MAIN/state/z-child.meta" "$MAIN/state/z-child.status"
+  FM_FAKE_CREW_STATE='done' run_reconcile "$MAIN" --startup >/dev/null
+  [ ! -s "$WORLD/tmux-kill.log" ] || fail "housekeeping closed an unverified backend"
+  pass "finished-window housekeeping preserves active, decision-gated, and unverified records"
+}
+
+test_finished_window_housekeeping_closes_only_dead_terminal_endpoint
+test_finished_window_housekeeping_preserves_active_gated_and_unverified_records
 test_main_direct_terminal_presentation_receipt
 test_local_secondmate_delivers_terminal_ledger_line
 test_secondmate_multiline_terminal_outcome_is_delivered_once

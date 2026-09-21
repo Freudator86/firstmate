@@ -6,6 +6,26 @@ This record supports current session-start, turn-end, watcher-continuity, and we
 Operator behavior and active limits remain in the linked current guides.
 Task-specific chronology, temporary paths, run identifiers, and delivery transcripts remain in private reports or PR evidence.
 
+## Inactive terminal reconciliation and finished-window housekeeping
+
+The portable regression for the bounded inactive-outcome owner also covers the finished-window housekeeping pass.
+Verified on 2026-09-21 with the executable interface test:
+
+```sh
+bin/fm-test-run.sh tests/fm-inactive-reconcile.test.sh
+```
+
+Relevant observed rows:
+
+```text
+ok - finished-window housekeeping closes a stale dead terminal endpoint without removing records
+ok - finished-window housekeeping preserves active, decision-gated, and unverified records
+```
+
+The test drives the public `fm-inactive-reconcile.sh scan` interface with fake current-state and tmux endpoints.
+It proves that a stale task whose current state is `done` and whose recorded endpoint classifies as dead is closed through the backend close path while its metadata and worktree remain, that the hourly marker prevents an immediate duplicate close, and that working, parked, open-decision, and unverified-backend records are left untouched.
+The live backend close mechanics remain owned by [runtime-backends.md](runtime-backends.md#tmux) and the per-backend sections there.
+
 ## Native session-start delivery
 
 The cross-harness transport pass ran on 2026-07-17 with Codex 0.144.4, Grok 0.2.103, OpenCode 1.17.18, Pi 0.80.10, and the tracked Claude hook wiring.
