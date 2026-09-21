@@ -855,7 +855,7 @@ cat > "$SCHEMA6" <<'JSON'
   ]
 }
 JSON
-write_response "$RESPONSE" rule_1 0.9 '{"rule_1":0.97,"default":0.03}'
+write_response "$RESPONSE" rule_1 0.9 '{ "rule_1": 0.97, "default": 0.03 }'
 cp "$LANE_RULES" "$RULES"
 reset_log
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$SCHEMA6" run code out err "$BRIEF"
