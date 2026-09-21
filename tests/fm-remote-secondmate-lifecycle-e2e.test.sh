@@ -659,6 +659,23 @@ assert_present "$REMOTE_HOME/.fm-secondmate-home" "remote provisioning did not p
 assert_present "$REMOTE_HOME/projects/alpha/.git" "remote provisioning did not clone the project on that host"
 assert_grep "$REMOTE_HOME/state/parent-replies.status" "$REMOTE_HOME/data/charter.md" "remote charter did not use its append-only reply log"
 assert_no_grep "$PARENT/state/ios.status" "$REMOTE_HOME/data/charter.md" "remote charter retained the inaccessible local status path"
+assert_grep "$REMOTE_HOME/state/parent-route/ios.inbox" "$REMOTE_HOME/data/charter.md" "remote charter did not use its host-local steering inbox"
+assert_no_grep "$PARENT/state/ios.inbox" "$REMOTE_HOME/data/charter.md" "remote charter retained the inaccessible local steering inbox"
+# A home seeded before the charter carried its host-local steering inbox is
+# corrected by reseeding the same route, not by patching the home.
+remote_inbox_line=$(grep -F "$REMOTE_HOME/state/parent-route/ios.inbox" "$REMOTE_HOME/data/charter.md" | head -n 1)
+old_inbox_line=${remote_inbox_line//"$REMOTE_HOME/state/parent-route/ios.inbox"/"$PARENT/state/ios.inbox"}
+while IFS= read -r line || [ -n "$line" ]; do
+  printf '%s\n' "${line//"$REMOTE_HOME/state/parent-route/ios.inbox"/"$PARENT/state/ios.inbox"}"
+done < "$REMOTE_HOME/data/charter.md" > "$TMP_ROOT/charter.old-seed"
+cp "$TMP_ROOT/charter.old-seed" "$REMOTE_HOME/data/charter.md"
+assert_grep "$old_inbox_line" "$REMOTE_HOME/data/charter.md" "the old-seed fixture did not restore the parent steering inbox"
+FM_SECONDMATE_CHARTER='Own iOS delivery on the build Mac.' \
+  FM_SECONDMATE_SCOPE='iOS implementation and Xcode validation' \
+  remote_env "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$REMOTE_HOME" alpha >/dev/null \
+  || fail "reseeding the existing remote route failed"
+assert_grep "$remote_inbox_line" "$REMOTE_HOME/data/charter.md" "reseeding did not republish the host-local steering inbox"
+assert_no_grep "$PARENT/state/ios.inbox" "$REMOTE_HOME/data/charter.md" "reseeding kept the old charter's inaccessible steering inbox"
 if FM_SECONDMATE_CHARTER='Own iOS delivery on the build Mac.' \
   FM_SECONDMATE_SCOPE='iOS implementation and Xcode validation' \
   remote_env "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$TMP_ROOT/other-home" alpha \
