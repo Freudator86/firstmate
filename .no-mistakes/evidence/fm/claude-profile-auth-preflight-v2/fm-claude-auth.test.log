@@ -1,0 +1,17 @@
+ok - fm-claude-auth: authenticated Claude profile proceeds without printing secrets
+ok - fm-claude-auth: unauthenticated profile is rejected and setup material is value-redacted
+ok - fm-claude-auth: both Claude pools are represented in auth evidence
+ok - fm-claude-auth: absent setup-token material reports an actionable setup need
+ok - fm-claude-auth: a pools-only config keeps answering the default profile
+ok - fm-claude-auth: an explicit default entry overrides the synthesized one
+ok - fm-claude-auth: a logged-in profile that has not finished first-run onboarding is refused
+ok - fm-claude-auth: a missing config directory is probed rather than assumed unauthenticated
+ok - fm-claude-auth: an indeterminate probe refuses without claiming the profile is logged out
+ok - fm-claude-auth: named pools are refused where CLAUDE_CONFIG_DIR account separation is unverified
+ok - fm-claude-auth: with CLAUDE_CONFIG_DIR unset the default profile is ambient and probed unset
+ok - fm-claude-auth: a named pool without its own config_dir is rejected instead of aliasing the default account
+ok - fm-claude-auth: a named pool stays ready across vendor updates and refuses on a changed store or a superseded setup contract
+ok - fm-claude-auth: two profiles may not name one Claude store, so a pool can never spend another account
+ok - fm-claude-auth: --help documents every subcommand it advertises
+ok - fm-claude-auth: a malformed profile config fails both commands instead of inventing verdicts
+# all Claude auth preflight tests passed

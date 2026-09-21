@@ -1,0 +1,67 @@
+## lab session: fm-lab-claudeprof-3751956-19202
+claude: /opt/axi/bin/claude (2.1.276 (Claude Code))
+
+## S1 default profile on the operator's real ambient store (read-only claude auth status)
+profile=default auth=unonboarded:first-run-onboarding-incomplete setup=absent config_dir=
+setup: Claude profile default is logged in, but its store (/home/quartermaster/.claude.json) has not completed Claude's first-run onboarding (unonboarded:first-run-onboarding-incomplete), so a worker would open on the interactive text-style/theme screen firstmate cannot answer; the launch is refused rather than wedged. Run claude interactively once for this profile and finish the onboarding, then retry.
+exit=1
+
+## S2 named pool whose store was never logged in (real claude auth status)
+profile=claude-max-b auth=unauthenticated:vendor-probe setup=absent config_dir=/tmp/fm-claude-prof-lab.e3bTsL/stores/claude-max-b
+setup: Claude setup-token material is absent for profile claude-max-b; add setup_token_file in config/claude-profiles.json or authenticate Claude interactively.
+exit=1
+
+## S2b pool with setup-token material on the credential path
+profile=claude-max-c auth=unauthenticated:vendor-probe setup=available:file config_dir=/tmp/fm-claude-prof-lab.e3bTsL/stores/claude-max-c
+setup: Claude setup-token material is available for profile claude-max-c; run the credential installer before launching this profile.
+exit=1
+
+## evidence rows (what routing consumes)
+profile=claude-max-b auth=unauthenticated:vendor-probe setup=absent config_dir=/tmp/fm-claude-prof-lab.e3bTsL/stores/claude-max-b
+profile=claude-max-c auth=unauthenticated:vendor-probe setup=available:file config_dir=/tmp/fm-claude-prof-lab.e3bTsL/stores/claude-max-c
+profile=default auth=unauthenticated:vendor-probe setup=absent config_dir=
+
+panes before spawns: 
+
+## S3 spawn claude worker on unauthenticated pool
++ fm-spawn.sh cm1 <proj> --harness claude --claude-profile claude-max-b
+error: Claude profile claude-max-b is not ready for worker launch; refusing before launch. profile=claude-max-b auth=unauthenticated:vendor-probe setup=absent config_dir=<lab>/stores/claude-max-b
+setup: Claude setup-token material is absent for profile claude-max-b; add setup_token_file in config/claude-profiles.json or authenticate Claude interactively.
+exit=1
+meta written: no; panes now: 
+
+## S4 spawn claude worker, default profile, logged-out ambient HOME
++ fm-spawn.sh cm2 <proj> --harness claude
+error: Claude profile default is not ready for worker launch; refusing before launch. profile=default auth=unauthenticated:vendor-probe setup=absent config_dir=
+setup: Claude setup-token material is absent for profile default; add setup_token_file in config/claude-profiles.json or authenticate Claude interactively.
+exit=1
+meta written: no; panes now: 
+
+## S5 adversarial: raw claude command re-scoping CLAUDE_CONFIG_DIR
++ fm-spawn.sh cm3 <proj> CLAUDE_CONFIG_DIR=/tmp/fm-claude-prof-lab.e3bTsL/user-home/.claude claude
+error: the raw launch command sets CLAUDE_CONFIG_DIR itself, which would take effect after the store the Claude profile preflight checked; that worker would use an unchecked account while its record named the checked one. Drop the assignment from the command and select the store with --claude-profile, or launch it on a non-claude command.
+exit=1
+meta written: no; panes now: 
+
+## S6 adversarial: --claude-profile on a non-claude harness
++ fm-spawn.sh cm4 <proj> --harness codex --claude-profile claude-max-b
+error: --claude-profile names a Claude capacity pool, but this spawn resolved harness codex; drop the flag or spawn on claude
+exit=1
+meta written: no; panes now: 
+
+## S7 adversarial: unconfigured profile id
++ fm-spawn.sh cm5 <proj> --harness claude --claude-profile claude-max-z
+error: Claude profile claude-max-z could not be resolved; refusing before launch. error: Claude profile not configured in this home: claude-max-z; config/claude-profiles.json is per-home and is never inherited between firstmate homes, so install this home's own file listing claude-max-z with locally valid paths through the authorized credential path
+exit=1
+meta written: no; panes now: 
+
+## S8 batch spawn forwards --claude-profile to every pair
+error: Claude profile claude-max-b is not ready for worker launch; refusing before launch. profile=claude-max-b auth=unauthenticated:vendor-probe setup=absent config_dir=<lab>/stores/claude-max-b
+setup: Claude setup-token material is absent for profile claude-max-b; add setup_token_file in config/claude-profiles.json or authenticate Claude interactively.
+batch: FAILED to spawn ba (<lab>/proj)
+error: Claude profile claude-max-b is not ready for worker launch; refusing before launch. profile=claude-max-b auth=unauthenticated:vendor-probe setup=absent config_dir=<lab>/stores/claude-max-b
+setup: Claude setup-token material is absent for profile claude-max-b; add setup_token_file in config/claude-profiles.json or authenticate Claude interactively.
+batch: FAILED to spawn bb (<lab>/proj)
+exit=1
+metas: 0; panes now: 
+treehouse worktrees created under lab project: 1 (1 = main only)
