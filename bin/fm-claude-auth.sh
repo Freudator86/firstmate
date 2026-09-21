@@ -27,7 +27,13 @@
 # the pool's own store and firstmate's key plane cannot answer either dialog.
 # `attest` records that the operator completed the documented setup for that
 # store; it is refused unless the pool probes authenticated, and it is read back
-# as stale when the store path or the running claude version no longer matches.
+# as stale when the canonical store it names is no longer the store being
+# launched, or when it predates the current POOL_ATTESTATION_CONTRACT - the
+# firstmate-owned version of the setup claims themselves, bumped only when this
+# repository adds or materially changes what the operator is attesting to. The
+# claude version is recorded as provenance and is never read back: a vendor
+# patch release does not reset the consents in the store, and vendor version
+# equality would not prove they are present either.
 # docs/configuration.md "Claude profiles" owns the operator procedure.
 #
 # A named (non-default) profile is a per-account capacity pool, which rests on
@@ -46,6 +52,7 @@ PROFILE_FILE="$CONFIG/claude-profiles.json"
 ID_RE='^[a-z0-9]+(-[a-z0-9]+)*$'
 POOL_SEPARATION_VERIFIED_PLATFORM=Linux
 POOL_READY_FILE=.fm-pool-ready
+POOL_ATTESTATION_CONTRACT=1
 
 die() { printf 'error: %s\n' "$1" >&2; exit 2; }
 need_jq() { command -v jq >/dev/null 2>&1 || die 'jq required'; }
@@ -114,19 +121,23 @@ pool_separation_verified() {
   [ "$(uname -s 2>/dev/null)" = "$POOL_SEPARATION_VERIFIED_PLATFORM" ]
 }
 
+canonical_dir() {
+  (cd -P -- "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"
+}
+
 pool_ready_state() {
-  local dir=$1 version=$2 file attested_dir attested_version
+  local dir=$1 file attested_dir attested_contract
   file="$dir/$POOL_READY_FILE"
   [ -e "$file" ] || { printf 'unattested:setup-not-attested'; return; }
   [ -r "$file" ] || { printf 'unattested:attestation-unreadable'; return; }
   attested_dir=$(sed -n 's/^config_dir=//p' "$file" | head -n 1)
-  attested_version=$(sed -n 's/^claude_version=//p' "$file" | head -n 1)
-  [ -n "$attested_dir" ] && [ -n "$attested_version" ] \
+  attested_contract=$(sed -n 's/^contract=//p' "$file" | head -n 1)
+  [ -n "$attested_dir" ] && [ -n "$attested_contract" ] \
     || { printf 'unattested:attestation-malformed'; return; }
-  [ "$attested_dir" = "$dir" ] || { printf 'unattested:attested-for-another-store'; return; }
-  [ -n "$version" ] && [ "$version" != none ] \
-    || { printf 'unattested:claude-version-unknown'; return; }
-  [ "$attested_version" = "$version" ] || { printf 'unattested:attested-on-claude-%s' "$attested_version"; return; }
+  [ "$attested_contract" = "$POOL_ATTESTATION_CONTRACT" ] \
+    || { printf 'unattested:contract-%s-superseded' "$attested_contract"; return; }
+  [ "$(canonical_dir "$attested_dir")" = "$(canonical_dir "$dir")" ] \
+    || { printf 'unattested:attested-for-another-store'; return; }
   printf 'ready'
 }
 
@@ -142,7 +153,7 @@ render_one() {
     line=$(probe_line "$dir")
     auth=$(auth_state "$line")
     if [ "$id" != default ] && [ "$auth" = authenticated ]; then
-      ready=$(pool_ready_state "$dir" "$(probe_field "$line" version)")
+      ready=$(pool_ready_state "$dir")
       [ "$ready" = ready ] || auth=$ready
     fi
   fi
@@ -175,6 +186,9 @@ case "$cmd" in
       unsupported:*)
         printf 'auth: Claude profile %s is a named capacity pool, and separating accounts by CLAUDE_CONFIG_DIR is verified first-hand only on %s (docs/verification/dispatch-auth.md). On this platform a shared credential store can answer for a different account than the pool names, so named pools are refused rather than silently spending the wrong account. Use the default profile here, or record a first-hand measurement for this platform before enabling named pools on it.\n' "$profile" "$POOL_SEPARATION_VERIFIED_PLATFORM" >&2
         ;;
+      unattested:contract-*)
+        printf 'setup: Claude profile %s was attested for %s under an earlier firstmate setup contract (%s); the one-time interactive steps it stands for have changed, so the pool needs renewed confirmation before it can launch. Re-read docs/configuration.md "Claude profiles", complete anything new, then run: %s attest --profile %s --confirm-setup-complete\n' "$profile" "$dir_of_line" "$state" "$0" "$profile" >&2
+        ;;
       unattested:*)
         printf 'setup: Claude profile %s is logged in, but its one-time interactive first-run setup for %s has not been attested (%s). Claude records the Bypass Permissions disclaimer and the external-CLAUDE.md-import consent in that store, and firstmate cannot answer either dialog, so the launch is refused rather than wedged. Complete the per-pool setup in docs/configuration.md "Claude profiles", then run: %s attest --profile %s --confirm-setup-complete\n' "$profile" "$dir_of_line" "$state" "$0" "$profile" >&2
         ;;
@@ -201,18 +215,17 @@ case "$cmd" in
     state=$(auth_state "$line")
     [ "$state" = authenticated ] \
       || die "profile $profile does not probe as authenticated ($state), so its interactive setup cannot have been completed; log that pool in first"
-    version=$(probe_field "$line" version)
-    [ -n "$version" ] && [ "$version" != none ] \
-      || die "the running claude version could not be read, so an attestation could not be scoped to it"
     [ -d "$dir" ] || die "pool store $dir does not exist"
+    version=$(probe_field "$line" version)
+    canonical=$(canonical_dir "$dir")
     umask 077
     {
-      printf 'v1\n'
-      printf 'config_dir=%s\n' "$dir"
-      printf 'claude_version=%s\n' "$version"
+      printf 'contract=%s\n' "$POOL_ATTESTATION_CONTRACT"
+      printf 'config_dir=%s\n' "$canonical"
+      printf 'claude_version=%s\n' "${version:-none}"
       printf 'attested_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     } > "$dir/$POOL_READY_FILE" || die "could not record the attestation at $dir/$POOL_READY_FILE"
-    printf 'attested profile=%s config_dir=%s claude_version=%s\n' "$profile" "$dir" "$version"
+    printf 'attested profile=%s config_dir=%s contract=%s\n' "$profile" "$canonical" "$POOL_ATTESTATION_CONTRACT"
     ;;
   evidence)
     profiles=$(json_profiles) || exit $?

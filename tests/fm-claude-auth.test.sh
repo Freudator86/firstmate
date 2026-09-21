@@ -251,20 +251,49 @@ expect_code 2 "$status" "a pool that does not probe authenticated cannot have co
 
 out=$(run_auth attest --profile claude-max-a --confirm-setup-complete); status=$?
 expect_code 0 "$status" "attest should record a logged-in pool: $out"
-assert_contains "$out" "attested profile=claude-max-a config_dir=$case_dir/a claude_version=2.1.276" "attest should report what it recorded"
+assert_contains "$out" "attested profile=claude-max-a config_dir=$(cd -P -- "$case_dir/a" && pwd -P) contract=1" "attest should report the store and contract it recorded"
 out=$(run_auth check --profile claude-max-a); status=$?
 expect_code 0 "$status" "an attested pool should pass: $out"
 assert_contains "$out" 'auth=authenticated' "an attested pool is launch-ready"
 
-out=$(FM_FAKE_CLAUDE_VERSION=2.2.0 run_auth check --profile claude-max-a); status=$?
-expect_code 1 "$status" "an attestation made against another claude version is stale"
-assert_contains "$out" 'auth=unattested:attested-on-claude-2.1.276' "the stale state should name the version it was attested on"
+out=$(FM_FAKE_CLAUDE_VERSION=2.1.277 run_auth check --profile claude-max-a); status=$?
+expect_code 0 "$status" "an ordinary claude patch update must not take an attested pool out of service: $out"
+assert_contains "$out" 'auth=authenticated' "a vendor update changes no consent held in the store"
+out=$(FM_FAKE_CLAUDE_VERSION=3.0.0 run_auth check --profile claude-max-a); status=$?
+expect_code 0 "$status" "no claude version is a launch gate for an attested pool: $out"
 
-sed -i.bak "s|^config_dir=.*|config_dir=$case_dir/elsewhere|" "$case_dir/a/.fm-pool-ready"
+sed -i.bak 's/^contract=.*/contract=0/' "$case_dir/a/.fm-pool-ready"
+out=$(run_auth check --profile claude-max-a); status=$?
+expect_code 1 "$status" "an attestation predating the current firstmate setup contract must ask for renewed confirmation"
+assert_contains "$out" 'auth=unattested:contract-0-superseded' "the stale state should name the superseded contract"
+assert_contains "$out" 'needs renewed confirmation' "the refusal should say the attested steps themselves changed"
+assert_contains "$out" 'attest --profile claude-max-a --confirm-setup-complete' "the refusal should name the command that renews it"
+out=$(run_auth attest --profile claude-max-a --confirm-setup-complete); status=$?
+expect_code 0 "$status" "renewing the attestation should clear a superseded contract: $out"
+out=$(run_auth check --profile claude-max-a); status=$?
+expect_code 0 "$status" "a renewed attestation is launch-ready again: $out"
+
+mkdir -p "$case_dir/moved"
+sed -i.bak "s|^config_dir=.*|config_dir=$case_dir/moved|" "$case_dir/a/.fm-pool-ready"
 out=$(run_auth check --profile claude-max-a); status=$?
 expect_code 1 "$status" "an attestation naming another store must not clear this pool"
 assert_contains "$out" 'auth=unattested:attested-for-another-store' "a transplanted attestation should be named as such"
-pass "fm-claude-auth: a named pool launches only while its one-time interactive setup is attested for this store and claude version"
+
+rm -rf "$case_dir/link-target" "$case_dir/linked"
+mkdir -p "$case_dir/link-target" "$case_dir/other-target"
+ln -s "$case_dir/link-target" "$case_dir/linked"
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/linked"}]}
+EOF
+out=$(run_auth attest --profile claude-max-a --confirm-setup-complete); status=$?
+expect_code 0 "$status" "a pool reached through a symlink should attest: $out"
+out=$(run_auth check --profile claude-max-a); status=$?
+expect_code 0 "$status" "the symlinked pool should be launch-ready: $out"
+ln -sfn "$case_dir/other-target" "$case_dir/linked"
+out=$(run_auth check --profile claude-max-a); status=$?
+expect_code 1 "$status" "repointing the store at another directory must invalidate the attestation"
+assert_contains "$out" 'auth=unattested:' "a repointed store must not stay launch-ready"
+pass "fm-claude-auth: a named pool stays ready across vendor updates and refuses on a changed store or a superseded setup contract"
 
 case_dir="$TMP_ROOT/malformed"
 make_home "$case_dir/home"
