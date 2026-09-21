@@ -860,22 +860,34 @@ test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity() {
 }
 
 test_batch_forwards_shared_profile_flags() {
-  local rec id1 id2 out status
+  local rec id1 id2 out status launch
   id1=profile-batch-a-z9
   id2=profile-batch-b-z10
   rec=$(make_spawn_case profile-batch claude "$id1" "$id2")
   read_case_record "$rec"
   enable_dispatch_profile "$HOME_DIR"
+  mkdir -p "$CASE_DIR/claude-b"
+  fm_test_attest_claude_pool "$CASE_DIR/claude-b"
+  cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-b","config_dir":"$CASE_DIR/claude-b"}]}
+EOF
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-    "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness codex --model gpt-5 --effort high)
+    "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness claude --model sonnet --effort high --claude-profile claude-max-b)
   status=$?
-  expect_code 0 "$status" "batch spawn with shared profile flags should succeed"
-  assert_contains "$out" "spawned $id1 harness=codex" "first batch task did not use shared harness"
-  assert_contains "$out" "spawned $id2 harness=codex" "second batch task did not use shared harness"
-  assert_meta_profile "$HOME_DIR/state/$id1.meta" codex gpt-5 high
-  assert_meta_profile "$HOME_DIR/state/$id2.meta" codex gpt-5 high
-  pass "batch dispatch forwards shared --harness, --model, and --effort to every pair"
+  expect_code 0 "$status" "batch spawn with shared profile flags should succeed: $out"
+  assert_contains "$out" "spawned $id1 harness=claude" "first batch task did not use shared harness"
+  assert_contains "$out" "spawned $id2 harness=claude" "second batch task did not use shared harness"
+  assert_meta_profile "$HOME_DIR/state/$id1.meta" claude sonnet high
+  assert_meta_profile "$HOME_DIR/state/$id2.meta" claude sonnet high
+  assert_grep "claude_profile=claude-max-b" "$HOME_DIR/state/$id1.meta" \
+    "first batch task did not retain the shared Claude pool"
+  assert_grep "claude_profile=claude-max-b" "$HOME_DIR/state/$id2.meta" \
+    "second batch task did not retain the shared Claude pool"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-b'" \
+    "batch dispatch must launch every Claude pair against the checked named pool"
+  pass "batch dispatch forwards shared --harness, --model, --effort, and --claude-profile to every pair"
 }
 
 test_claude_rejects_unauthenticated_profile_before_launch() {
