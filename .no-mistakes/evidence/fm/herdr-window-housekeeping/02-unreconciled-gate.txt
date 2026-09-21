@@ -1,0 +1,26 @@
+== before any scan ==
+done-dead       pane=w1:p3  OPEN    meta=kept worktree_head=unlanded work for done-dead
+failed-offline  pane=w1:p4  OPEN    meta=kept worktree_head=unlanded work for failed-offline
+working-dead    pane=w1:p5  OPEN    meta=kept worktree_head=unlanded work for working-dead
+decision        pane=w1:p6  OPEN    meta=kept worktree_head=unlanded work for decision
+fresh-done      pane=w1:p7  OPEN    meta=kept worktree_head=unlanded work for fresh-done
+busy-running    pane=w1:p8  OPEN    meta=kept worktree_head=unlanded work for busy-running
+mate            pane=w1:p9  OPEN    meta=kept worktree_head=unlanded work for mate
+live-agent      pane=w1:pA  OPEN    meta=kept worktree_head=unlanded work for live-agent
+outcome records: 
+housekeeping marker: none
+
+$ # firstmate was offline: reconcile marker is fresh, no outcome recorded yet, housekeeping marker absent
+$ fm-inactive-reconcile.sh scan
+exit=0
+== after watcher-poll scan with no recorded outcomes ==
+done-dead       pane=w1:p3  OPEN    meta=kept worktree_head=unlanded work for done-dead
+failed-offline  pane=w1:p4  OPEN    meta=kept worktree_head=unlanded work for failed-offline
+working-dead    pane=w1:p5  OPEN    meta=kept worktree_head=unlanded work for working-dead
+decision        pane=w1:p6  OPEN    meta=kept worktree_head=unlanded work for decision
+fresh-done      pane=w1:p7  OPEN    meta=kept worktree_head=unlanded work for fresh-done
+busy-running    pane=w1:p8  OPEN    meta=kept worktree_head=unlanded work for busy-running
+mate            pane=w1:p9  OPEN    meta=kept worktree_head=unlanded work for mate
+live-agent      pane=w1:pA  OPEN    meta=kept worktree_head=unlanded work for live-agent
+outcome records: 
+housekeeping marker: epoch=1789957913

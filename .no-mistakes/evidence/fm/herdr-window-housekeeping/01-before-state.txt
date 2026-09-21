@@ -1,0 +1,8 @@
+done-dead       agent_state=dead   state: done · source: status-log · PR https://example.test/o/r/pull/11 checks green
+failed-offline  agent_state=dead   state: failed · source: status-log · validation broke on lint
+working-dead    agent_state=dead   state: working · source: status-log · implementing step 2
+decision        agent_state=dead   state: parked · source: status-log · choose A or B
+fresh-done      agent_state=dead   state: done · source: status-log · finished moments ago
+busy-running    agent_state=dead   state: working · source: pane · harness busy (pi-ext)
+mate            agent_state=dead   state: done · source: status-log · delegated scope complete
+live-agent      agent_state=alive  state: done · source: status-log · PR https://example.test/o/r/pull/13 checks green

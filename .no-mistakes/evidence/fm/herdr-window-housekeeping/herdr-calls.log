@@ -1,0 +1,167 @@
+status --json
+pane read w1:p2 --source recent --lines 200
+status --json
+agent get w1:p2
+pane get w1:p2
+agent get w1:p2
+status --json
+pane read w1:p2 --source recent --lines 200
+status --json
+pane read w1:p2 --source recent --lines 200
+pane get w1:p3
+agent get w1:p3
+status --json
+pane read w1:p3 --source recent --lines 200
+pane get w1:p4
+agent get w1:p4
+status --json
+pane read w1:p4 --source recent --lines 200
+pane get w1:p5
+agent get w1:p5
+status --json
+pane read w1:p5 --source recent --lines 200
+pane get w1:p6
+agent get w1:p6
+status --json
+pane read w1:p6 --source recent --lines 200
+pane get w1:p7
+agent get w1:p7
+status --json
+pane read w1:p7 --source recent --lines 200
+pane get w1:p8
+agent get w1:p8
+status --json
+pane read w1:p8 --source recent --lines 200
+pane get w1:p9
+agent get w1:p9
+status --json
+pane read w1:p9 --source recent --lines 200
+pane get w1:pA
+agent get w1:pA
+pane process-info --pane w1:pA
+status --json
+pane read w1:pA --source recent --lines 200
+status --json
+pane read w1:p8 --source recent --lines 200
+status --json
+pane read w1:p3 --source recent --lines 200
+status --json
+pane read w1:p4 --source recent --lines 200
+status --json
+pane read w1:pA --source recent --lines 200
+status --json
+pane read w1:p5 --source recent --lines 200
+status --json
+pane read w1:p8 --source recent --lines 200
+status --json
+pane read w1:p6 --source recent --lines 200
+status --json
+pane read w1:p3 --source recent --lines 200
+status --json
+pane read w1:p4 --source recent --lines 200
+status --json
+pane read w1:pA --source recent --lines 200
+status --json
+pane read w1:p5 --source recent --lines 200
+status --json
+pane read w1:p8 --source recent --lines 200
+status --json
+pane read w1:p3 --source recent --lines 200
+pane get w1:p3
+agent get w1:p3
+status --json
+session list --json
+workspace list
+tab list --workspace w1
+pane get w1:p3
+tab list --workspace w1
+pane close w1:p3
+pane get w1:p3
+workspace list
+tab list --workspace w1
+status --json
+pane read w1:p4 --source recent --lines 200
+pane get w1:p4
+agent get w1:p4
+status --json
+session list --json
+workspace list
+tab list --workspace w1
+pane get w1:p4
+tab list --workspace w1
+pane close w1:p4
+pane get w1:p4
+workspace list
+tab list --workspace w1
+status --json
+pane read w1:pA --source recent --lines 200
+pane get w1:pA
+agent get w1:pA
+pane process-info --pane w1:pA
+status --json
+pane read w1:p5 --source recent --lines 200
+status --json
+pane read w1:p3 --source recent --lines 200
+pane get w1:p3
+status --json
+pane read w1:p4 --source recent --lines 200
+pane get w1:p4
+status --json
+pane read w1:p8 --source recent --lines 200
+status --json
+pane read w1:p6 --source recent --lines 200
+status --json
+pane read w1:p3 --source recent --lines 200
+pane get w1:p3
+status --json
+pane read w1:p4 --source recent --lines 200
+pane get w1:p4
+status --json
+pane read w1:pA --source recent --lines 200
+status --json
+pane read w1:p5 --source recent --lines 200
+status --json
+pane read w1:p8 --source recent --lines 200
+status --json
+pane read w1:p6 --source recent --lines 200
+status --json
+pane read w1:p3 --source recent --lines 200
+pane get w1:p3
+status --json
+pane read w1:p4 --source recent --lines 200
+pane get w1:p4
+status --json
+pane read w1:pB --source recent --lines 200
+status --json
+pane read w1:pA --source recent --lines 200
+status --json
+pane read w1:p5 --source recent --lines 200
+status --json
+pane read w1:p8 --source recent --lines 200
+status --json
+pane read w1:p3 --source recent --lines 200
+pane get w1:p3
+status --json
+pane read w1:p4 --source recent --lines 200
+pane get w1:p4
+status --json
+pane read w1:pB --source recent --lines 200
+pane get w1:pB
+agent get w1:pB
+status --json
+session list --json
+workspace list
+tab list --workspace w1
+pane get w1:pB
+tab list --workspace w1
+pane close w1:pB
+pane get w1:pB
+workspace list
+tab list --workspace w1
+status --json
+pane read w1:pA --source recent --lines 200
+pane get w1:pA
+agent get w1:pA
+pane process-info --pane w1:pA
+status --json
+pane read w1:p5 --source recent --lines 200

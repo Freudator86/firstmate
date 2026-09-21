@@ -1,0 +1,34 @@
+$ fm-inactive-reconcile.sh scan --startup   # re-run after close: outcomes must neither vanish nor duplicate
+exit=0
+outcome records:       3 pending   wake-queue lines: 3
+
+$ # a new crew finishes; its outcome is reconciled, but housekeeping ran < 1h ago
+actionable: inactive terminal outcome awaiting captain presentation: child=late-done state=done
+exit=0
+== immediately after (cadence not due) ==
+done-dead       pane=w1:p3  CLOSED  meta=kept worktree_head=unlanded work for done-dead
+failed-offline  pane=w1:p4  CLOSED  meta=kept worktree_head=unlanded work for failed-offline
+working-dead    pane=w1:p5  OPEN    meta=kept worktree_head=unlanded work for working-dead
+decision        pane=w1:p6  OPEN    meta=kept worktree_head=unlanded work for decision
+fresh-done      pane=w1:p7  OPEN    meta=kept worktree_head=unlanded work for fresh-done
+busy-running    pane=w1:p8  OPEN    meta=kept worktree_head=unlanded work for busy-running
+mate            pane=w1:p9  OPEN    meta=kept worktree_head=unlanded work for mate
+live-agent      pane=w1:pA  OPEN    meta=kept worktree_head=unlanded work for live-agent
+late-done       pane=w1:pB  OPEN    meta=kept worktree_head=unlanded work for late-done
+outcome records:       4 *.pending 
+housekeeping marker: epoch=1789957922
+
+$ # hour elapses
+exit=0
+== after next hourly pass ==
+done-dead       pane=w1:p3  CLOSED  meta=kept worktree_head=unlanded work for done-dead
+failed-offline  pane=w1:p4  CLOSED  meta=kept worktree_head=unlanded work for failed-offline
+working-dead    pane=w1:p5  OPEN    meta=kept worktree_head=unlanded work for working-dead
+decision        pane=w1:p6  OPEN    meta=kept worktree_head=unlanded work for decision
+fresh-done      pane=w1:p7  OPEN    meta=kept worktree_head=unlanded work for fresh-done
+busy-running    pane=w1:p8  OPEN    meta=kept worktree_head=unlanded work for busy-running
+mate            pane=w1:p9  OPEN    meta=kept worktree_head=unlanded work for mate
+live-agent      pane=w1:pA  OPEN    meta=kept worktree_head=unlanded work for live-agent
+late-done       pane=w1:pB  CLOSED  meta=kept worktree_head=unlanded work for late-done
+outcome records:       4 *.pending 
+housekeeping marker: epoch=1789957933

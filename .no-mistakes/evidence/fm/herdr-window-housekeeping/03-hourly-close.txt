@@ -1,0 +1,43 @@
+$ fm-inactive-reconcile.sh scan --startup   # session start reconciles outcomes; housekeeping marker is < 1h old
+actionable: inactive terminal outcome awaiting captain presentation: child=done-dead state=done
+actionable: inactive terminal outcome awaiting captain presentation: child=failed-offline state=failed
+actionable: inactive terminal outcome awaiting captain presentation: child=live-agent state=done
+exit=0
+== after startup scan ==
+done-dead       pane=w1:p3  OPEN    meta=kept worktree_head=unlanded work for done-dead
+failed-offline  pane=w1:p4  OPEN    meta=kept worktree_head=unlanded work for failed-offline
+working-dead    pane=w1:p5  OPEN    meta=kept worktree_head=unlanded work for working-dead
+decision        pane=w1:p6  OPEN    meta=kept worktree_head=unlanded work for decision
+fresh-done      pane=w1:p7  OPEN    meta=kept worktree_head=unlanded work for fresh-done
+busy-running    pane=w1:p8  OPEN    meta=kept worktree_head=unlanded work for busy-running
+mate            pane=w1:p9  OPEN    meta=kept worktree_head=unlanded work for mate
+live-agent      pane=w1:pA  OPEN    meta=kept worktree_head=unlanded work for live-agent
+outcome records:       3 *.pending 
+housekeeping marker: epoch=1789957913
+wake queue:
+1789957920	1	check	inactive-outcome:276de7a6112270d6963bdbfa3c153497	inactive terminal outcome awaiting captain presentation: child=done-dead state=done
+1789957920	2	check	inactive-outcome:525a7d5ce518a7bc97ce8c620c37552b	inactive terminal outcome awaiting captain presentation: child=failed-offline state=failed
+1789957921	3	check	inactive-outcome:c07a7aa5efbaf3fc7172023ea63109ec	inactive terminal outcome awaiting captain presentation: child=live-agent state=done
+
+$ # one hour passes (housekeeping marker backdated 3601s)
+$ fm-inactive-reconcile.sh scan
+exit=0
+== after hourly housekeeping scan ==
+done-dead       pane=w1:p3  CLOSED  meta=kept worktree_head=unlanded work for done-dead
+failed-offline  pane=w1:p4  CLOSED  meta=kept worktree_head=unlanded work for failed-offline
+working-dead    pane=w1:p5  OPEN    meta=kept worktree_head=unlanded work for working-dead
+decision        pane=w1:p6  OPEN    meta=kept worktree_head=unlanded work for decision
+fresh-done      pane=w1:p7  OPEN    meta=kept worktree_head=unlanded work for fresh-done
+busy-running    pane=w1:p8  OPEN    meta=kept worktree_head=unlanded work for busy-running
+mate            pane=w1:p9  OPEN    meta=kept worktree_head=unlanded work for mate
+live-agent      pane=w1:pA  OPEN    meta=kept worktree_head=unlanded work for live-agent
+outcome records:       3 *.pending 
+housekeeping marker: epoch=1789957922
+
+herdr close calls issued:
+      1 pane close w1:p3
+      1 pane close w1:p4
+
+crew-state after close:
+done-dead: state: unknown · source: none · backend target gone: fm-lab-housekeep-1422683-12636:w1:p3
+failed-offline: state: unknown · source: none · backend target gone: fm-lab-housekeep-1422683-12636:w1:p4
