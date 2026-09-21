@@ -300,27 +300,7 @@ fm_test_make_spawn_fakebin() {
   fakebin=$(fm_fakebin "$dir")
   fm_test_fake_tmux_spawn "$fakebin"
   fm_fake_exit0 "$fakebin" treehouse "$@"
-  cat > "$fakebin/claude" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}" in
-  --version)
-    printf '%s (Claude Code)\n' "${FM_FAKE_CLAUDE_VERSION:-2.1.276}"
-    exit 0
-    ;;
-  auth)
-    if [ "${2:-}" = status ]; then
-      if [ "${FM_FAKE_CLAUDE_LOGGED_IN:-1}" = 1 ]; then
-        printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n'
-        exit 0
-      fi
-      printf '{\n  "loggedIn": false,\n  "authMethod": "none"\n}\n'
-      exit 1
-    fi
-    ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/claude"
+  fm_test_fake_claude_cli "$fakebin"
   printf '%s\n' "$fakebin"
 }
 
