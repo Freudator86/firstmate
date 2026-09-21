@@ -554,6 +554,20 @@ assert_not_equals() {
 }
 
 # assert_contains <haystack> <needle> <msg>
+# Records the per-pool first-run setup attestation bin/fm-claude-auth.sh reads
+# back before a named Claude pool may launch (its own owned key=value contract,
+# written here for fixtures whose pools are set up out of band).
+fm_test_attest_claude_pool() {  # <config-dir> [claude-version]
+  local dir=$1 version=${2:-2.1.276}
+  mkdir -p "$dir"
+  {
+    printf 'v1\n'
+    printf 'config_dir=%s\n' "$dir"
+    printf 'claude_version=%s\n' "$version"
+    printf 'attested_at=2026-09-21T00:00:00Z\n'
+  } > "$dir/.fm-pool-ready"
+}
+
 assert_contains() {
   case "$1" in
     *"$2"*) : ;;

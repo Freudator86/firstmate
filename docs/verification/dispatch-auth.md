@@ -246,6 +246,29 @@ There is also no non-interactive vendor command that reports the effective value
 The preflight therefore measures login state only and does not claim to prevent that dialog; [configuration.md](../configuration.md#claude-profiles-configclaude-profilesjson) carries the one-time per-pool operator step instead.
 Re-check when the vendor exposes a readable acceptance state.
 
+## Named pool first-run consent
+
+Attempted 2026-09-21 on Claude Code 2.1.276, on Linux; no probe registered.
+
+Claude's `Allow external CLAUDE.md file imports?` dialog renders when a loaded CLAUDE.md chain reaches outside the project tree, and its consent is stored per project entry in `<store>/.claude.json` (`bin/fm-claude-trust.sh` owns that contract).
+A named pool launches against its own store, so that store holds neither the consent nor, necessarily, the same user-scope memory chain as the ambient store.
+Whether the dialog applies to a pool at all therefore depends on where Claude resolves user-scope `CLAUDE.md` when `CLAUDE_CONFIG_DIR` is pinned - the pool store, or `$HOME/.claude` regardless - and that is **not measured here**.
+
+What was measured today: a scratch `CLAUDE_CONFIG_DIR` does scope `.claude.json` (running `claude doctor` under one creates that store), and `claude --debug -p` in an unauthenticated scratch store exits at `Not logged in` before it loads or reports any memory file, so the question cannot be settled without a second logged-in store.
+
+Bounded procedure to settle it, on a host that already has a second pool logged in:
+
+```sh
+printf '# POOL-MEMORY-MARKER\n@%s/outside.md\n' "$HOME" > <pool-config-dir>/CLAUDE.md
+printf 'OUTSIDE-IMPORT-MARKER\n' > "$HOME/outside.md"
+CLAUDE_CONFIG_DIR=<pool-config-dir> claude --debug -p 'reply with the word ok'   # records loaded memory paths
+```
+
+Record whether the debug output lists `<pool-config-dir>/CLAUDE.md` (the pool store owns user memory, so a fresh pool with no CLAUDE.md loads none and the dialog cannot fire) or `$HOME/.claude/CLAUDE.md` (the ambient chain reaches every pool, so the dialog applies to all of them), along with the platform and CLI version, then delete both scratch files.
+Update this section and the per-pool operator step in [configuration.md](../configuration.md#one-time-setup-for-a-named-pool) together with the result.
+
+Until that measurement exists, `bin/fm-claude-auth.sh` does not decide the question either way: it refuses a named pool whose operator attestation is absent or stale, which covers the prompt-applicable case without claiming the prompt applies.
+
 ## Standalone Grok discovery probe
 
 Verified 2026-07-30 on `grok 0.2.117 (f1c06093089f) [stable]`.

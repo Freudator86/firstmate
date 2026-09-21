@@ -988,6 +988,7 @@ test_claude_pins_named_profile_config_dir() {
   rec=$(make_spawn_case profile-claude-named claude "$id")
   read_case_record "$rec"
   mkdir -p "$CASE_DIR/claude-b"
+  fm_test_attest_claude_pool "$CASE_DIR/claude-b"
   cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
 {"profiles":[{"id":"claude-max-b","config_dir":"$CASE_DIR/claude-b"}]}
 EOF
@@ -1010,6 +1011,8 @@ test_claude_pools_only_config_still_spawns_without_a_profile_flag() {
   rec=$(make_spawn_case profile-claude-poolsonly claude "$id")
   read_case_record "$rec"
   mkdir -p "$CASE_DIR/claude-a" "$CASE_DIR/claude-b"
+  fm_test_attest_claude_pool "$CASE_DIR/claude-a"
+  fm_test_attest_claude_pool "$CASE_DIR/claude-b"
   cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
 {"profiles":[{"id":"claude-max-a","config_dir":"$CASE_DIR/claude-a"},{"id":"claude-max-b","config_dir":"$CASE_DIR/claude-b"}]}
 EOF

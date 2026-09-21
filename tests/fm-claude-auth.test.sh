@@ -60,6 +60,7 @@ make_home() {
 case_dir="$TMP_ROOT/authenticated"
 make_home "$case_dir/home"
 write_creds "$case_dir/a" "top-secret-token"
+fm_test_attest_claude_pool "$case_dir/a"
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
 {"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a"}]}
 EOF
@@ -87,6 +88,7 @@ pass "fm-claude-auth: unauthenticated profile is rejected and setup material is 
 case_dir="$TMP_ROOT/two-pools"
 make_home "$case_dir/home"
 write_creds "$case_dir/a"
+fm_test_attest_claude_pool "$case_dir/a"
 mkdir -p "$case_dir/b"
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
 {"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a"},{"id":"claude-max-b","config_dir":"$case_dir/b"}]}
@@ -111,6 +113,7 @@ pass "fm-claude-auth: absent setup-token material reports an actionable setup ne
 case_dir="$TMP_ROOT/pools-only"
 make_home "$case_dir/home"
 write_creds "$case_dir/a"
+fm_test_attest_claude_pool "$case_dir/a"
 mkdir -p "$case_dir/b" "$case_dir/ambient"
 write_creds "$case_dir/ambient"
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
@@ -146,8 +149,9 @@ cat > "$case_dir/home/config/claude-profiles.json" <<EOF
 {"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/never-created"}]}
 EOF
 out=$(PATH="$FAKEBIN:$PATH" FM_FAKE_CLAUDE_STATUS=authenticated FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
-expect_code 0 "$status" "a missing config directory must be answered by the probe, not by the filesystem: $out"
-assert_contains "$out" 'auth=authenticated' "the probe verdict must win over a missing config directory"
+expect_code 1 "$status" "an unattested pool store must refuse even when the probe says authenticated"
+assert_not_contains "$out" 'auth=unauthenticated' "the filesystem must never produce an authentication verdict"
+assert_contains "$out" 'auth=unattested:setup-not-attested' "a store with no attestation must refuse on that, not on a made-up login state"
 out=$(PATH="$FAKEBIN:$PATH" FM_FAKE_CLAUDE_STATUS=unauthenticated FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
 expect_code 1 "$status" "an unauthenticated probe over a missing config directory should still refuse"
 assert_contains "$out" 'auth=unauthenticated:vendor-probe' "the refusal must name the probe as its source"
@@ -169,6 +173,7 @@ pass "fm-claude-auth: an indeterminate probe refuses without claiming the profil
 case_dir="$TMP_ROOT/unverified-platform"
 make_home "$case_dir/home"
 write_creds "$case_dir/a"
+fm_test_attest_claude_pool "$case_dir/a"
 mkdir -p "$case_dir/ambient"
 write_creds "$case_dir/ambient"
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
@@ -212,6 +217,54 @@ assert_not_contains "$out" 'auth=authenticated' "an aliased pool must not be rep
 out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
 expect_code 2 "$status" "one malformed pool invalidates the whole per-home file rather than being selected around"
 pass "fm-claude-auth: a named pool without its own config_dir is rejected instead of aliasing the default account"
+
+case_dir="$TMP_ROOT/pool-attestation"
+make_home "$case_dir/home"
+write_creds "$case_dir/a"
+mkdir -p "$case_dir/ambient"
+write_creds "$case_dir/ambient"
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a"}]}
+EOF
+run_auth() { PATH="$FAKEBIN:$PATH" CLAUDE_CONFIG_DIR="$case_dir/ambient" FM_HOME="$case_dir/home" "$AUTH" "$@" 2>&1; }
+
+out=$(run_auth check --profile claude-max-a); status=$?
+expect_code 1 "$status" "a logged-in pool whose first-run setup is unattested must refuse"
+assert_contains "$out" 'auth=unattested:setup-not-attested' "the unattested pool should report its own state, not an auth state"
+assert_contains "$out" 'attest --profile claude-max-a --confirm-setup-complete' "the refusal should name the command that clears it"
+assert_contains "$out" 'external-CLAUDE.md-import' "the refusal should name the consent it cannot verify"
+
+out=$(run_auth check --profile default); status=$?
+expect_code 0 "$status" "the ambient default must never require a pool attestation: $out"
+
+out=$(run_auth attest --profile claude-max-a); status=$?
+expect_code 2 "$status" "attest must refuse without the explicit operator confirmation"
+assert_contains "$out" '--confirm-setup-complete' "attest should name the confirmation it requires"
+[ ! -e "$case_dir/a/.fm-pool-ready" ] || fail "an unconfirmed attest must not write an attestation"
+
+out=$(run_auth attest --profile default --confirm-setup-complete); status=$?
+expect_code 2 "$status" "the ambient default carries no per-pool attestation"
+
+out=$(FM_FAKE_CLAUDE_STATUS=unauthenticated run_auth attest --profile claude-max-a --confirm-setup-complete); status=$?
+expect_code 2 "$status" "a pool that does not probe authenticated cannot have completed its interactive setup"
+[ ! -e "$case_dir/a/.fm-pool-ready" ] || fail "attest must not record a pool it could not verify as logged in"
+
+out=$(run_auth attest --profile claude-max-a --confirm-setup-complete); status=$?
+expect_code 0 "$status" "attest should record a logged-in pool: $out"
+assert_contains "$out" "attested profile=claude-max-a config_dir=$case_dir/a claude_version=2.1.276" "attest should report what it recorded"
+out=$(run_auth check --profile claude-max-a); status=$?
+expect_code 0 "$status" "an attested pool should pass: $out"
+assert_contains "$out" 'auth=authenticated' "an attested pool is launch-ready"
+
+out=$(FM_FAKE_CLAUDE_VERSION=2.2.0 run_auth check --profile claude-max-a); status=$?
+expect_code 1 "$status" "an attestation made against another claude version is stale"
+assert_contains "$out" 'auth=unattested:attested-on-claude-2.1.276' "the stale state should name the version it was attested on"
+
+sed -i.bak "s|^config_dir=.*|config_dir=$case_dir/elsewhere|" "$case_dir/a/.fm-pool-ready"
+out=$(run_auth check --profile claude-max-a); status=$?
+expect_code 1 "$status" "an attestation naming another store must not clear this pool"
+assert_contains "$out" 'auth=unattested:attested-for-another-store' "a transplanted attestation should be named as such"
+pass "fm-claude-auth: a named pool launches only while its one-time interactive setup is attested for this store and claude version"
 
 case_dir="$TMP_ROOT/malformed"
 make_home "$case_dir/home"

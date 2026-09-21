@@ -455,6 +455,8 @@ cat > "$CLAUDE_POOLS_RULES" <<'JSON'
 JSON
 cp "$CLAUDE_POOLS_RULES" "$RULES"
 mkdir -p "$HOME_DIR/claude-max-a" "$HOME_DIR/claude-max-b"
+fm_test_attest_claude_pool "$HOME_DIR/claude-max-a"
+fm_test_attest_claude_pool "$HOME_DIR/claude-max-b"
 printf '%s\n' '{"claudeAiOauth":{"refreshToken":"secret-a"}}' > "$HOME_DIR/claude-max-a/.credentials.json"
 cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
 {"profiles":[{"id":"claude-max-a","config_dir":"$HOME_DIR/claude-max-a"},{"id":"claude-max-b","config_dir":"$HOME_DIR/claude-max-b"}]}
@@ -486,6 +488,17 @@ assert_contains "$out" 'not eligible: Claude profile claude-max-a is not configu
 assert_contains "$out" 'never inherited' "the unconfigured-pool reason should name the per-home configuration requirement"
 assert_not_contains "$out" 'claude-max-a not authenticated' "an unconfigured pool must not be reported as a logged-out one"
 assert_contains "$out" "  profile: --harness 'codex' --model 'gpt-5.6-sol'" "routing should fall through to a runnable candidate"
+
+cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$HOME_DIR/claude-max-a"},{"id":"claude-max-b","config_dir":"$HOME_DIR/claude-max-b"}]}
+EOF
+rm -f "$HOME_DIR/claude-max-a/.fm-pool-ready"
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
+assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a' "an unattested pool should still be represented"
+assert_contains "$out" 'not eligible: Claude profile claude-max-a is logged in but its one-time interactive first-run setup' "an unattested pool should be excluded with its own reason"
+assert_not_contains "$out" "  profile: --harness 'claude'" "an unattested pool must never be selected"
+assert_contains "$out" "  profile: --harness 'codex'" "routing should fall through to a ready runtime"
+fm_test_attest_claude_pool "$HOME_DIR/claude-max-a"
 
 printf '%s\n' '{"profiles":[{"id":"claude-max-a","config_dir":"'"$HOME_DIR"'/claude-max-a"},{"id":"claude-max-b"}]}' > "$HOME_DIR/config/claude-profiles.json"
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"

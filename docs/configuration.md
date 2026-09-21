@@ -467,9 +467,19 @@ When the selected profile is authenticated and names a config directory, spawn p
 A home whose inherited dispatch rules name a pool it has not configured reports that as a per-home configuration requirement rather than as a logged-out pool, in both the resolver's candidate evidence and `fm-claude-auth.sh check`; install that home's own file listing the same pool ids with locally valid paths through the authorized credential path.
 `bin/fm-control.sh <id> relaunch` keeps the pool a task's record names and takes `--claude-profile <id>` to move it to a different configured pool, preflighting the selection before the running agent is stopped.
 An existing but unreadable or malformed `config/claude-profiles.json` is reported and never selected around: `fm-claude-auth.sh` exits non-zero with the cause, so a spawn refuses and typed dispatch resolution returns an error outcome rather than treating every pool as unauthenticated.
-The preflight measures login state only.
-Claude's machine-scoped Bypass Permissions disclaimer is accepted per store, so a pool whose `config_dir` has never accepted it can still meet that dialog on a bypass-mode launch; [dispatch-auth.md](verification/dispatch-auth.md#claude-bypass-permissions-acceptance) records why no discriminator for it is currently checkable.
-Accept it once per pool with `CLAUDE_CONFIG_DIR=<config_dir> claude --dangerously-skip-permissions` run interactively, which is the step Claude Code itself names, before routing workers to that pool.
+### One-time setup for a named pool
+
+A named pool is a Claude store the operator has never used interactively, and Claude keeps its first-run consents in that store rather than in the account.
+Firstmate's key plane cannot answer any of those dialogs (the cursor sits on the declining option), so a pool is treated as not launch-ready until the operator has completed this once and attested it:
+
+1. `CLAUDE_CONFIG_DIR=<config_dir> claude auth login` - log that pool's Anthropic account in. The preflight measures this part directly.
+2. `CLAUDE_CONFIG_DIR=<config_dir> claude --dangerously-skip-permissions` in a terminal - accept the machine-scoped Bypass Permissions disclaimer for that store. [dispatch-auth.md](verification/dispatch-auth.md#claude-bypass-permissions-acceptance) records why no read-only discriminator for it is checkable.
+3. In the same command, open each project this pool will run workers in and answer `Allow external CLAUDE.md file imports?` if it appears. That consent is recorded per project entry in the pool store, and `bin/fm-claude-trust.sh` can only carry it forward to a fresh worktree from a project entry in the *same* store that already holds it - it never copies consent between stores. Whether the dialog appears at all depends on whether the pool store's user-scope memory chain reaches outside the project, which is unmeasured here; [dispatch-auth.md](verification/dispatch-auth.md#named-pool-first-run-consent) carries the procedure to settle it.
+4. `bin/fm-claude-auth.sh attest --profile <id> --confirm-setup-complete` - record that you did. The command refuses unless the pool probes authenticated, and writes `<config_dir>/.fm-pool-ready` naming the store and the `claude` version it was attested on.
+
+Until that attestation exists, and whenever it is stale (a different store path, or a different `claude` version than the one now installed), `fm-claude-auth.sh` reports `auth=unattested:<reason>` for that pool.
+Spawn and relaunch then refuse before any endpoint, worktree, or task record is created, and typed dispatch resolution reports the pool ineligible with that reason and routes elsewhere - the same fail-closed shape as an unauthenticated pool, because a wedged worker is exactly what the preflight exists to prevent.
+The `default` profile carries no attestation: it names the ambient store an ordinary `claude` launch already uses, whose consents the operator has necessarily already given.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
