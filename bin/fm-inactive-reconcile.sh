@@ -54,9 +54,12 @@
 #
 # The same scan command also owns finished-window housekeeping on a slower
 # FM_WINDOW_HOUSEKEEPING_SECS cadence (default 3600, valid 300..86400).
-# That pass considers only stale direct ordinary crewmates, reads the same
-# current-state helper, and closes only a recorded endpoint whose backend's
-# recovery-grade classifier says the agent is dead.
+# That pass runs after the inactive-outcome scan with only the time left in the
+# same budget deadline, considers only stale direct ordinary crewmates, reads
+# the same current-state helper, and closes only a recorded endpoint whose
+# backend's recovery-grade classifier says the agent is dead and whose done or
+# failed outcome already has a terminal-outcomes record for this incarnation,
+# so closing the window can never erase an outcome not yet reconciled.
 # It never removes task records, touches worktrees, forces teardown, closes
 # secondmates, acts on remote children, or guesses from a quiet pane; active,
 # parked, blocked, paused, unknown, captain-held, running-validation,
@@ -643,6 +646,19 @@ state_line_terminal() { # <line>
   esac
 }
 
+terminal_outcome_recorded() { # <id> <meta> <state> <last-status-line>
+  local id=$1 meta=$2 state=$3 last=$4 incarnation fingerprint suffix
+  incarnation=$(meta_incarnation "$meta")
+  for fingerprint in \
+    "$(sha256_text "$incarnation|$id|$state|$(pr_for_task "$meta")|$(clean_field "$last")")" \
+    "$(sha256_text "$incarnation|$id|$state|ledger|$last")"; do
+    for suffix in pending presented reported; do
+      [ -f "$(record_path "$fingerprint" "$suffix")" ] && [ ! -L "$(record_path "$fingerprint" "$suffix")" ] && return 0
+    done
+  done
+  return 1
+}
+
 finished_window_housekeeping_child_locked() { # <id> <meta> <timeout>
   local id=$1 meta=$2 timeout=$3 kind remote status turn last age state_line state_rc=0 state backend target agent_state label
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
@@ -662,6 +678,7 @@ finished_window_housekeeping_child_locked() { # <id> <meta> <timeout>
   state=$(state_line_terminal "$state_line") || return 0
   last=$(last_status_line "$status")
   case "$(status_line_verb "$last")" in captain-held|needs-decision|blocked|paused) return 0 ;; esac
+  terminal_outcome_recorded "$id" "$meta" "$state" "$last" || return 0
   backend=$(fm_backend_of_meta "$meta")
   target=$(fm_backend_target_of_meta "$meta")
   [ -n "$target" ] || return 0
@@ -699,10 +716,9 @@ finished_window_housekeeping_pass() { # <cursor> <after|through> <deadline>
       through) [ -n "$cursor" ] && [[ "$id" > "$cursor" ]] && continue ;;
     esac
     [ "$count" -lt "$FM_WINDOW_HOUSEKEEPING_MAX" ] || return 3
-    [ "$(date +%s)" -lt "$deadline" ] || return 3
-    housekeeping_cursor_write "$id" || return 1
     remaining=$((deadline - $(date +%s)))
     [ "$remaining" -gt 0 ] || return 3
+    housekeeping_cursor_write "$id" || return 1
     finished_window_housekeeping_child "$id" "$meta" "$remaining" || {
       rc=$?
       [ "$rc" -eq 3 ] && return 3
@@ -712,12 +728,11 @@ finished_window_housekeeping_pass() { # <cursor> <after|through> <deadline>
   done
 }
 
-finished_window_housekeeping() {
-  local cursor deadline rc=0
+finished_window_housekeeping() { # <deadline>
+  local deadline=$1 cursor rc=0
   [ "$(housekeeping_marker_age)" -ge "$FM_WINDOW_HOUSEKEEPING_SECS" ] || return 0
   cursor=$(housekeeping_cursor_read)
   valid_id "$cursor" || cursor=''
-  deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
   finished_window_housekeeping_pass "$cursor" after "$deadline" || rc=$?
   if [ "$rc" -eq 0 ] && [ -n "$cursor" ]; then
     finished_window_housekeeping_pass "$cursor" through "$deadline" || rc=$?
@@ -741,29 +756,31 @@ scan() {
     marker_rc=$?
     self=''
   fi
-  finished_window_housekeeping
-  if [ "$startup" != 1 ] && [ "$(scan_marker_age)" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
-    return 0
-  fi
-  cursor=$(scan_marker_cursor)
-  valid_id "$cursor" || cursor=''
-  write_scan_marker "$cursor" || return 1
-  if [ -z "$self" ] && [ "$marker_rc" -ne 1 ]; then
-    publish_actionable "inactive-reconcile-diagnostic:invalid-secondmate-home" \
-      "inactive terminal outcomes remain unreconciled: invalid .fm-secondmate-home marker" || true
-    return 0
-  fi
   deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
-  SCAN_FIRST_VISIT_PENDING=1
-  scan_pass "$cursor" after "$deadline" "$self" || rc=$?
-  if [ "$rc" -eq 0 ] && [ -n "$cursor" ]; then
-    scan_pass "$cursor" through "$deadline" "$self" || rc=$?
+  if [ "$startup" = 1 ] || [ "$(scan_marker_age)" -ge "$FM_INACTIVE_RECONCILE_SECS" ]; then
+    cursor=$(scan_marker_cursor)
+    valid_id "$cursor" || cursor=''
+    write_scan_marker "$cursor" || return 1
+    if [ -z "$self" ] && [ "$marker_rc" -ne 1 ]; then
+      publish_actionable "inactive-reconcile-diagnostic:invalid-secondmate-home" \
+        "inactive terminal outcomes remain unreconciled: invalid .fm-secondmate-home marker" || true
+      return 0
+    fi
+    SCAN_FIRST_VISIT_PENDING=1
+    scan_pass "$cursor" after "$deadline" "$self" || rc=$?
+    if [ "$rc" -eq 0 ] && [ -n "$cursor" ]; then
+      scan_pass "$cursor" through "$deadline" "$self" || rc=$?
+    fi
+    if [ "$rc" -eq 0 ]; then
+      write_scan_marker '' || return 1
+    elif [ "$rc" -eq 3 ]; then
+      return 0
+    else
+      return "$rc"
+    fi
   fi
-  if [ "$rc" -eq 0 ]; then
-    write_scan_marker '' || return 1
-  elif [ "$rc" -ne 3 ]; then
-    return "$rc"
-  fi
+  [ -n "$self" ] || [ "$marker_rc" -eq 1 ] || return 0
+  finished_window_housekeeping "$deadline"
 }
 
 acknowledge() { # <fingerprint>

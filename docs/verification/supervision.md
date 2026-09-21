@@ -19,11 +19,14 @@ Relevant observed rows:
 
 ```text
 ok - finished-window housekeeping closes a stale dead terminal endpoint without removing records
+ok - finished-window housekeeping closes only after the terminal outcome is recorded
+ok - finished-window housekeeping only consumes time left in the shared scan deadline
 ok - finished-window housekeeping preserves active, decision-gated, and unverified records
 ```
 
 The test drives the public `fm-inactive-reconcile.sh scan` interface with fake current-state and tmux endpoints.
 It proves that a stale task whose current state is `done` and whose recorded endpoint classifies as dead is closed through the backend close path while its metadata and worktree remain, that the hourly marker prevents an immediate duplicate close, and that working, parked, open-decision, and unverified-backend records are left untouched.
+It also proves that a window is closed only once its done or failed outcome has a terminal-outcomes record for that incarnation, so a status-log-only failure found after downtime is recorded and queued before its endpoint disappears, and that housekeeping runs after reconciliation with only the time left in the same scan deadline.
 The live backend close mechanics remain owned by [runtime-backends.md](runtime-backends.md#tmux) and the per-backend sections there.
 
 ## Native session-start delivery

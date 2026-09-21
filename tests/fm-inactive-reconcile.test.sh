@@ -948,7 +948,59 @@ test_finished_window_housekeeping_preserves_active_gated_and_unverified_records(
   pass "finished-window housekeeping preserves active, decision-gated, and unverified records"
 }
 
+test_finished_window_housekeeping_never_erases_unreconciled_outcome() {
+  make_world finished-window-unreconciled
+  write_child "$MAIN" child 'failed: validation broke'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+if [ -s "${FM_TMUX_KILL_LOG:?}" ]; then
+  printf 'state: unknown · backend target gone\n'
+else
+  printf 'state: failed · source: status log\n'
+fi
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  printf 'epoch=%s\ncursor=\n' "$(date +%s)" > "$MAIN/state/.inactive-outcome-reconcile"
+  run_reconcile "$MAIN" >/dev/null
+  [ ! -s "$WORLD/tmux-kill.log" ] || fail "housekeeping closed a window whose failed outcome was never reconciled"
+  rm -f "$MAIN/state/.finished-window-housekeeping"
+  run_reconcile "$MAIN" --startup >/dev/null
+  [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "startup scan lost the failed outcome: $(ls "$MAIN/state/terminal-outcomes")"
+  [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] || fail "failed outcome was not queued for captain presentation"
+  grep -Fq 'kill-window -t =firstmate:=fm-child' "$WORLD/tmux-kill.log" \
+    || fail "housekeeping did not close the window after its outcome was recorded"
+  run_reconcile "$MAIN" --startup >/dev/null
+  [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "closed window erased the pending outcome record"
+  pass "finished-window housekeeping closes only after the terminal outcome is recorded"
+}
+
+test_finished_window_housekeeping_shares_the_scan_deadline() {
+  make_world finished-window-budget
+  write_child "$MAIN" child 'done: PR https://example.test/owner/repo/pull/1 checks green'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'call\n' >> "${FM_CREW_CALL_LOG:?}"
+[ -z "${FM_FAKE_CREW_SLOW:-}" ] || sleep 5
+printf 'state: done · source: fake\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_CREW_CALL_LOG="$WORLD/crew-calls" FM_FAKE_CREW_SLOW=1 FM_INACTIVE_RECONCILE_BUDGET_SECS=2 \
+    run_reconcile "$MAIN" --startup >/dev/null
+  [ "$(wc -l < "$WORLD/crew-calls" | tr -d ' ')" = 1 ] \
+    || fail "housekeeping ran on a budget the reconciliation pass already consumed: $(wc -l < "$WORLD/crew-calls")"
+  [ ! -e "$MAIN/state/.finished-window-housekeeping" ] || fail "an exhausted budget still marked housekeeping complete"
+  [ ! -s "$WORLD/tmux-kill.log" ] || fail "housekeeping closed a window without time left in the shared deadline"
+  FM_CREW_CALL_LOG="$WORLD/crew-calls" run_reconcile "$MAIN" --startup >/dev/null
+  [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "reconciliation did not record the outcome once time allowed"
+  grep -Fq 'kill-window -t =firstmate:=fm-child' "$WORLD/tmux-kill.log" \
+    || fail "housekeeping did not resume after the budget-limited poll"
+  [ -e "$MAIN/state/.finished-window-housekeeping" ] || fail "completed housekeeping pass left no cadence marker"
+  pass "finished-window housekeeping only consumes time left in the shared scan deadline"
+}
+
 test_finished_window_housekeeping_closes_only_dead_terminal_endpoint
+test_finished_window_housekeeping_never_erases_unreconciled_outcome
+test_finished_window_housekeeping_shares_the_scan_deadline
 test_finished_window_housekeeping_preserves_active_gated_and_unverified_records
 test_main_direct_terminal_presentation_receipt
 test_local_secondmate_delivers_terminal_ledger_line
