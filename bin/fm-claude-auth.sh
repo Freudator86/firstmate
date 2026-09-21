@@ -32,6 +32,8 @@
 # `unonboarded:first-run-onboarding-incomplete`: an interactive launch would
 # open on the text-style/theme onboarding screen, which firstmate's key plane
 # cannot drive, so the worker would sit there instead of reading its brief.
+# docs/verification/dispatch-auth.md#claude-first-run-onboarding records the
+# first-hand check that this key alone decides whether that screen opens.
 # `attest` records that the operator completed the documented setup for that
 # store; it is refused unless the pool probes authenticated, and it is read back
 # as stale when the canonical store it names is no longer the store being

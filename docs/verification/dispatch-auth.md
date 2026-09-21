@@ -236,6 +236,28 @@ The `default` profile is unaffected on every platform: it names the ambient stor
 To enable named pools on another platform, measure `claude auth status` under a second `CLAUDE_CONFIG_DIR` on a host of that platform, record the result in this section, and extend `POOL_SEPARATION_VERIFIED_PLATFORM` in `bin/fm-claude-auth.sh` to match.
 Do not infer the outcome from the keychain's design, and do not read or move credential values to find out.
 
+## Claude first-run onboarding
+
+Verified 2026-09-21 on Claude Code 2.1.276, on Linux.
+
+Two scratch config stores holding no credentials, no copied consent, and no other Claude-owned keys were launched interactively in detached tmux panes, with the environment cleared so neither the ambient store nor an inherited token could answer:
+
+```sh
+printf '{"hasCompletedOnboarding":true}\n' > <scratch>/present/.claude.json   # <scratch>/absent has no .claude.json
+env -i PATH=<path> HOME=<scratch>/home TERM=xterm-256color CLAUDE_CONFIG_DIR=<scratch>/<arm> claude
+```
+
+Each pane was captured after about 15 seconds without sending a key, then killed, and the scratch tree was deleted.
+
+- `absent`: `Welcome to Claude Code v2.1.276`, `Let's get started.`, `Choose the text style that looks best with your terminal`, and the theme picker.
+- `present`: no welcome or theme screen; the pane went straight to the `Accessing workspace:` folder-trust dialog, the next first-run step (owned by `bin/fm-claude-trust.sh`, not by this key).
+- Claude created `.claude.json` in the `absent` store during the run without setting `hasCompletedOnboarding`, so an abandoned first run still reads as unonboarded.
+
+So `hasCompletedOnboarding: true` in the store's `.claude.json` alone decides whether the text-style/theme screen opens, and `bin/fm-claude-auth.sh` reads exactly that key.
+It does not check that the store is logged in or that later dialogs are settled; those have their own checks above and below.
+This key is un-owned vendor state: re-run the two arms above and update this section when the vendor CLI changes.
+No executable live guard is registered, because detecting the screen means scraping a timed TUI capture, which is not deterministic.
+
 ## Claude Bypass Permissions acceptance
 
 Attempted 2026-09-20 on Claude Code 2.1.276; no probe registered.
