@@ -155,10 +155,10 @@ assert_contains "$out" "profile=default auth=unonboarded:first-run-onboarding-in
 assert_contains "$out" "first-run onboarding" "the refusal should route to finishing onboarding"
 rm -f "$case_dir/ambient/.claude.json"
 printf '%s\n' '{"hasCompletedOnboarding":true}' > "$case_dir/user-home/.claude.json"
-out=$(PATH="$FAKEBIN:$PATH" HOME="$case_dir/user-home" CLAUDE_CONFIG_DIR= FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
+out=$(PATH="$FAKEBIN:$PATH" HOME="$case_dir/user-home" CLAUDE_CONFIG_DIR='' FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
 expect_code 0 "$status" "an ambient default reads onboarding from \$HOME/.claude.json: $out"
 rm -f "$case_dir/user-home/.claude.json"
-out=$(PATH="$FAKEBIN:$PATH" HOME="$case_dir/user-home" CLAUDE_CONFIG_DIR= FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
+out=$(PATH="$FAKEBIN:$PATH" HOME="$case_dir/user-home" CLAUDE_CONFIG_DIR='' FM_HOME="$case_dir/home" "$AUTH" check --profile default 2>&1); status=$?
 expect_code 1 "$status" "an ambient default without \$HOME/.claude.json has never onboarded: $out"
 assert_contains "$out" "auth=unonboarded:first-run-onboarding-incomplete" "ambient onboarding verdict missing"
 pass "fm-claude-auth: a logged-in profile that has not finished first-run onboarding is refused"
