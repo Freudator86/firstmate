@@ -766,8 +766,7 @@ test_same_harness_relaunch_keeps_the_profile_axes() {
 }
 
 # Claude capacity pools (docs/configuration.md "Claude profiles"): the recorded
-# pool is a durable account pin, and --claude-profile is the deliberate way to
-# move a task to a different configured pool.
+# pool is a durable account pin that a relaunch preserves and preflights.
 add_claude_pools() {  # <case-dir> <task-id> [recorded-profile]
   local dir=$1 id=$2 profile=${3:-}
   mkdir -p "$dir/home/config" "$dir/pool-a" "$dir/pool-b"
@@ -795,21 +794,6 @@ test_claude_relaunch_keeps_the_recorded_capacity_pool() {
   pass "fm-control relaunch: the recorded Claude capacity pool survives a relaunch that names none"
 }
 
-test_claude_relaunch_moves_to_an_explicitly_named_pool() {
-  local dir out rc
-  dir=$(new_case poolmove rl-pool-move)
-  add_ship_task "$dir" rl-pool-move claude
-  add_claude_pools "$dir" rl-pool-move claude-max-b
-  out=$(run_control "$dir" rl-pool-move relaunch --claude-profile claude-max-a --note "move pools"); rc=$?
-  expect_code 0 "$rc" "an explicit pool override should succeed"$'\n'"$out"
-  [ "$(meta_field "$dir" rl-pool-move claude_profile)" = claude-max-a ] \
-    || fail "an explicit --claude-profile must be recorded for the replacement"
-  assert_contains "$(cat "$dir/fake/literal")" "CLAUDE_CONFIG_DIR='$dir/pool-a'" \
-    "the replacement worker must launch against the explicitly named pool's store"
-  assert_contains "$out" "claude_profile=claude-max-a" "the relaunch report should name the pool it moved to"
-  pass "fm-control relaunch: --claude-profile moves a task to another configured pool"
-}
-
 test_claude_relaunch_refuses_an_unavailable_pool_before_stopping() {
   local dir out rc meta_before
   dir=$(new_case poolgone rl-pool-gone)
@@ -818,16 +802,16 @@ test_claude_relaunch_refuses_an_unavailable_pool_before_stopping() {
   meta_before=$(cat "$dir/home/state/rl-pool-gone.meta")
   out=$(FM_FAKE_CLAUDE_LOGGED_OUT_DIR="$dir/pool-b" run_control "$dir" rl-pool-gone relaunch --note "pool b lapsed"); rc=$?
   expect_code 1 "$rc" "a relaunch onto a logged-out pool should refuse"
-  assert_contains "$out" "pass --claude-profile <id>" "the refusal should name the way out"
+  assert_contains "$out" "restore that pool's login" "the refusal should name the way out"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "an unavailable pool must not stop the running agent"
   [ ! -s "$dir/fake/literal" ] || fail "an unavailable pool must not reach a replacement launch"
   [ "$(cat "$dir/home/state/rl-pool-gone.meta")" = "$meta_before" ] \
     || fail "a refused relaunch must leave the durable record byte-identical"
 
-  out=$(FM_FAKE_CLAUDE_LOGGED_OUT_DIR="$dir/pool-b" run_control "$dir" rl-pool-gone relaunch --claude-profile claude-max-a --note "move to the ready pool"); rc=$?
-  expect_code 0 "$rc" "the task must stay relaunchable onto a ready pool"$'\n'"$out"
-  [ "$(meta_field "$dir" rl-pool-gone claude_profile)" = claude-max-a ] \
-    || fail "the recovery relaunch should record the pool it moved to"
+  out=$(run_control "$dir" rl-pool-gone relaunch --note "pool b restored"); rc=$?
+  expect_code 0 "$rc" "the task must stay relaunchable once its pool is restored"$'\n'"$out"
+  [ "$(meta_field "$dir" rl-pool-gone claude_profile)" = claude-max-b ] \
+    || fail "the recovery relaunch should keep the recorded pool"
   pass "fm-control relaunch: an unavailable Claude pool refuses before the agent is stopped and stays recoverable"
 }
 
@@ -865,18 +849,6 @@ test_claude_pool_does_not_survive_a_harness_switch() {
   assert_not_contains "$(cat "$dir/fake/literal")" "$dir/pool-b" \
     "the replacement must not launch against the pool fm-control cleared"
   pass "fm-control relaunch: a Claude capacity pool does not survive a switch away from claude"
-}
-
-test_claude_profile_override_refuses_on_a_non_claude_relaunch() {
-  local dir out rc
-  dir=$(new_case poolwrongharness rl-pool-wrong)
-  add_ship_task "$dir" rl-pool-wrong claude
-  add_claude_pools "$dir" rl-pool-wrong claude-max-b
-  out=$(run_control "$dir" rl-pool-wrong relaunch --harness codex --claude-profile claude-max-a --note "wrong axis"); rc=$?
-  expect_code 1 "$rc" "a Claude pool named for a non-Claude relaunch should refuse"
-  assert_contains "$out" "targets 'codex'" "the refusal should name the target harness"
-  [ "$(cat "$dir/fake/command")" = claude ] || fail "the refusal must not stop the running agent"
-  pass "fm-control relaunch: --claude-profile is refused when the replacement is not a Claude worker"
 }
 
 test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop() {
@@ -2357,10 +2329,8 @@ test_harness_switch_resolves_a_prefixed_recorded_harness
 test_prefixed_recorded_harness_requires_explicit_replacement
 test_same_harness_relaunch_keeps_the_profile_axes
 test_claude_relaunch_keeps_the_recorded_capacity_pool
-test_claude_relaunch_moves_to_an_explicitly_named_pool
 test_claude_relaunch_refuses_an_unavailable_pool_before_stopping
 test_claude_relaunch_names_the_per_home_pool_requirement
-test_claude_profile_override_refuses_on_a_non_claude_relaunch
 test_claude_pool_does_not_survive_a_harness_switch
 test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop
 test_explicit_model_wins_over_the_recorded_one

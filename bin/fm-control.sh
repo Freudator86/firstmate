@@ -6,7 +6,6 @@
 #        fm-control.sh <task-id> exit
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
-#                                         [--claude-profile <id>]
 #                                         (--note <text> | --note-file <path>)
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
@@ -68,11 +67,10 @@
 #              A prefixed raw-command basename cannot reconstruct its launch
 #              command, so relaunch requires an explicit --harness for it.
 #              A claude task keeps the Claude capacity pool its record names,
-#              so a relaunch never moves a worker to another account by
-#              itself; --claude-profile <id> moves it to a different locally
-#              configured pool deliberately. Either way the pool is preflighted
-#              here, before anything is stopped, so an unauthenticated or
-#              unconfigured pool refuses with the agent still running.
+#              so a relaunch never moves a worker to another account. That
+#              pool is preflighted here, before anything is stopped, so an
+#              unauthenticated or unconfigured pool refuses with the agent
+#              still running.
 #              --note is required for a ship or scout, whose replacement
 #              inherits the local copy but none of the conversation; a
 #              secondmate reconciles its own home's records at startup, so its
@@ -225,8 +223,6 @@ fi
 NEW_HARNESS=
 NEW_MODEL=
 NEW_EFFORT=
-NEW_CLAUDE_PROFILE=
-CLAUDE_PROFILE_SET=0
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
@@ -242,7 +238,6 @@ for control_arg in "$@"; do
       harness) NEW_HARNESS=$control_arg; HARNESS_SET=1 ;;
       model) NEW_MODEL=$control_arg; MODEL_SET=1 ;;
       effort) NEW_EFFORT=$control_arg; EFFORT_SET=1 ;;
-      claude_profile) NEW_CLAUDE_PROFILE=$control_arg; CLAUDE_PROFILE_SET=1 ;;
       note) NOTE=$control_arg; NOTE_SET=1 ;;
       note_file)
         [ -f "$control_arg" ] || die "--note-file '$control_arg' is not a readable file"
@@ -260,8 +255,6 @@ for control_arg in "$@"; do
     --model=*) NEW_MODEL=${control_arg#--model=}; MODEL_SET=1 ;;
     --effort) control_want_value=effort ;;
     --effort=*) NEW_EFFORT=${control_arg#--effort=}; EFFORT_SET=1 ;;
-    --claude-profile) control_want_value=claude_profile ;;
-    --claude-profile=*) NEW_CLAUDE_PROFILE=${control_arg#--claude-profile=}; CLAUDE_PROFILE_SET=1 ;;
     --note) control_want_value=note ;;
     --note=*) NOTE=${control_arg#--note=}; NOTE_SET=1 ;;
     --note-file) control_want_value=note_file ;;
@@ -279,14 +272,12 @@ if [ -n "$control_want_value" ]; then
 fi
 
 if [ "$VERB" != relaunch ]; then
-  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] \
-    && [ "$CLAUDE_PROFILE_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
-    || die "--harness, --model, --effort, --claude-profile, and --note apply to 'relaunch' only"
+  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
+    || die "--harness, --model, --effort, and --note apply to 'relaunch' only"
 fi
 [ "$HARNESS_SET" = 0 ] || [ -n "$NEW_HARNESS" ] || die "--harness requires a non-empty value"
 [ "$MODEL_SET" = 0 ] || [ -n "$NEW_MODEL" ] || die "--model requires a non-empty value"
 [ "$EFFORT_SET" = 0 ] || [ -n "$NEW_EFFORT" ] || die "--effort requires a non-empty value"
-[ "$CLAUDE_PROFILE_SET" = 0 ] || [ -n "$NEW_CLAUDE_PROFILE" ] || die "--claude-profile requires a non-empty value"
 case "$NEW_EFFORT" in
   ''|default|low|medium|high|xhigh|max|ultra) ;;
   *) die "--effort must be one of default, low, medium, high, xhigh, max, ultra" ;;
@@ -783,14 +774,9 @@ resolve_relaunch_profile() {
   if [ "$TARGET_EFFORT" = ultra ]; then
     "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
   fi
-  # The recorded Claude pool is preserved by default so a relaunch never moves a
-  # worker to another account silently; --claude-profile is how an operator
-  # deliberately moves it to a different configured pool.
-  if [ "$CLAUDE_PROFILE_SET" = 1 ]; then
-    [ "$TARGET_HARNESS" = claude ] \
-      || die "--claude-profile names a Claude capacity pool, but this relaunch targets '$TARGET_HARNESS'; drop the flag or relaunch onto claude"
-    TARGET_CLAUDE_PROFILE=$NEW_CLAUDE_PROFILE
-  elif [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ]; then
+  # The recorded Claude pool is preserved so a relaunch never moves a worker to
+  # another account.
+  if [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ]; then
     TARGET_CLAUDE_PROFILE=$PRIOR_CLAUDE_PROFILE
   else
     TARGET_CLAUDE_PROFILE=
@@ -801,7 +787,7 @@ resolve_relaunch_profile() {
   # the pre-stop side, so an unavailable pool leaves the running agent alone.
   if [ "$TARGET_HARNESS" = claude ]; then
     claude_auth_out=$("$SCRIPT_DIR/fm-claude-auth.sh" check --profile "${TARGET_CLAUDE_PROFILE:-default}" 2>&1) \
-      || die "Claude profile ${TARGET_CLAUDE_PROFILE:-default} is not ready for the replacement worker, so relaunching $ID onto it would stop the running agent for a launch that must be refused; pass --claude-profile <id> to name a configured authenticated pool. $claude_auth_out"
+      || die "Claude profile ${TARGET_CLAUDE_PROFILE:-default} is not ready for the replacement worker, so relaunching $ID onto it would stop the running agent for a launch that must be refused; restore that pool's login with bin/fm-claude-auth.sh before relaunching. $claude_auth_out"
   fi
 }
 

@@ -466,7 +466,7 @@ A raw launch command that sets `CLAUDE_CONFIG_DIR` itself is refused there too w
 When the selected profile is authenticated and names a config directory, spawn pins that `CLAUDE_CONFIG_DIR` into the launched worker and registers workspace trust in the same store, so the worker uses the checked account; an ambient profile adds no prefix.
 `config/claude-profiles.json` is per-home configuration and is deliberately never inherited between firstmate homes, because its values are absolute paths to per-account credential stores and setup-token material that a secondmate or remote home does not necessarily share; [`fm_config_inherit_items`](../bin/fm-config-inherit-lib.sh) therefore omits it while still carrying `config/crew-dispatch.json`.
 A home whose inherited dispatch rules name a pool it has not configured reports that as a per-home configuration requirement rather than as a logged-out pool, in both the resolver's candidate evidence and `fm-claude-auth.sh check`; install that home's own file listing the same pool ids with locally valid paths through the authorized credential path.
-`bin/fm-control.sh <id> relaunch` keeps the pool a task's record names and takes `--claude-profile <id>` to move it to a different configured pool, preflighting the selection before the running agent is stopped.
+`bin/fm-control.sh <id> relaunch` keeps the pool a task's record names and preflights it before the running agent is stopped.
 An existing but unreadable or malformed `config/claude-profiles.json` is reported and never selected around: `fm-claude-auth.sh` exits non-zero with the cause, so a spawn refuses and typed dispatch resolution returns an error outcome rather than treating every pool as unauthenticated.
 ### One-time setup for a named pool
 
