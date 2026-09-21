@@ -149,7 +149,10 @@ REG_EXISTED=0
 
 # Keep the parent charter as its durable source, but publish a remote copy whose
 # parent-channel and steering-inbox paths are remote-home paths rather than local
-# parent-home paths.
+# parent-home paths. The steering-inbox path below has to stay the exact inbox
+# bin/fm-remote-secondmate-control.sh's cmd_send writes records into and rings
+# the doorbell for (its CONTROL_STATE); a charter naming any other path leaves
+# the mate reading an inbox nothing delivers to.
 PARENT_STATUS="$STATE/$ID.status"
 REMOTE_STATUS="$REMOTE_HOME/state/parent-replies.status"
 PARENT_INBOX="$STATE/$ID.inbox"
