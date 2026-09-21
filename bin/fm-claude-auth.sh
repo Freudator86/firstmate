@@ -8,10 +8,12 @@
 # Local config lives at config/claude-profiles.json in the active FM_HOME.
 # Schema:
 #   {"profiles":[{"id":"claude-max-a","config_dir":"/abs/path/to/.claude-a","setup_token_file":"/secret/path"}]}
-# All fields except id are optional. config_dir defaults to this process's
-# CLAUDE_CONFIG_DIR; when that is unset the profile is ambient, reported as an
-# empty config_dir, probed with the variable unset, and launched without one,
-# which is exactly the store an ordinary claude launch uses. A `default` profile
+# Every named (non-default) profile must declare config_dir, since a named pool
+# that fell back to the ambient store would alias the default account. Only the
+# `default` profile may omit it; it then defaults to this process's
+# CLAUDE_CONFIG_DIR, and when that is unset it is ambient, reported as an empty
+# config_dir, probed with the variable unset, and launched without one, which
+# is exactly the store an ordinary claude launch uses. A `default` profile
 # naming that ambient store is synthesized whenever the file does not list one,
 # so a pools-only file still answers a spawn that names no profile; an explicit
 # `default` entry overrides the synthesized one.
@@ -37,20 +39,25 @@ die() { printf 'error: %s\n' "$1" >&2; exit 2; }
 need_jq() { command -v jq >/dev/null 2>&1 || die 'jq required'; }
 
 json_profiles() {
-  local dir="${CLAUDE_CONFIG_DIR:-}"
+  local dir="${CLAUDE_CONFIG_DIR:-}" out
   need_jq
   if [ -e "$PROFILE_FILE" ] || [ -L "$PROFILE_FILE" ]; then
     [ -r "$PROFILE_FILE" ] || die "config/claude-profiles.json is not readable"
-    jq -c --arg id_re "$ID_RE" --arg dir "$dir" '
+    out=$(jq -c --arg id_re "$ID_RE" --arg dir "$dir" '
       if type != "object" then error("top-level value must be an object")
       elif (.profiles | type) != "array" or (.profiles | length) == 0 then error("profiles must be a non-empty array")
       elif any(.profiles[]; type != "object") then error("each profile must be an object")
       elif any(.profiles[]; (.id | type) != "string" or (.id | length) == 0 or (.id | test($id_re) | not)) then error("each profile id must match " + $id_re)
       elif ((.profiles | map(.id) | length) != (.profiles | map(.id) | unique | length)) then error("profile ids must be unique")
+      elif any(.profiles[]; .id != "default" and (has("config_dir") | not)) then error("named profile " + ([.profiles[] | select(.id != "default" and (has("config_dir") | not)) | .id] | first) + " needs its own config_dir, because a named capacity pool must never fall back to the ambient default store")
       elif any(.profiles[]; has("config_dir") and ((.config_dir | type) != "string" or (.config_dir | length) == 0 or (.config_dir | startswith("/") | not))) then error("profile config_dir must be an absolute path")
       elif any(.profiles[]; has("setup_token_file") and ((.setup_token_file | type) != "string" or (.setup_token_file | length) == 0 or (.setup_token_file | startswith("/") | not))) then error("profile setup_token_file must be an absolute path")
       elif any(.profiles[]; .id == "default") then .profiles
-      else .profiles + [{id: "default"} + (if $dir == "" then {} else {config_dir: $dir} end)] end' "$PROFILE_FILE" 2>/dev/null || die "config/claude-profiles.json is malformed"
+      else .profiles + [{id: "default"} + (if $dir == "" then {} else {config_dir: $dir} end)] end' "$PROFILE_FILE" 2>&1) || {
+      out=${out%%$'\n'*}
+      die "config/claude-profiles.json is malformed: ${out#jq: error (at *): }"
+    }
+    printf '%s\n' "$out"
   else
     jq -cn --arg dir "$dir" '[{id: "default"} + (if $dir == "" then {} else {config_dir: $dir} end)]'
   fi

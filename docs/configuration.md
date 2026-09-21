@@ -453,8 +453,9 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 }
 ```
 
-`id` is required and must match `^[a-z0-9]+(-[a-z0-9]+)*$`; every other field is optional.
-`config_dir` selects the Claude credential/config directory for that pool.
+`id` is required and must match `^[a-z0-9]+(-[a-z0-9]+)*$`.
+`config_dir` selects the Claude credential/config directory for that pool and is required on every named (non-`default`) profile: a named pool that fell back to the ambient store would probe and spend the default account while reporting its own quota row, so `fm-claude-auth.sh` rejects such a file as malformed and names the offending profile, which makes spawn refuse and typed dispatch resolution return an error outcome before any resource is created.
+Only a `default` entry may omit `config_dir`; every other field is optional.
 A named (non-`default`) pool is only honored on a platform where separating Anthropic accounts by `CLAUDE_CONFIG_DIR` has been verified first-hand, which today means Linux; elsewhere `fm-claude-auth.sh` reports `unsupported:pool-separation-unverified` and every caller refuses, because a shared credential keychain could answer for a different account than the pool names ([dispatch-auth.md](verification/dispatch-auth.md#account-separation-by-claude_config_dir) owns that measurement and how to extend it).
 The `default` profile is unaffected on every platform.
 Firstmate synthesizes a `default` profile naming the ambient store whenever the file does not list one: the value of `CLAUDE_CONFIG_DIR` when firstmate has it set, and otherwise no config directory at all, so the probe runs with the variable unset, trust is registered in `$HOME/.claude.json`, and the worker launches with no `CLAUDE_CONFIG_DIR` prefix - exactly the store an ordinary `claude` launch uses.

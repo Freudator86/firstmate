@@ -196,6 +196,23 @@ case "$out" in *"config_dir=$case_dir"*|*'config_dir=/'*) fail "the ambient defa
 assert_equals '<unset>' "$(cat "$case_dir/env.log")" "the ambient default must be probed with CLAUDE_CONFIG_DIR unset"
 pass "fm-claude-auth: with CLAUDE_CONFIG_DIR unset the default profile is ambient and probed unset"
 
+case_dir="$TMP_ROOT/named-without-config-dir"
+make_home "$case_dir/home"
+mkdir -p "$case_dir/a"
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-a","config_dir":"$case_dir/a"},{"id":"claude-max-b"}]}
+EOF
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" evidence 2>&1); status=$?
+expect_code 2 "$status" "a named pool without config_dir must make the profile file invalid"
+assert_contains "$out" 'named profile claude-max-b needs its own config_dir' "the diagnostic should name the offending pool"
+assert_not_contains "$out" 'profile=claude-max-b' "a named pool without its own store must never be rendered as a pool"
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-b 2>&1); status=$?
+expect_code 2 "$status" "checking the aliased pool must fail as a configuration error"
+assert_not_contains "$out" 'auth=authenticated' "an aliased pool must not be reported as independently authenticated"
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile claude-max-a 2>&1); status=$?
+expect_code 2 "$status" "one malformed pool invalidates the whole per-home file rather than being selected around"
+pass "fm-claude-auth: a named pool without its own config_dir is rejected instead of aliasing the default account"
+
 case_dir="$TMP_ROOT/malformed"
 make_home "$case_dir/home"
 printf '%s\n' '{"profiles":[{"id":"claude-max-a",}]}' > "$case_dir/home/config/claude-profiles.json"

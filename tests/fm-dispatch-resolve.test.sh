@@ -487,6 +487,13 @@ assert_contains "$out" 'never inherited' "the unconfigured-pool reason should na
 assert_not_contains "$out" 'claude-max-a not authenticated' "an unconfigured pool must not be reported as a logged-out one"
 assert_contains "$out" "  profile: --harness 'codex' --model 'gpt-5.6-sol'" "routing should fall through to a runnable candidate"
 
+printf '%s\n' '{"profiles":[{"id":"claude-max-a","config_dir":"'"$HOME_DIR"'/claude-max-a"},{"id":"claude-max-b"}]}' > "$HOME_DIR/config/claude-profiles.json"
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
+assert_contains "$out" '  status: error' "a named pool without config_dir is a configuration error outcome"
+assert_contains "$out" '  reason: Claude profile evidence failed; check config/claude-profiles.json' "the resolver names the per-home file"
+assert_not_contains "$out" 'claude_profile=claude-max-b' "an aliased pool must never be ranked as its own capacity pool"
+assert_not_contains "$out" "  profile: --harness" "no profile may be selected from an invalid pool file"
+
 printf '%s\n' '{"profiles":[{"id":"claude-max-a",}]}' > "$HOME_DIR/config/claude-profiles.json"
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
 expect_code 0 "$code" "a malformed Claude profile config still exits 0 with a structured outcome"
