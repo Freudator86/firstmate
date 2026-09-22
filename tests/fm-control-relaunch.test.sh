@@ -846,8 +846,8 @@ test_claude_pool_does_not_survive_a_harness_switch() {
   : > "$dir/fake/literal"
   out=$(FM_FAKE_CLAUDE_LOGGED_OUT_DIR="$dir/pool-b" run_control "$dir" rl-pool-switch relaunch --harness claude --note "back to claude"); rc=$?
   expect_code 0 "$rc" "coming back to claude should use the default pool, not the cleared one"$'\n'"$out"
-  [ "$(meta_field "$dir" rl-pool-switch claude_profile)" = default ] \
-    || fail "coming back to claude must land on the default pool, not the cleared one"
+  [ -z "$(meta_field "$dir" rl-pool-switch claude_profile)" ] \
+    || fail "coming back to claude must land on the ambient default, not the cleared one"
   assert_not_contains "$(cat "$dir/fake/literal")" "$dir/pool-b" \
     "the replacement must not launch against the pool fm-control cleared"
   pass "fm-control relaunch: a Claude capacity pool does not survive a switch away from claude"

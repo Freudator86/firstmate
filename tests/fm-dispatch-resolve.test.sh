@@ -437,7 +437,7 @@ assert_contains "$out" 'candidate: cursor:cursor-grok-4.6-medium  provider=curso
 assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "numeric evidence wins without mixed-type ordering"
 pass "nonnumeric spendPriority evidence is never ranked"
 
-# --- Claude profile auth is a candidate gate -----------------------------------
+# --- Claude profile ids are routed, not auth-probed by dispatch -----------------
 reset_log
 CLAUDE_POOLS_RULES="$TMP_ROOT/claude-pools-rules.json"
 cat > "$CLAUDE_POOLS_RULES" <<'JSON'
@@ -448,86 +448,28 @@ cat > "$CLAUDE_POOLS_RULES" <<'JSON'
     { "when": "Genuinely very difficult design or planning work.", "use": { "harness": "codex", "model": "gpt-5.6-sol" } },
     { "when": "A simple bug fix with a stated root cause.", "use": [
       { "harness": "claude", "model": "sonnet", "provider": "claude-max-a", "claude_profile": "claude-max-a" },
-      { "harness": "claude", "model": "sonnet", "provider": "claude-max-b", "claude_profile": "claude-max-b" },
       { "harness": "codex", "model": "gpt-5.6-sol" }
     ] }
   ]
 }
 JSON
 cp "$CLAUDE_POOLS_RULES" "$RULES"
-mkdir -p "$HOME_DIR/claude-max-a" "$HOME_DIR/claude-max-b"
-fm_test_attest_claude_pool "$HOME_DIR/claude-max-a"
-fm_test_attest_claude_pool "$HOME_DIR/claude-max-b"
-printf '%s\n' '{"claudeAiOauth":{"refreshToken":"secret-a"}}' > "$HOME_DIR/claude-max-a/.credentials.json"
-cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"claude-max-a","config_dir":"$HOME_DIR/claude-max-a"},{"id":"claude-max-b","config_dir":"$HOME_DIR/claude-max-b"}]}
-EOF
 CLAUDE_POOLS_QUOTA="$TMP_ROOT/claude-pools-quota.json"
 cat > "$CLAUDE_POOLS_QUOTA" <<'JSON'
 {"generatedAt":"2030-01-01T00:00:00Z","schemaVersion":5,"providers":[
   {"provider":"claude-max-a","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.9}}]}},
-  {"provider":"claude-max-b","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":70,"runway":{"status":"through_reset"},"selection":{"spendPriority":1.0}}]}},
   {"provider":"codex","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":20,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}}
 ]}
 JSON
+printf '%s\n' '{"profiles":[{"id":"claude-max-a",}]}' > "$HOME_DIR/config/claude-profiles.json"
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
-assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  scope=all_models  remaining=80%  spendPriority=0.9' "authenticated Claude pool should be represented and rankable"
-assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:vendor-probe  setup=absent  -> not eligible: Claude profile claude-max-b not authenticated' "unauthenticated Claude pool should be represented and excluded"
-assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --claude-profile 'claude-max-a'" "authenticated Claude profile should be selected when best eligible"
-assert_not_contains "$out" 'secret-a' "Claude auth secret leaked into dispatch output"
-
-CLAUDE_A_EXHAUSTED="$TMP_ROOT/claude-a-exhausted.json"
-jq '(.providers[] | select(.provider == "claude-max-a") | .quotaSemantics.effectiveAvailability[] | select(.scope == "all_models")) |= (.effectivePercentRemaining = 0 | .runway.status = "exhausted_now")' "$CLAUDE_POOLS_QUOTA" > "$CLAUDE_A_EXHAUSTED"
-TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_A_EXHAUSTED" run code out err "$BRIEF"
-assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models' "exhausted authenticated Claude pool should be excluded"
-assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-b  provider=claude-max-b  auth=unauthenticated:vendor-probe  setup=absent  -> not eligible' "unauthenticated Claude pool evidence should not disappear"
-assert_contains "$out" "  profile: --harness 'codex' --model 'gpt-5.6-sol'" "routing should choose non-Claude eligible profile when Claude pools are unusable"
-printf '%s\n' '{"profiles":[{"id":"default","config_dir":"'"$HOME_DIR"'/claude-default"}]}' > "$HOME_DIR/config/claude-profiles.json"
-TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
-assert_contains "$out" 'not eligible: Claude profile claude-max-a is not configured in this home' "an inherited rule naming a locally unconfigured pool should say so"
-assert_contains "$out" 'never inherited' "the unconfigured-pool reason should name the per-home configuration requirement"
-assert_not_contains "$out" 'claude-max-a not authenticated' "an unconfigured pool must not be reported as a logged-out one"
-assert_contains "$out" "  profile: --harness 'codex' --model 'gpt-5.6-sol'" "routing should fall through to a runnable candidate"
-
-cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"claude-max-a","config_dir":"$HOME_DIR/claude-max-a"},{"id":"claude-max-b","config_dir":"$HOME_DIR/claude-max-b"}]}
-EOF
-rm -f "$HOME_DIR/claude-max-a/.fm-pool-ready"
-TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
-assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a' "an unattested pool should still be represented"
-assert_contains "$out" 'not eligible: Claude profile claude-max-a is logged in but its one-time interactive first-run setup' "an unattested pool should be excluded with its own reason"
-assert_not_contains "$out" "  profile: --harness 'claude'" "an unattested pool must never be selected"
-assert_contains "$out" "  profile: --harness 'codex'" "routing should fall through to a ready runtime"
-fm_test_attest_claude_pool "$HOME_DIR/claude-max-a"
-
-printf '{}\n' > "$HOME_DIR/claude-max-a/.claude.json"
-TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
-assert_contains "$out" 'auth=unonboarded:first-run-onboarding-incomplete' "a logged-in, attested pool that never finished onboarding reports it"
-assert_contains "$out" 'not eligible: Claude profile claude-max-a is logged in but its store has not completed the Claude first-run onboarding' "an unonboarded pool should be excluded with its own reason"
-assert_not_contains "$out" "  profile: --harness 'claude'" "an unonboarded pool must never be selected"
-assert_contains "$out" "  profile: --harness 'codex'" "routing should fall through to a ready runtime instead of an onboarding screen"
-fm_test_onboard_claude_store "$HOME_DIR/claude-max-a"
-
-printf '%s\n' '{"profiles":[{"id":"claude-max-a","config_dir":"'"$HOME_DIR"'/claude-max-a"},{"id":"claude-max-b"}]}' > "$HOME_DIR/config/claude-profiles.json"
-TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "a named pool without config_dir is a configuration error outcome"
-assert_contains "$out" '  reason: Claude profile evidence failed; check config/claude-profiles.json' "the resolver names the per-home file"
-assert_not_contains "$out" 'claude_profile=claude-max-b' "an aliased pool must never be ranked as its own capacity pool"
-assert_not_contains "$out" "  profile: --harness" "no profile may be selected from an invalid pool file"
-
-printf '%s\n' '{"profiles":[{"id":"claude-max-a",}]}' > "$HOME_DIR/config/claude-profiles.json"
-TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
-expect_code 0 "$code" "a malformed Claude profile config still exits 0 with a structured outcome"
-assert_contains "$out" '  status: error' "a malformed Claude profile config is an error outcome"
-assert_contains "$out" '  reason: Claude profile evidence failed; check config/claude-profiles.json' "the malformed Claude profile config is named actionably"
-assert_not_contains "$out" 'not authenticated' "a malformed Claude profile config must not be reported as an unauthenticated pool"
-assert_not_contains "$out" "  profile: --harness" "a malformed Claude profile config must not select a profile"
+assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  scope=all_models  remaining=80%  spendPriority=0.9' "Claude profile id should be represented with quota evidence"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --claude-profile 'claude-max-a'" "chosen Claude profile id should be forwarded to spawn"
+assert_not_contains "$out" 'Claude profile evidence failed' "dispatch must not auth-probe or parse claude-profiles.json"
+assert_not_contains "$out" 'auth=' "dispatch output should not claim Claude auth evidence"
 cp "$BASE_RULES" "$RULES"
-cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"default","config_dir":"$HOME_DIR/claude-default"}]}
-EOF
-pass "Claude profile auth and per-pool quota evidence gate dispatch candidates"
+pass "Claude profile ids are forwarded without coupling dispatch to auth probing"
 
 # --- partial providers retain their known row evidence --------------------------
 reset_log

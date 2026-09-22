@@ -895,16 +895,21 @@ test_claude_rejects_unauthenticated_profile_before_launch() {
   id=profile-claude-unauth-z16
   rec=$(make_spawn_case profile-claude-unauth claude "$id")
   read_case_record "$rec"
+  mkdir -p "$CASE_DIR/claude-b"
+  fm_test_onboard_claude_store "$CASE_DIR/claude-b"
+  cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-b","config_dir":"$CASE_DIR/claude-b"}]}
+EOF
 
-  out=$(FM_TEST_NO_CLAUDE_AUTH=1 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude)
+  out=$(FM_TEST_NO_CLAUDE_AUTH=1 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude --claude-profile claude-max-b)
   status=$?
-  expect_code 1 "$status" "unauthenticated claude profile should be rejected"
-  assert_contains "$out" "Claude profile default is not ready for worker launch" \
+  expect_code 1 "$status" "unauthenticated named claude profile should be rejected"
+  assert_contains "$out" "Claude named profile claude-max-b is not ready for worker launch" \
     "spawn should refuse before launching into Claude login"
   assert_contains "$out" "auth=unauthenticated:vendor-probe" "the refusal should carry the auth owner's measured cause"
   [ ! -s "$LAUNCH_LOG" ] || fail "unauthenticated profile should not launch; launch log: $(cat "$LAUNCH_LOG")"
   assert_absent "$HOME_DIR/state/$id.meta" "unauthenticated profile should refuse before task metadata publication"
-  pass "claude spawn refuses an unauthenticated profile before endpoint launch"
+  pass "claude spawn refuses an unauthenticated named profile before endpoint launch"
 }
 
 test_claude_rejects_first_run_onboarding_before_launch() {
@@ -912,20 +917,21 @@ test_claude_rejects_first_run_onboarding_before_launch() {
   id=profile-claude-onboard-z16
   rec=$(make_spawn_case profile-claude-onboard claude "$id")
   read_case_record "$rec"
+  mkdir -p "$CASE_DIR/claude-b"
+  printf '%s\n' '{"hasCompletedOnboarding":null}' > "$CASE_DIR/claude-b/.claude.json"
+  cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"claude-max-b","config_dir":"$CASE_DIR/claude-b"}]}
+EOF
 
-  # Logged in, but the ambient store never finished Claude's first-run
-  # onboarding, exactly as a fresh ~/.claude.json leaves it.
-  mkdir -p "$HOME_DIR/user-home"
-  printf '%s\n' '{"hasCompletedOnboarding":null}' > "$HOME_DIR/user-home/.claude.json"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude)
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude --claude-profile claude-max-b)
   status=$?
-  expect_code 1 "$status" "a claude profile that has not finished first-run onboarding should be rejected"
-  assert_contains "$out" "Claude profile default is not ready for worker launch" \
+  expect_code 1 "$status" "a named claude profile that has not finished first-run onboarding should be rejected"
+  assert_contains "$out" "Claude named profile claude-max-b is not ready for worker launch" \
     "spawn should refuse before launching into Claude's first-run onboarding"
   assert_contains "$out" "auth=unonboarded:first-run-onboarding-incomplete" "the refusal should name the onboarding cause"
   [ ! -s "$LAUNCH_LOG" ] || fail "un-onboarded profile should not launch; launch log: $(cat "$LAUNCH_LOG")"
   assert_absent "$HOME_DIR/state/$id.meta" "un-onboarded profile should refuse before task metadata publication"
-  pass "claude spawn refuses a logged-in profile whose first-run onboarding is incomplete"
+  pass "claude spawn refuses a logged-in named profile whose first-run onboarding is incomplete"
 }
 
 test_claude_forwards_firstmate_config_dir_when_set() {

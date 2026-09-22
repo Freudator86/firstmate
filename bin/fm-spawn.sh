@@ -2245,20 +2245,19 @@ if [ "$HARNESS" != claude ] && [ "$CLAUDE_PROFILE_SET" -eq 1 ]; then
   printf 'error: --claude-profile names a Claude capacity pool, but this spawn resolved harness %s; drop the flag or spawn on claude\n' "$HARNESS" >&2
   exit 1
 fi
-if [ "$HARNESS" = claude ] && [ "$RAW_LAUNCH" = 1 ]; then
-  case "$LAUNCH" in
-    CLAUDE_CONFIG_DIR=* | *' CLAUDE_CONFIG_DIR='*)
-      printf 'error: the raw launch command sets CLAUDE_CONFIG_DIR itself, which would take effect after the store the Claude profile preflight checked; that worker would use an unchecked account while its record named the checked one. Drop the assignment from the command and select the store with --claude-profile, or launch it on a non-claude command.\n' >&2
-      exit 1
-      ;;
-  esac
-fi
-if [ "$HARNESS" = claude ]; then
-  CLAUDE_PROFILE=${CLAUDE_PROFILE:-default}
+if [ "$HARNESS" = claude ] && [ "$CLAUDE_PROFILE_SET" -eq 1 ] && [ "$CLAUDE_PROFILE" != default ]; then
+  if [ "$RAW_LAUNCH" = 1 ]; then
+    case "$LAUNCH" in
+      CLAUDE_CONFIG_DIR=* | *' CLAUDE_CONFIG_DIR='*)
+        printf 'error: the raw launch command sets CLAUDE_CONFIG_DIR itself, which would take effect after the store the Claude profile preflight checked; that worker would use an unchecked account while its record named the checked one. Drop the assignment from the command and select the store with --claude-profile, or launch it on a non-claude command.\n' >&2
+        exit 1
+        ;;
+    esac
+  fi
   CLAUDE_AUTH_OUT=$("$FM_ROOT/bin/fm-claude-auth.sh" check --profile "$CLAUDE_PROFILE" 2>&1) || {
     case "$CLAUDE_AUTH_OUT" in
-      *' auth='*) printf 'error: Claude profile %s is not ready for worker launch; refusing before launch. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2 ;;
-      *) printf 'error: Claude profile %s could not be resolved; refusing before launch. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2 ;;
+      *' auth='*) printf 'error: Claude named profile %s is not ready for worker launch; refusing before launch. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2 ;;
+      *) printf 'error: Claude named profile %s could not be resolved; refusing before launch. %s\n' "$CLAUDE_PROFILE" "$CLAUDE_AUTH_OUT" >&2 ;;
     esac
     exit 1
   }
@@ -4696,11 +4695,14 @@ esac
 # inherit firstmate's current environment, so a bare `claude` in the pane falls
 # back to the default ~/.claude store even when firstmate itself runs under a
 # different CLAUDE_CONFIG_DIR (for example a work-vs-personal subscription split).
-# Forward the checked Claude profile store onto the claude launch so the
-# crewmate uses the credential/config that passed preflight.
+# Forward the checked named profile store when one was selected; otherwise keep
+# the previous ambient behavior and forward firstmate's own CLAUDE_CONFIG_DIR
+# only when it is already set.
 if [ "$HARNESS" = claude ]; then
   if [ -n "${CLAUDE_SELECTED_CONFIG_DIR:-}" ]; then
     LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_SELECTED_CONFIG_DIR") $LAUNCH"
+  elif [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+    LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
   fi
 fi
 if [ "$KIND" = secondmate ]; then

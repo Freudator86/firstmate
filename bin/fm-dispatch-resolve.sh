@@ -219,8 +219,7 @@ fi
 
 RESP_FILE=$(mktemp) || die "mktemp failed"
 QUOTA=$(mktemp) || { rm -f "$RESP_FILE"; die "mktemp failed"; }
-CLAUDE_AUTH=$(mktemp) || { rm -f "$RESP_FILE" "$QUOTA"; die "mktemp failed"; }
-trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA" "$CLAUDE_AUTH"' EXIT
+trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA"' EXIT
 LAT_MS=null
 command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
   REQUEST=$(jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" --arg model "$TS_MODEL" \
@@ -265,20 +264,16 @@ jq -e --slurpfile rules "$RULES" '
 command -v quota-axi >/dev/null 2>&1 || emit_error "quota-axi not installed"
 quota-axi --json > "$QUOTA" 2>/dev/null || emit_error "quota-axi --json failed"
 fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an invalid snapshot"
-"$FM_ROOT/bin/fm-claude-auth.sh" evidence > "$CLAUDE_AUTH" 2>/dev/null || emit_error "Claude profile evidence failed; check config/claude-profiles.json"
 
 # ---- resolution: declared gates + quota evidence + argmax, all in jq ------------
 RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson pmap "$PMAP" \
-  --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" --rawfile claude_auth "$CLAUDE_AUTH" '
+  --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" '
   ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
-  ($claude_auth | split("\n") | map(select(length > 0) | capture("profile=(?<profile>[^ ]+) auth=(?<auth>[^ ]+) setup=(?<setup>[^ ]+) config_dir=(?<config_dir>.*)")) ) as $claude_auth_rows |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   def prov($p): ([$q.providers[] | select(.provider == $p)] | first) // null;
   def rows($p): (prov($p) | .quotaSemantics.effectiveAvailability // []);
   def bare($m): ($m | split("/") | last);
   def provider_of($c): ($c.provider // $pmap[$c.harness] // null);
-  def claude_profile_of($c): ($c.claude_profile // "default");
-  def claude_auth_for($id): ([$claude_auth_rows[] | select(.profile == $id)] | first) // null;
   def measured($p):
     (prov($p) != null and (["known", "partial"] | index(prov($p).quotaSemantics.status)) != null);
   def applicable($p; $m):
@@ -301,15 +296,6 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
   def evaluate($c):
     (provider_of($c)) as $p |
     if $p == null then {profile: $c, eligible: false, reason: "no provider family for harness \($c.harness); declare provider on the profile"}
-    elif $c.harness == "claude" and (claude_auth_for(claude_profile_of($c)) == null or ((claude_auth_for(claude_profile_of($c)).auth | startswith("authenticated")) | not)) then
-      (claude_auth_for(claude_profile_of($c))) as $auth |
-      {profile: ($c + {claude_profile: claude_profile_of($c)}), provider: $p, auth: ($auth.auth // "unconfigured"), setup: ($auth.setup // "absent"), eligible: false,
-       reason: (if $auth == null then "Claude profile \(claude_profile_of($c)) is not configured in this home; config/claude-profiles.json is per-home and never inherited, so install a local claude-profiles.json listing that pool"
-                elif ($auth.auth | startswith("unonboarded")) then "Claude profile \(claude_profile_of($c)) is logged in but its store has not completed the Claude first-run onboarding (\($auth.auth)), so it is refused rather than launched into an onboarding screen firstmate cannot answer"
-                elif ($auth.auth | startswith("unattested")) then "Claude profile \(claude_profile_of($c)) is logged in but its one-time interactive first-run setup for that store is not attested (\($auth.auth)), so it is refused rather than launched into a consent dialog firstmate cannot answer"
-                elif ($auth.auth | startswith("unsupported")) then "Claude profile \(claude_profile_of($c)) is a named capacity pool and this platform has no first-hand verification that CLAUDE_CONFIG_DIR separates accounts (\($auth.auth)), so it is refused rather than routed to an unknown account"
-                elif ($auth.auth | startswith("indeterminate")) then "Claude profile \(claude_profile_of($c)) could not be verified (\($auth.auth)); the bounded vendor probe established nothing, so this candidate is refused rather than assumed"
-                else "Claude profile \(claude_profile_of($c)) not authenticated (\($auth.auth)); setup \($auth.setup)" end)}
     elif prov($p) == null then {profile: $c, provider: $p, eligible: true, unranked: true, reason: "provider \($p) not in the quota snapshot"}
     else
       (applicable($p; ($c.model // ""))) as $rows |
@@ -410,7 +396,6 @@ TEXT=$(jq -r '
   (.candidates[]? | "  candidate: \(.profile.harness | flat):\(show(.profile.model))"
       + (if .profile.claude_profile then "  claude_profile=\(.profile.claude_profile | flat)" else "" end)
       + (if .provider then "  provider=\(.provider | flat)" else "" end)
-      + (if .auth then "  auth=\(.auth | flat)  setup=\(show(.setup))" else "" end)
       + (if .scope then "  scope=\(.scope | flat)  remaining=\(show(.pct))%  spendPriority=\(show(.spendPriority))  runway=\(show(.runway))" else "" end)
       + (if (.bounds // [] | length) > 1 then "  bounds=" + ([.bounds[] | "\(.scope | flat):\(show(.pct))%/\((.runway // .status) | flat)"] | join(",")) else "" end)
       + "  -> " + (if .unranked then "eligible, unranked: \(.reason | flat): disclosed uncertainty" elif .eligible then "eligible" else "not eligible: \(.reason | flat)" end)),

@@ -443,48 +443,27 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 ## Claude profiles (config/claude-profiles.json)
 
 `config/claude-profiles.json` is an optional local, gitignored file listing named Claude capacity pools that Firstmate may launch directly.
-`bin/fm-claude-auth.sh` owns the executable contract and prints only profile names, config paths, authentication verdicts, and setup-token availability - never token values.
+`bin/fm-claude-auth.sh` owns the executable check and prints only profile names, config paths, and authentication verdicts.
 
 ```json
 {
   "profiles": [
-    { "id": "claude-max-a", "config_dir": "/absolute/path/to/.claude-a", "setup_token_file": "/absolute/secret/path" }
+    { "id": "claude-max-a", "config_dir": "/absolute/path/to/.claude-a" }
   ]
 }
 ```
 
 `id` is required and must match `^[a-z0-9]+(-[a-z0-9]+)*$`.
-`config_dir` selects the Claude credential/config directory for that pool, must be distinct across profiles - including from the `default` profile's store, so a named pool never shares the ambient account - and is required on every named (non-`default`) profile: a named pool that fell back to the ambient store would probe and spend the default account while reporting its own quota row, so `fm-claude-auth.sh` rejects such a file as malformed and names the offending profile, which makes spawn refuse and typed dispatch resolution return an error outcome before any resource is created.
-Only a `default` entry may omit `config_dir`; every other field is optional.
-A named (non-`default`) pool is only honored on a platform where separating Anthropic accounts by `CLAUDE_CONFIG_DIR` has been verified first-hand, which today means Linux; elsewhere `fm-claude-auth.sh` reports `unsupported:pool-separation-unverified` and every caller refuses, because a shared credential keychain could answer for a different account than the pool names ([dispatch-auth.md](verification/dispatch-auth.md#account-separation-by-claude_config_dir) owns that measurement and how to extend it).
-The `default` profile is unaffected on every platform.
-Firstmate synthesizes a `default` profile naming the ambient store whenever the file does not list one: the value of `CLAUDE_CONFIG_DIR` when firstmate has it set, and otherwise no config directory at all, so the probe runs with the variable unset, trust is registered in `$HOME/.claude.json`, and the worker launches with no `CLAUDE_CONFIG_DIR` prefix - exactly the store an ordinary `claude` launch uses.
-The synthesized profile lets a pools-only file still answer spawns that name no profile - secondmates, relaunches of records written before this file existed, and manual `--harness claude`; an explicit `default` entry overrides the synthesized one.
-`setup_token_file` is a presence probe for local setup-token material on the fleet credential path only; the script reports available or absent and never reads or prints the value.
-`fm-spawn.sh --claude-profile <id>` refuses a Claude launch before endpoint creation unless the bounded Claude vendor probe reports an authenticated session with that profile's `CLAUDE_CONFIG_DIR` scoped into the probe.
-A raw launch command that sets `CLAUDE_CONFIG_DIR` itself is refused there too when it resolves to the `claude` harness: the command's own assignment takes effect after the prefix firstmate adds, so the worker would run against a store the preflight never checked while its record named the checked one.
-When the selected profile is authenticated and names a config directory, spawn pins that `CLAUDE_CONFIG_DIR` into the launched worker and registers workspace trust in the same store, so the worker uses the checked account; an ambient profile adds no prefix.
-`config/claude-profiles.json` is per-home configuration and is deliberately never inherited between firstmate homes, because its values are absolute paths to per-account credential stores and setup-token material that a secondmate or remote home does not necessarily share; [`fm_config_inherit_items`](../bin/fm-config-inherit-lib.sh) therefore omits it while still carrying `config/crew-dispatch.json`.
+`config_dir` selects the Claude credential/config directory for that pool, must be absolute and distinct across profiles, and is required for every configured profile.
+The `default` profile is not configured here: it is the ambient Claude store and keeps the pre-existing launch behavior.
+When a Claude spawn or relaunch explicitly names `--claude-profile <id>`, Firstmate checks only that named pool before endpoint creation.
+That check requires the configured store to probe authenticated through `claude auth status` with `CLAUDE_CONFIG_DIR` scoped to the store, and requires `<config_dir>/.claude.json` to carry `"hasCompletedOnboarding": true` so the worker does not open on Claude's first-run setup screen.
+When the check passes, spawn pins that `CLAUDE_CONFIG_DIR` into the launched worker and registers workspace trust in the same store.
+A Claude spawn with no `--claude-profile`, or with `default`, is not auth-preflighted and keeps ambient behavior: Firstmate forwards its own `CLAUDE_CONFIG_DIR` only when it is already set, and otherwise launches with no config-dir prefix.
+`config/claude-profiles.json` is per-home configuration and is deliberately never inherited between firstmate homes, because its values are absolute paths to per-account credential stores; [`fm_config_inherit_items`](../bin/fm-config-inherit-lib.sh) therefore omits it while still carrying `config/crew-dispatch.json`.
 For the same reason `fm-spawn.sh` refuses `--claude-profile` on a remote secondmate spawn rather than ignoring it, since that secondmate launches with its own host's Claude store.
-A home whose inherited dispatch rules name a pool it has not configured reports that as a per-home configuration requirement rather than as a logged-out pool, in both the resolver's candidate evidence and `fm-claude-auth.sh check`; install that home's own file listing the same pool ids with locally valid paths through the authorized credential path.
-`bin/fm-control.sh <id> relaunch` keeps the pool a task's record names and preflights it before the running agent is stopped.
-An existing but unreadable or malformed `config/claude-profiles.json` is reported and never selected around: `fm-claude-auth.sh` exits non-zero with the cause, so a spawn refuses and typed dispatch resolution returns an error outcome rather than treating every pool as unauthenticated.
-### One-time setup for a named pool
-
-A named pool is a Claude store the operator has never used interactively, and Claude keeps its first-run consents in that store rather than in the account.
-Firstmate's key plane cannot answer any of those dialogs (the cursor sits on the declining option), so a pool is treated as not launch-ready until the operator has completed this once and attested it:
-
-1. `CLAUDE_CONFIG_DIR=<config_dir> claude auth login` - log that pool's Anthropic account in. The preflight measures this part directly.
-2. `CLAUDE_CONFIG_DIR=<config_dir> claude --dangerously-skip-permissions` in a terminal - finish Claude's first-run onboarding and accept the machine-scoped Bypass Permissions disclaimer for that store. [dispatch-auth.md](verification/dispatch-auth.md#claude-bypass-permissions-acceptance) records why no read-only discriminator for it is checkable.
-3. In the same command, open each project this pool will run workers in and answer `Allow external CLAUDE.md file imports?` if it appears. That consent is recorded per project entry in the pool store, and `bin/fm-claude-trust.sh` can only carry it forward to a fresh worktree from a project entry in the *same* store that already holds it - it never copies consent between stores. Whether the dialog appears at all depends on whether the pool store's user-scope memory chain reaches outside the project, which is unmeasured here; [dispatch-auth.md](verification/dispatch-auth.md#named-pool-first-run-consent) carries the procedure to settle it.
-4. `bin/fm-claude-auth.sh attest --profile <id> --confirm-setup-complete` - record that you did. The command refuses unless the pool probes authenticated, and writes `<config_dir>/.fm-pool-ready` naming the canonical store it attests and the firstmate setup-contract version those steps belong to. The installed `claude` version is recorded alongside as provenance and is never read back: a vendor patch release does not reset the consents held in the store, and vendor version equality would not prove they are present either.
-
-Until that attestation exists, and whenever it is stale, `fm-claude-auth.sh` reports `auth=unattested:<reason>` for that pool.
-An attestation goes stale on exactly two things: the store it names is no longer the store being launched (a moved `config_dir`, or a symlink repointed at another store), or the steps above have materially changed in this repository and the firstmate setup contract was bumped, which asks the operator to re-read them and confirm again.
-An ordinary Claude CLI update changes neither, so the pools stay in service across it.
-Spawn and relaunch then refuse before any endpoint, worktree, or task record is created, and typed dispatch resolution reports the pool ineligible with that reason and routes elsewhere - the same fail-closed shape as an unauthenticated pool, because a wedged worker is exactly what the preflight exists to prevent.
-The `default` profile carries no attestation: it names the ambient store an ordinary `claude` launch already uses, whose consents the operator has necessarily already given.
-Separately, and for every profile including `default`, a logged-in store whose `.claude.json` (`<config_dir>/.claude.json`, or `$HOME/.claude.json` for an ambient profile) lacks `"hasCompletedOnboarding": true` reports `auth=unonboarded:first-run-onboarding-incomplete` and is refused and routed around the same way, because the worker would otherwise open on Claude's text-style/theme onboarding screen; run `claude` interactively once against that store and finish the onboarding.
+`bin/fm-control.sh <id> relaunch` keeps the named pool a task's record names and preflights it before the running agent is stopped.
+An unreadable, malformed, or missing `config/claude-profiles.json` for an explicitly named pool is reported and never selected around.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
@@ -525,7 +504,7 @@ The resolver supplies the fixed neutral Choice option `No listed rule applies to
 A rule `floor` names the quota-axi `provider` and `scope` whose `effectivePercentRemaining` must be at least `min_percent` for the rule's profiles to apply.
 An absent or unknown row or unmeasured provider makes the floor unverifiable and escalates without authorizing default routing.
 A known percentage below the floor makes the tool resolve among `default` profiles instead.
-A profile `provider` optionally names the quota-axi provider family whose rows apply to that profile; `claude_profile` names the local Claude profile to preflight, belongs only on a profile whose `harness` is `claude`, and its omission means `default`.
+A profile `provider` optionally names the quota-axi provider family whose rows apply to that profile; `claude_profile` names the local Claude profile that `fm-spawn.sh` will preflight when the chosen harness is `claude`, and belongs only on a profile whose `harness` is `claude`.
 When present, profile and rule-floor provider IDs and `claude_profile` must match the strict whole-string pattern `^[a-z0-9]+(-[a-z0-9]+)*\z`.
 Bootstrap validates resolver-only `approval`, `floor`, and present `provider` values only while typed resolution is active; without the key those inert fields and the pre-existing verified-harness baseline preserve bootstrap behavior.
 Typed resolution additively recognizes `gemini` because AGENTS.md section 4 verifies it for crewmate and scout dispatch.

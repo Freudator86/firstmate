@@ -782,12 +782,12 @@ resolve_relaunch_profile() {
     TARGET_CLAUDE_PROFILE=
   fi
   [ "$TARGET_HARNESS" = claude ] || TARGET_CLAUDE_PROFILE=
-  # The launch owner refuses an unauthenticated pool, but only after the old
-  # agent has been stopped. Asking the same preflight here keeps that refusal on
-  # the pre-stop side, so an unavailable pool leaves the running agent alone.
-  if [ "$TARGET_HARNESS" = claude ]; then
-    claude_auth_out=$("$SCRIPT_DIR/fm-claude-auth.sh" check --profile "${TARGET_CLAUDE_PROFILE:-default}" 2>&1) \
-      || die "Claude profile ${TARGET_CLAUDE_PROFILE:-default} is not ready for the replacement worker, so relaunching $ID onto it would stop the running agent for a launch that must be refused; restore that pool's login with bin/fm-claude-auth.sh before relaunching. $claude_auth_out"
+  # Only named Claude pools are preflighted; the default profile stays ambient.
+  # Asking the same preflight here keeps a named-pool refusal on the pre-stop
+  # side, so an unavailable pool leaves the running agent alone.
+  if [ "$TARGET_HARNESS" = claude ] && [ -n "$TARGET_CLAUDE_PROFILE" ] && [ "$TARGET_CLAUDE_PROFILE" != default ]; then
+    claude_auth_out=$("$SCRIPT_DIR/fm-claude-auth.sh" check --profile "$TARGET_CLAUDE_PROFILE" 2>&1) \
+      || die "Claude named profile $TARGET_CLAUDE_PROFILE is not ready for the replacement worker, so relaunching $ID onto it would stop the running agent for a launch that must be refused; restore that pool's login with bin/fm-claude-auth.sh before relaunching. $claude_auth_out"
   fi
 }
 

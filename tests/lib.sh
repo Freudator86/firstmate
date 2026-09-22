@@ -553,19 +553,10 @@ assert_not_equals() {
   [ "$1" != "$2" ] || fail "$3 (unexpectedly got '$1')"
 }
 
-# Records the per-pool first-run setup attestation bin/fm-claude-auth.sh reads
-# back before a named Claude pool may launch (its own owned key=value contract,
-# written here for fixtures whose pools are set up out of band).
-fm_test_attest_claude_pool() {  # <config-dir> [contract]
-  local dir=$1 contract=${2:-1}
-  mkdir -p "$dir"
-  {
-    printf 'contract=%s\n' "$contract"
-    printf 'config_dir=%s\n' "$(cd -P -- "$dir" && pwd -P)"
-    printf 'claude_version=2.1.276\n'
-    printf 'attested_at=2026-09-21T00:00:00Z\n'
-  } > "$dir/.fm-pool-ready"
-  fm_test_onboard_claude_store "$dir"
+# Backward-compatible fixture helper name for tests that need a named Claude
+# pool to have finished first-run onboarding.
+fm_test_attest_claude_pool() {  # <config-dir> [ignored-legacy-contract]
+  fm_test_onboard_claude_store "$1"
 }
 
 # Marks a Claude store's first-run onboarding complete, as Claude itself does
