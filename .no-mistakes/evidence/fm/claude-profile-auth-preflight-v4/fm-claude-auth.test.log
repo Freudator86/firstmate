@@ -1,0 +1,10 @@
+ok - fm-claude-auth: authenticated named Claude profile proceeds without printing secrets
+ok - fm-claude-auth: unauthenticated named profile is rejected
+ok - fm-claude-auth: named profile that has not finished first-run onboarding is rejected
+ok - fm-claude-auth: indeterminate probe refuses without claiming the profile is logged out
+ok - fm-claude-auth: default profile remains outside named-pool preflight
+ok - fm-claude-auth: named pool without config_dir is rejected
+ok - fm-claude-auth: two named profiles may not share one Claude store
+ok - fm-claude-auth: --help documents the slim named-pool contract
+ok - fm-claude-auth: malformed profile config fails instead of inventing verdicts
+# all Claude auth preflight tests passed

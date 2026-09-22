@@ -1,0 +1,20 @@
+$ bin/fm-vendor-auth-probe.sh claude   # ambient real store, real claude 2.1.276
+probe=claude status=authenticated version=2.1.276 versionVerified=yes
+rc=0
+$ CLAUDE_CONFIG_DIR=<empty temp store> bin/fm-vendor-auth-probe.sh claude
+probe=claude status=unauthenticated version=2.1.276 versionVerified=yes
+rc=0
+$ fm-claude-auth.sh check --profile claude-real   # config_dir=$HOME/.claude (real logged-in store)
+profile=claude-real auth=unonboarded:first-run-onboarding-incomplete config_dir=/home/quartermaster/.claude
+setup: Claude profile claude-real is logged in, but its store (/home/quartermaster/.claude) has not completed Claude first-run onboarding (unonboarded:first-run-onboarding-incomplete), so a named worker would open on an interactive setup screen. Run claude once with CLAUDE_CONFIG_DIR=/home/quartermaster/.claude and finish onboarding, then retry.
+rc=1
+$ fm-claude-auth.sh check --profile claude-empty  # config_dir=<empty temp store>
+profile=claude-empty auth=unauthenticated:vendor-probe config_dir=<tmp>/empty-store
+auth: Claude named profile claude-empty is not authenticated (unauthenticated:vendor-probe); authenticate that store before launching it.
+rc=1
+$ fm-claude-auth.sh check --profile claude-missing
+error: Claude profile not configured in this home: claude-missing; install config/claude-profiles.json with a local absolute config_dir for that named pool
+rc=2
+$ fm-claude-auth.sh check --profile default
+error: default Claude profile is ambient and is not preflighted here
+rc=2

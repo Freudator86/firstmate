@@ -1,0 +1,159 @@
+lab session=fm-lab-claudeprof-2963896-5271
+
+=== S1 default (no --claude-profile): ambient store kept, no preflight ===
+warning: <lab>/home/data/deflt-a1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: deflt-a1 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned deflt-a1 harness=claude kind=ship mode=local-only yolo=on window=fm-lab-claudeprof-2963896-5271:w1:p2 worktree=/home/quartermaster/.treehouse/proj-d15dea/1/proj
+spawn rc=0
+--- meta ---
+harness=claude
+herdr_pane_id=w1:p2
+/home/quartermaster/.no-mistakes/evidence/01M33CJ8GETQSZKRTQKC6RX3RT/claude-profile-herdr-lab.sh: line 88: /proc/2966211/cmdline: No such file or directory
+/home/quartermaster/.no-mistakes/evidence/01M33CJ8GETQSZKRTQKC6RX3RT/claude-profile-herdr-lab.sh: line 88: /proc/2966221/cmdline: No such file or directory
+/home/quartermaster/.no-mistakes/evidence/01M33CJ8GETQSZKRTQKC6RX3RT/claude-profile-herdr-lab.sh: line 88: /proc/2966230/cmdline: No such file or directory
+--- live claude processes (pid, env CLAUDE_CONFIG_DIR, argv) ---
+2966176 CLAUDE_CONFIG_DIR=<lab>/ambient-store | claude --dangerously-skip-permissions --settings {"feedbackD
+You are a crewmate: an autonomous worker agent managed by fi
+This section establishes your current identity before every 
+Do the assigned work yourself and report only to firstmate; 
+Your steering inbox is `<lab>/ho
+Never inspect or change any other home's endpoint namespace;
+When this task works on Firstmate itself, the repository roo
+Project instructions still govern the work wherever they do 
+
+# Task
+## Captain's intent
+lab deflt-a1
+
+## Firstmate spec
+nothing 
+/home/quartermaster/.no-mistakes/evidence/01M33CJ8GETQSZKRTQKC6RX3RT/claude-profile-herdr-lab.sh: line 88: /proc/2966482/cmdline: No such file or directory
+/home/quartermaster/.no-mistakes/evidence/01M33CJ8GETQSZKRTQKC6RX3RT/claude-profile-herdr-lab.sh: line 88: /proc/2966484/cmdline: No such file or directory
+--- pane screen (real claude in lab pane) ---
+quartermaster@quartermaster:<lab>/proj$ treehouse get
+🌳 Setting up worktree...
+🌳 Entered worktree at ~/.treehouse/proj-d15dea/1/proj. Type 'exit' to return.
+quartermaster@quartermaster:~/.treehouse/proj-d15dea/1/proj$ export GOTMPDIR=/tmp/fm-deflt-a1/gotmp
+quartermaster@quartermaster:~/.treehouse/proj-d15dea/1/proj$ export COMPACT_ADVISER_DISABLE=1
+quartermaster@quartermaster:~/.treehouse/proj-d15dea/1/proj$ export FM_TASK_ID=deflt-a1
+quartermaster@quartermaster:~/.treehouse/proj-d15dea/1/proj$ . '/tmp/fm-deflt-a1+c8ccaf80b19606b6622e0799abf1dae25f7f7f0
+fa6b38670ea0a142c618b3e8d/launch.s1790043012.2963971.5569.sh'
+Welcome to Claude Code v2.1.276
+..........................................................
+     *                                       █████▓▓░
+                                 *         ███▓░     ░░
+--- auth status calls ---
+/home/quartermaster/.no-mistakes/evidence/01M33CJ8GETQSZKRTQKC6RX3RT/claude-profile-herdr-lab.sh: line 88: /proc/2967293/cmdline: No such file or directory
+RESULT S1: pass
+
+=== S2 named pool logged in + onboarded: worker pinned to pool store ===
+warning: <lab>/home/data/pool-a2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: pool-a2 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned pool-a2 harness=claude kind=ship mode=local-only yolo=on window=fm-lab-claudeprof-2963896-5271:w1:p3 worktree=/home/quartermaster/.treehouse/proj-d15dea/2/proj
+spawn rc=0
+--- meta ---
+harness=claude
+claude_profile=claude-max-a
+herdr_pane_id=w1:p3
+/home/quartermaster/.no-mistakes/evidence/01M33CJ8GETQSZKRTQKC6RX3RT/claude-profile-herdr-lab.sh: line 88: /proc/2968654/cmdline: No such file or directory
+--- live claude processes (pid, env CLAUDE_CONFIG_DIR, argv) ---
+2966176 CLAUDE_CONFIG_DIR=<lab>/ambient-store | claude --dangerously-skip-permissions --settings {"feedbackD
+You are a crewmate: an autonomous worker agent managed by fi
+This section establishes your current identity before every 
+Do the assigned work yourself and report only to firstmate; 
+Your steering inbox is `<lab>/ho
+Never inspect or change any other home's endpoint namespace;
+When this task works on Firstmate itself, the repository roo
+Project instructions still govern the work wherever they do 
+
+# Task
+## Captain's intent
+lab deflt-a1
+
+## Firstmate spec
+nothing 
+2968627 CLAUDE_CONFIG_DIR=<lab>/pool-a | claude --dangerously-skip-permissions --settings {"feedbackD
+You are a crewmate: an autonomous worker agent managed by fi
+This section establishes your current identity before every 
+Do the assigned work yourself and report only to firstmate; 
+Your steering inbox is `<lab>/ho
+Never inspect or change any other home's endpoint namespace;
+When this task works on Firstmate itself, the repository roo
+Project instructions still govern the work wherever they do 
+
+# Task
+## Captain's intent
+lab pool-a2
+
+## Firstmate spec
+nothing 
+--- auth status calls ---
+auth-status CLAUDE_CONFIG_DIR=<lab>/pool-a
+--- trust written to pool store ---
+["/home/quartermaster/.treehouse/proj-d15dea/2/proj","<lab>/proj"]
+
+/home/quartermaster/.no-mistakes/evidence/01M33CJ8GETQSZKRTQKC6RX3RT/claude-profile-herdr-lab.sh: line 88: /proc/2969045/cmdline: No such file or directory
+RESULT S2: pass
+
+=== S3 named pool NOT logged in (real claude on empty store): refused before launch ===
+error: Claude named profile claude-max-empty is not ready for worker launch; refusing before launch. profile=claude-max-empty auth=unauthenticated:vendor-probe config_dir=<lab>/pool-empty
+auth: Claude named profile claude-max-empty is not authenticated (unauthenticated:vendor-probe); authenticate that store before launching it.
+spawn rc=1
+lab panes before=2 after=2; meta present: no
+RESULT S3: pass
+
+=== S4 unconfigured pool / non-claude harness / raw CLAUDE_CONFIG_DIR: refused ===
+error: Claude named profile claude-max-zzz could not be resolved; refusing before launch. error: Claude profile not configured in this home: claude-max-zzz; install config/claude-profiles.json with a local absolute config_dir for that named pool
+error: --claude-profile names a Claude capacity pool, but this spawn resolved harness sh; drop the flag or spawn on claude
+error: the raw launch command sets CLAUDE_CONFIG_DIR itself, which would take effect after the store the Claude profile preflight checked; that worker would use an unchecked account while its record named the checked one. Drop the assignment from the command and select the store with --claude-profile, or launch it on a non-claude command.
+rcs=1 1 1; metas: 0
+RESULT S4: pass
+
+=== S6 relaunch when the recorded pool is logged out: refused before stopping the agent ===
+error: Claude named profile claude-max-a is not ready for the replacement worker, so relaunching pool-a2 onto it would stop the running agent for a launch that must be refused; restore that pool's login with bin/fm-claude-auth.sh before relaunching. profile=claude-max-a auth=unauthenticated:vendor-probe config_dir=<lab>/pool-a
+auth: Claude named profile claude-max-a is not authenticated (unauthenticated:vendor-probe); authenticate that store before launching it.
+relaunch rc=1
+pane still=w1:p3 (was w1:p3)
+--- live claude processes after refusal ---
+2966176 CLAUDE_CONFIG_DIR=<lab>/ambient-store | claude --dangerously-skip-permissions --settings {"feedbackD
+You are a crewmate: an autonomous worker agent managed by fi
+This section establishes your current identity before every 
+Do the assigned work yourself and report only to firstmate; 
+Your steering inbox is `<lab>/ho
+Never inspect or change any other home's endpoint namespace;
+When this task works on Firstmate itself, the repository roo
+Project instructions still govern the work wherever they do 
+
+# Task
+## Captain's intent
+lab deflt-a1
+
+## Firstmate spec
+nothing 
+2968627 CLAUDE_CONFIG_DIR=<lab>/pool-a | claude --dangerously-skip-permissions --settings {"feedbackD
+You are a crewmate: an autonomous worker agent managed by fi
+This section establishes your current identity before every 
+Do the assigned work yourself and report only to firstmate; 
+Your steering inbox is `<lab>/ho
+Never inspect or change any other home's endpoint namespace;
+When this task works on Firstmate itself, the repository roo
+Project instructions still govern the work wherever they do 
+
+# Task
+## Captain's intent
+lab pool-a2
+
+## Firstmate spec
+nothing 
+--- journal ---
+(no relaunch journal written)
+/home/quartermaster/.no-mistakes/evidence/01M33CJ8GETQSZKRTQKC6RX3RT/claude-profile-herdr-lab.sh: line 88: /proc/2970109/cmdline: No such file or directory
+RESULT S6: pass
+
+=== summary ===
+S1: pass
+S2: pass
+S3: pass
+S4: pass
+S6: pass
+teardown rc=0

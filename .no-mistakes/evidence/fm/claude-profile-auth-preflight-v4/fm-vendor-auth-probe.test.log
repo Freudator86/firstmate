@@ -1,0 +1,18 @@
+ok - the probe accepts no harness, model, or provider and so can hold no routing mapping
+ok - the probe never reads quota, leaving one intake snapshot to the dispatch owner
+ok - every probe result exits alike because the script renders no verdict
+ok - only a registered probe name runs, and an unregistered one is a usage error
+ok - an authenticated vendor session is reported as ground truth
+ok - an unauthenticated vendor session is reported as ground truth
+ok - unrecognized, blank-led, and silent probe output is indeterminate, never authenticated
+ok - an absent vendor CLI is reported rather than assumed authenticated
+ok - a hanging vendor CLI is hard-bounded, reported, and cannot wedge an intake
+ok - zero and all-zero bounds fall back to the default instead of removing the hard bound
+ok - a malformed bound is replaced by the default rather than forwarded
+ok - the bounded probe runs with stdin closed and cannot read caller input
+ok - the vendor CLI is invoked only through its two fixed, non-destructive argv forms
+ok - the fact line is one sanitized line with no raw vendor output or credential material
+ok - a vendor CLI version change is recorded and disclosed for re-verification
+ok - the pinned verified vendor version is recognized
+ok - a vendor CLI whose version starts its output line is still version-verified
+ok - --help succeeds and names the registered probes
