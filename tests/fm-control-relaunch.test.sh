@@ -772,8 +772,8 @@ test_same_harness_relaunch_keeps_the_profile_axes() {
 add_claude_pools() {  # <case-dir> <task-id> [recorded-profile]
   local dir=$1 id=$2 profile=${3:-}
   mkdir -p "$dir/home/config" "$dir/pool-a" "$dir/pool-b"
-  fm_test_attest_claude_pool "$dir/pool-a"
-  fm_test_attest_claude_pool "$dir/pool-b"
+  fm_test_onboard_claude_store "$dir/pool-a"
+  fm_test_onboard_claude_store "$dir/pool-b"
   cat > "$dir/home/config/claude-profiles.json" <<EOF
 {"profiles":[{"id":"claude-max-a","config_dir":"$dir/pool-a"},{"id":"claude-max-b","config_dir":"$dir/pool-b"}]}
 EOF

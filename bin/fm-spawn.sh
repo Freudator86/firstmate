@@ -3,7 +3,7 @@
 # secondmate in its isolated firstmate home.
 # Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--claude-profile <id>] [--backend <name>]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--claude-profile <id>] [--backend <name>]
-#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--claude-profile <id>] [--backend <name>] --secondmate
+#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
@@ -721,6 +721,10 @@ done
   echo "error: --traceparent requires a non-empty value" >&2
   exit 1
 }
+if [ "$KIND" = secondmate ] && [ "$CLAUDE_PROFILE_SET" -eq 1 ]; then
+  echo "error: --claude-profile is not supported for secondmate spawns; named Claude pools are local worker routing only, and a persistent secondmate recovery would otherwise restart on a different store" >&2
+  exit 1
+fi
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
 # Nothing else may reach the pane's TRACEPARENT export.
@@ -837,12 +841,6 @@ spawn_remote_secondmate() {
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
     return 3
-  fi
-  if [ "$CLAUDE_PROFILE_SET" -eq 1 ]; then
-    fm_lock_release "$registry_lock" || true
-    fm_lock_release "$SPAWN_TASK_LOCK" || true
-    echo "error: --claude-profile selects a local Claude store, but remote secondmate $id launches on its own host; drop the flag for a remote secondmate" >&2
-    return 2
   fi
   host=$(secondmate_registry_field "$DATA/secondmates.md" "$id" host)
   root=$(secondmate_registry_field "$DATA/secondmates.md" "$id" root)
@@ -1718,6 +1716,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   ARG3=${HARNESS_ARG:-$RELAUNCH_PRIOR_HARNESS}
   if [ "$CLAUDE_PROFILE_SET" -eq 0 ] && [ "$ARG3" = claude ]; then
     CLAUDE_PROFILE=$(fm_meta_get "$RELAUNCH_META" claude_profile)
+    [ -z "$CLAUDE_PROFILE" ] || CLAUDE_PROFILE_SET=1
   fi
   [ -n "$ARG3" ] || {
     echo "error: task $ID has no recorded harness; pass --harness to relaunch it" >&2

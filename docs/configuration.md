@@ -461,8 +461,9 @@ That check requires the configured store to probe authenticated through `claude 
 When the check passes, spawn pins that `CLAUDE_CONFIG_DIR` into the launched worker and registers workspace trust in the same store.
 A Claude spawn with no `--claude-profile`, or with `default`, is not auth-preflighted and keeps ambient behavior: Firstmate forwards its own `CLAUDE_CONFIG_DIR` only when it is already set, and otherwise launches with no config-dir prefix.
 `config/claude-profiles.json` is per-home configuration and is deliberately never inherited between firstmate homes, because its values are absolute paths to per-account credential stores; [`fm_config_inherit_items`](../bin/fm-config-inherit-lib.sh) therefore omits it while still carrying `config/crew-dispatch.json`.
-For the same reason `fm-spawn.sh` refuses `--claude-profile` on a remote secondmate spawn rather than ignoring it, since that secondmate launches with its own host's Claude store.
-`bin/fm-control.sh <id> relaunch` keeps the named pool a task's record names and preflights it before the running agent is stopped.
+Named Claude pools are supported for ordinary local workers only.
+`fm-spawn.sh` refuses `--claude-profile` on secondmate spawns, local or remote, because a persistent secondmate recovery currently has no durable pool pin and would otherwise restart on a different Claude store.
+`bin/fm-control.sh <id> relaunch` keeps the named pool an ordinary task's record names and preflights it before the running agent is stopped.
 An unreadable, malformed, or missing `config/claude-profiles.json` for an explicitly named pool is reported and never selected around.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)

@@ -240,7 +240,7 @@ cp "$PARENT/state/ios.meta" "$TMP_ROOT/ios.meta.before"
 if out=$(remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate --harness claude --claude-profile claude-max-a 2>&1); then
   fail "a remote secondmate spawn must refuse --claude-profile rather than silently dropping it"
 fi
-assert_contains "$out" "remote secondmate ios launches on its own host" \
+assert_contains "$out" "--claude-profile is not supported for secondmate spawns" \
   "the remote --claude-profile refusal must explain why the flag was refused"
 [ ! -s "$HERDR_LOG" ] || fail "a refused remote --claude-profile spawn must not touch the remote endpoint"
 cmp -s "$PARENT/state/ios.meta" "$TMP_ROOT/ios.meta.before" \

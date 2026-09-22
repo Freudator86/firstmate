@@ -182,8 +182,8 @@ probe_claude() {
 
 grok_version() {
   local output
-  output=$(vendor_semver grok --version)
-  printf '%s\n' "$output"
+  output=$(fm_run_timed "$TIMEOUT" grok --version 2>/dev/null </dev/null) || { printf 'none\n'; return 0; }
+  printf '%s\n' "$output" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 | grep . || printf 'none\n'
 }
 
 probe_grok() {

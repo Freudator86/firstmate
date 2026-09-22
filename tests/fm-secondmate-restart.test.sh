@@ -144,9 +144,9 @@ new_case() {
   printf 'claude' > "$dir/fake/command"
   printf 'claude' > "$dir/fake/becomes"
   make_stub "$dir"
-  # A claude relaunch preflights the default profile's ambient store first.
+  # Provide the executable a claude relaunch would call; default-profile spawns
+  # stay ambient and do not run the named-pool auth preflight.
   fm_test_fake_claude_cli "$dir/fakebin"
-  fm_test_onboard_claude_store "$dir/user-home"
   printf '%s\n' "$dir"
 }
 

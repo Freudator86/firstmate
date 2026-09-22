@@ -553,12 +553,6 @@ assert_not_equals() {
   [ "$1" != "$2" ] || fail "$3 (unexpectedly got '$1')"
 }
 
-# Backward-compatible fixture helper name for tests that need a named Claude
-# pool to have finished first-run onboarding.
-fm_test_attest_claude_pool() {  # <config-dir> [ignored-legacy-contract]
-  fm_test_onboard_claude_store "$1"
-}
-
 # Marks a Claude store's first-run onboarding complete, as Claude itself does
 # once the interactive onboarding finishes; bin/fm-claude-auth.sh reads it.
 fm_test_onboard_claude_store() {  # <config-dir-or-HOME>

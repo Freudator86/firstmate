@@ -670,7 +670,7 @@ test_named_pool_spawn_trusts_the_store_the_worker_reads() {
   pool="$case_dir/pool-a"
   launch_log="$case_dir/launch.log"
   mkdir -p "$pool"
-  fm_test_attest_claude_pool "$pool"
+  fm_test_onboard_claude_store "$pool"
   fakebin=$(make_spawn_fakebin "$case_dir/fake" claude)
   fm_test_spawn_home "$home" claude
   fm_git_worktree "$proj" "$wt" wt-pool

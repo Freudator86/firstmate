@@ -36,9 +36,9 @@ make_home() {  # <name> [<registry-line>...]
   git -C "$projects/proj" init -q || fail "could not initialize project fixture"
   printf '#!/bin/sh\nexit 1\n' > "$fakebin/tmux"
   chmod +x "$fakebin/tmux"
-  # A claude spawn preflights the default profile's ambient store first.
+  # Provide the executable a claude launch would call; default-profile spawns
+  # stay ambient and do not run the named-pool auth preflight.
   fm_test_fake_claude_cli "$fakebin"
-  fm_test_onboard_claude_store "$home/user-home"
   if [ "$#" -gt 0 ]; then
     printf '%s\n' "$@" > "$home/data/projects.md"
   fi
