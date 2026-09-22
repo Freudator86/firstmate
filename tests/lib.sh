@@ -561,7 +561,7 @@ fm_test_onboard_claude_store() {  # <config-dir-or-HOME>
 }
 
 # Installs a fake claude CLI that answers the `claude auth status` probe
-# bin/fm-claude-auth.sh runs before every claude launch: logged in unless
+# bin/fm-claude-auth.sh runs before a named-pool claude launch: logged in unless
 # FM_FAKE_CLAUDE_LOGGED_IN=0. Every other invocation exits 0.
 fm_test_fake_claude_cli() {  # <fakebin>
   cat > "$1/claude" <<'SH'

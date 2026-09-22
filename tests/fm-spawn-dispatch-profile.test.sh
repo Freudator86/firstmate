@@ -35,6 +35,7 @@ SH
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
+  fm_test_fake_claude_cli "$fakebin"
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = -- ]; then
@@ -901,7 +902,7 @@ test_claude_rejects_unauthenticated_profile_before_launch() {
 {"profiles":[{"id":"claude-max-b","config_dir":"$CASE_DIR/claude-b"}]}
 EOF
 
-  out=$(FM_TEST_NO_CLAUDE_AUTH=1 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude --claude-profile claude-max-b)
+  out=$(FM_FAKE_CLAUDE_LOGGED_IN=0 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude --claude-profile claude-max-b)
   status=$?
   expect_code 1 "$status" "unauthenticated named claude profile should be rejected"
   assert_contains "$out" "Claude named profile claude-max-b is not ready for worker launch" \

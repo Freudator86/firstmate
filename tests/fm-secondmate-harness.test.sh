@@ -441,20 +441,8 @@ SH
   chmod +x "$fakebin/tmux"
   # BASE_PATH deliberately omits the developer's node, which the trust
   # registration below needs, so link the real one in rather than presenting a
-  # node-less spawn host no real fleet member looks like. The Claude profile
-  # preflight runs the bounded vendor probe before every claude launch and
-  # BASE_PATH omits claude too, so stub that rather than letting a probe which
-  # cannot find the CLI refuse the spawns these cases are about.
+  # node-less spawn host no real fleet member looks like.
   ln -sf "$(command -v node)" "$fakebin/node"
-  cat > "$fakebin/claude" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}" in
-  --version) printf '2.1.276 (Claude Code)\n'; exit 0 ;;
-  auth) [ "${2:-}" != status ] || { printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n'; exit 0; } ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/claude"
   printf '%s\n' "$fakebin"
 }
 
@@ -478,8 +466,6 @@ spawn_secondmate() {
   local world=$1 id=$2 home=$3 harness=${4:-} fakebin
   mkdir -p "$world/home/state" "$world/home/data"
   fakebin=$(make_noop_tmux "$world/tmux-$id")
-  # A claude secondmate is refused until its store finished first-run onboarding.
-  [ -e "$world/home/user-home/.claude.json" ] || fm_test_onboard_claude_store "$world/home/user-home"
   # An empty harness must contribute zero args, not an empty positional; build the
   # arg list explicitly so the optional harness is omitted cleanly.
   local spawn_args=("$id" "$home")
@@ -697,20 +683,8 @@ SH
   fm_fake_exit0 "$fakebin" pi
   # BASE_PATH deliberately omits the developer's node, which the trust
   # registration below needs, so link the real one in rather than presenting a
-  # node-less spawn host no real fleet member looks like. The Claude profile
-  # preflight runs the bounded vendor probe before every claude launch and
-  # BASE_PATH omits claude too, so stub that rather than letting a probe which
-  # cannot find the CLI refuse the spawns these cases are about.
+  # node-less spawn host no real fleet member looks like.
   ln -sf "$(command -v node)" "$fakebin/node"
-  cat > "$fakebin/claude" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}" in
-  --version) printf '2.1.276 (Claude Code)\n'; exit 0 ;;
-  auth) [ "${2:-}" != status ] || { printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n'; exit 0; } ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/claude"
   printf '%s\n' "$fakebin"
 }
 
@@ -722,8 +696,6 @@ spawn_secondmate_capture() {
   shift 4
   mkdir -p "$world/home/state" "$world/home/data"
   fakebin=$(make_launch_capturing_tmux "$world/tmux-$id")
-  # A claude secondmate is refused until its store finished first-run onboarding.
-  [ -e "$world/home/user-home/.claude.json" ] || fm_test_onboard_claude_store "$world/home/user-home"
   : > "$launchlog"
   PATH="$fakebin:$BLIND_BIN:$BASE_PATH" TMUX='' CLAUDECODE=1 \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$world/home" HOME="$world/home/user-home" CLAUDE_CONFIG_DIR='' \

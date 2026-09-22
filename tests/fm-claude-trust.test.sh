@@ -597,15 +597,14 @@ test_refused_spawn_leaves_no_task_state() {
   wt="$case_dir/wt"
   config="$case_dir/claude-config"
   id="refusedspawn$$"
-  # An onboarded but read-only store clears the auth preflight and is then
-  # refused by the trust registration as unwritable. Root writes through the
-  # mode bits, which would make the refusal vacuous.
+  # Root owns /etc/passwd, so a store resolving to it is refused as another
+  # user's file. Running as root would own it and make the refusal vacuous.
   if [ "$(id -u)" = 0 ]; then
     pass "fm-spawn.sh: a trust-refused claude spawn leaves no task state (skipped as root)"
     return 0
   fi
-  fm_test_onboard_claude_store "$config"
-  chmod 444 "$config/.claude.json"
+  mkdir -p "$config"
+  ln -s /etc/passwd "$config/.claude.json"
   fakebin=$(make_spawn_fakebin "$case_dir/fake" claude)
   fm_test_spawn_home "$home" claude
   fm_git_worktree "$proj" "$wt" wt-refused
@@ -671,7 +670,8 @@ test_named_pool_spawn_trusts_the_store_the_worker_reads() {
   launch_log="$case_dir/launch.log"
   mkdir -p "$pool"
   fm_test_onboard_claude_store "$pool"
-  fakebin=$(make_spawn_fakebin "$case_dir/fake" claude)
+  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+  fm_test_fake_claude_cli "$fakebin"
   fm_test_spawn_home "$home" claude
   fm_git_worktree "$proj" "$wt" wt-pool
   fm_test_spawn_brief "$home" poolspawn
@@ -834,16 +834,15 @@ test_secondmate_spawn_fails_closed_when_home_trust_cannot_be_recorded() {
   local case_dir home out
   case_dir="$TMP_ROOT/sm-failclosed"
   home="$case_dir/fm-homes/failclosed-n1"
-  # An onboarded but read-only store clears the auth preflight and is then
-  # refused by the trust registration as unwritable. Root writes through the
-  # mode bits, which would make the refusal vacuous.
+  # Root owns /etc/passwd, so a store resolving to it is refused as another
+  # user's file. Running as root would own it and make the refusal vacuous.
   if [ "$(id -u)" = 0 ]; then
     pass "fm-spawn.sh: a claude secondmate spawn refuses when home trust cannot be recorded (skipped as root)"
     return 0
   fi
   seed_secondmate_home "$home" failclosed-n1 clone
-  fm_test_onboard_claude_store "$case_dir/claude-config"
-  chmod 444 "$case_dir/claude-config/.claude.json"
+  mkdir -p "$case_dir/claude-config"
+  ln -s /etc/passwd "$case_dir/claude-config/.claude.json"
   out=$(spawn_secondmate_claude "$case_dir" "$home" failclosed-n1)
   expect_code 1 $? "a secondmate spawn whose trust registration is refused must fail: $out"
   assert_contains "$out" "workspace trust" "the spawn did not report the trust refusal"

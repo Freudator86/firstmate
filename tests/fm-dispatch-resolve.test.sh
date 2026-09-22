@@ -23,12 +23,7 @@ BASE_RULES="$TMP_ROOT/rules.json"
 RULES="$HOME_DIR/config/crew-dispatch.json"
 QUOTA="$TMP_ROOT/quota.json"
 BASE_PATH=$PATH
-mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN" "$HOME_DIR/claude-default"
-printf '%s\n' '{"claudeAiOauth":{"refreshToken":"dispatch-test-refresh-secret"}}' > "$HOME_DIR/claude-default/.credentials.json"
-fm_test_onboard_claude_store "$HOME_DIR/claude-default"
-cat > "$HOME_DIR/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"default","config_dir":"$HOME_DIR/claude-default"}]}
-EOF
+mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN"
 for command_name in bash chmod cp dirname jq mktemp rm; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
 done
@@ -154,26 +149,6 @@ printf '%s\n' "$*" >> "${QUOTA_AXI_CALLS:?}"
 cat "${QUOTA_AXI_FIXTURE:?}"
 SH
 chmod +x "$FAKEBIN/quota-axi"
-
-cat > "$FAKEBIN/claude" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}" in
-  --version)
-    printf '2.1.276 (Claude Code)\n'
-    exit 0
-    ;;
-  auth)
-    if [ "${2:-}" = status ]; then
-      case "${CLAUDE_CONFIG_DIR:-}" in
-        */claude-max-b) printf '{\n  "loggedIn": false,\n  "authMethod": "none"\n}\n'; exit 1 ;;
-        *) printf '{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n'; exit 0 ;;
-      esac
-    fi
-    ;;
-esac
-exit 2
-SH
-chmod +x "$FAKEBIN/claude"
 
 RESPONSE="$TMP_ROOT/response.json"
 export FAKE_CURL_LOG="$LOG" FAKE_CURL_RESPONSE="$RESPONSE" QUOTA_AXI_CALLS="$LOG/quota-axi.calls" QUOTA_AXI_FIXTURE="$QUOTA" CHILD_ENV_LOG="$LOG/child-env"

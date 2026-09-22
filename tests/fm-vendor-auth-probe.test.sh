@@ -46,6 +46,16 @@ exit 0
 SH
   chmod +x "$fakebin/quota-axi"
 
+  cat > "$fakebin/claude" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf '2.1.276 (Claude Code)\n'; exit 0 ;;
+  auth) printf '{\n  "loggedIn": true\n}\n'; exit 0 ;;
+esac
+exit 2
+SH
+  chmod +x "$fakebin/claude"
+
   cat > "$fakebin/grok" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_GROK_LOG"
@@ -55,11 +65,7 @@ if IFS= read -r -t 2 leaked; then
   printf '%s\n' "$leaked" >> "$FM_FAKE_GROK_STDIN"
 fi
 if [ "${1:-}" = --version ]; then
-  if [ -n "${FM_FAKE_GROK_VERSION_LEADS:-}" ]; then
-    printf '%s (fakebuild) [stable]\n' "${FM_FAKE_GROK_VERSION:-0.2.117}"
-  else
-    printf 'grok %s (fakebuild) [stable]\n' "${FM_FAKE_GROK_VERSION:-0.2.117}"
-  fi
+  printf 'grok %s (fakebuild) [stable]\n' "${FM_FAKE_GROK_VERSION:-0.2.117}"
   exit 0
 fi
 case "${FM_FAKE_GROK_MODE:-authenticated}" in
@@ -376,8 +382,9 @@ test_probe_version_match_is_recorded() {
 # (docs/verification/dispatch-auth.md), so version extraction must not require a
 # preceding non-digit character or the pin silently reads as unverified.
 test_probe_reads_a_version_that_starts_the_line() {
-  run_probe version-leading grok -- "FM_FAKE_GROK_MODE=authenticated" "FM_FAKE_GROK_VERSION_LEADS=1"
-  assert_field "$RUN_LINE" version 0.2.117 "a version at the start of the line must still be extracted"
+  run_probe version-leading claude
+  assert_field "$RUN_LINE" status authenticated "the claude probe must read the loggedIn discriminator"
+  assert_field "$RUN_LINE" version 2.1.276 "a version at the start of the line must still be extracted"
   assert_field "$RUN_LINE" versionVerified yes "a leading version must still match the pin"
   pass "a vendor CLI whose version starts its output line is still version-verified"
 }

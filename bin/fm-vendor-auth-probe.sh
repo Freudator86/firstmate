@@ -155,15 +155,10 @@ emit() {
 
 # The two argv forms below are literals in this file. Nothing the caller supplies
 # reaches the vendor CLI's argv or stdin.
-vendor_semver() {  # <command> [version args...]
-  local output cmd=$1
-  shift
-  output=$(fm_run_timed "$TIMEOUT" "$cmd" "$@" 2>/dev/null </dev/null) || { printf 'none\n'; return 0; }
-  printf '%s\n' "$output" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 | grep . || printf 'none\n'
-}
-
 claude_version() {
-  vendor_semver claude --version
+  local output
+  output=$(fm_run_timed "$TIMEOUT" claude --version 2>/dev/null </dev/null) || { printf 'none\n'; return 0; }
+  printf '%s\n' "$output" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 | grep . || printf 'none\n'
 }
 
 probe_claude() {
@@ -183,7 +178,7 @@ probe_claude() {
 grok_version() {
   local output
   output=$(fm_run_timed "$TIMEOUT" grok --version 2>/dev/null </dev/null) || { printf 'none\n'; return 0; }
-  printf '%s\n' "$output" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 | grep . || printf 'none\n'
+  printf '%s\n' "$output" | sed -nE 's/.*[^0-9]([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1 | grep . || printf 'none\n'
 }
 
 probe_grok() {
