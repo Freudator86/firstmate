@@ -46,6 +46,16 @@ exit 0
 SH
   chmod +x "$fakebin/quota-axi"
 
+  cat > "$fakebin/claude" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf '2.1.276 (Claude Code)\n'; exit 0 ;;
+  auth) printf '{\n  "loggedIn": true\n}\n'; exit 0 ;;
+esac
+exit 2
+SH
+  chmod +x "$fakebin/claude"
+
   cat > "$fakebin/grok" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_GROK_LOG"
@@ -222,7 +232,7 @@ test_probe_result_is_never_an_exit_status_verdict() {
 
 test_unregistered_probe_is_a_usage_error() {
   local name
-  for name in openai codex claude pi ''; do
+  for name in openai codex pi ''; do
     if [ -z "$name" ]; then
       run_probe "unregistered-empty"
     else
@@ -368,6 +378,17 @@ test_probe_version_match_is_recorded() {
   pass "the pinned verified vendor version is recognized"
 }
 
+# Claude Code prints its semver at the start of the line with no command name
+# (docs/verification/dispatch-auth.md), so version extraction must not require a
+# preceding non-digit character or the pin silently reads as unverified.
+test_probe_reads_a_version_that_starts_the_line() {
+  run_probe version-leading claude
+  assert_field "$RUN_LINE" status authenticated "the claude probe must read the loggedIn discriminator"
+  assert_field "$RUN_LINE" version 2.1.276 "a version at the start of the line must still be extracted"
+  assert_field "$RUN_LINE" versionVerified yes "a leading version must still match the pin"
+  pass "a vendor CLI whose version starts its output line is still version-verified"
+}
+
 test_help_succeeds_and_names_the_registered_probes() {
   local out rc=0
   out=$("$SCRIPT" --help 2>&1) || rc=$?
@@ -392,4 +413,5 @@ test_probe_argv_is_fixed_and_non_destructive
 test_fact_line_carries_no_vendor_output_or_credential_material
 test_probe_version_change_is_disclosed
 test_probe_version_match_is_recorded
+test_probe_reads_a_version_that_starts_the_line
 test_help_succeeds_and_names_the_registered_probes

@@ -173,6 +173,77 @@ Neither this per-source shape nor `state.authStatus` exists before quota-axi 0.1
 Grok also reports `credits.remaining: 0` alongside `percentRemaining: 41` on a healthy account.
 That zero is a prepaid balance, not the subscription window, and is never headroom.
 
+## Claude Code auth probe
+
+Verified 2026-09-20 on Claude Code 2.1.276, on Linux.
+
+```sh
+claude --version
+claude auth status   # stdin closed, single attempt, hard-bounded
+```
+
+`claude --version` prints the semver at the start of its only line, with no leading command name:
+
+```
+2.1.276 (Claude Code)
+```
+
+`claude auth status` prints a JSON document. With a usable Claude session (exit 0):
+
+```
+{
+  "loggedIn": true,
+  "authMethod": "claude.ai",
+  "apiProvider": "firstParty",
+  ...
+}
+```
+
+With no usable session in the scoped `CLAUDE_CONFIG_DIR` and keychain context (exit 1):
+
+```
+{
+  "loggedIn": false,
+  "authMethod": "none",
+  "apiProvider": "firstParty",
+  ...
+}
+```
+
+Observed:
+
+- The `loggedIn` member alone discriminates; `authMethod` is `claude.ai` for a logged-in claude.ai session and `none` otherwise, and neither value is read.
+- The elided members carry the account email, org id, and store paths, so `bin/fm-vendor-auth-probe.sh` classifies the document and never prints, logs, or forwards any of it.
+- The probe strips whitespace before matching `"loggedIn":true` / `"loggedIn":false`, so the discriminator survives a change in the vendor's indentation; any unrecognized document is `indeterminate`, never authenticated.
+- The exit status tracks the verdict here (0 logged in, 1 not), and is still never read as one, per this file's standing rule.
+- The probe is run with the caller-selected `CLAUDE_CONFIG_DIR` in the environment, so named Claude profile pools can be checked without printing token values or launching the interactive TUI.
+
+This JSON shape is un-owned vendor output.
+`bin/fm-vendor-auth-probe.sh` pins the verified version, reports `versionVerified=no` when the running CLI differs, and classifies unrecognized output as `indeterminate` rather than authenticated.
+Re-run the two commands above and update this section and the pinned version together when the vendor CLI changes.
+
+## Claude first-run onboarding
+
+Verified 2026-09-21 on Claude Code 2.1.276, on Linux.
+
+Two scratch config stores holding no credentials, no copied consent, and no other Claude-owned keys were launched interactively in detached tmux panes, with the environment cleared so neither the ambient store nor an inherited token could answer:
+
+```sh
+printf '{"hasCompletedOnboarding":true}\n' > <scratch>/present/.claude.json   # <scratch>/absent has no .claude.json
+env -i PATH=<path> HOME=<scratch>/home TERM=xterm-256color CLAUDE_CONFIG_DIR=<scratch>/<arm> claude
+```
+
+Each pane was captured after about 15 seconds without sending a key, then killed, and the scratch tree was deleted.
+
+- `absent`: `Welcome to Claude Code v2.1.276`, `Let's get started.`, `Choose the text style that looks best with your terminal`, and the theme picker.
+- `present`: no welcome or theme screen; the pane went straight to the `Accessing workspace:` folder-trust dialog, the next first-run step (owned by `bin/fm-claude-trust.sh`, not by this key).
+- Claude created `.claude.json` in the `absent` store during the run without setting `hasCompletedOnboarding`, so an abandoned first run still reads as unonboarded.
+
+So `hasCompletedOnboarding: true` in the store's `.claude.json` alone decides whether the text-style/theme screen opens, and `bin/fm-claude-auth.sh` reads exactly that key.
+It does not check that the store is logged in or that later dialogs are settled; those have their own checks above and below.
+This key is un-owned vendor state: re-run the two arms above and update this section when the vendor CLI changes.
+No executable live guard is registered, because detecting the screen means scraping a timed TUI capture, which is not deterministic.
+
 ## Standalone Grok discovery probe
 
 Verified 2026-07-30 on `grok 0.2.117 (f1c06093089f) [stable]`.
@@ -197,6 +268,7 @@ Re-run the two commands above and update this section and the pinned version tog
 
 `tests/fm-vendor-auth-probe.test.sh` drives the real script against a fake vendor CLI that records every invocation's argv and anything readable on stdin.
 It asserts that the script accepts no harness, model, or provider input, never calls `quota-axi`, exits alike for every probe result because it renders no verdict, invokes only the two fixed non-destructive argv forms with stdin closed, holds a real bound even when the configured bound is zero or malformed, and never echoes raw vendor output.
+`tests/fm-claude-auth.test.sh` owns the named-profile config validation, auth verdict, and onboarding readiness checks.
 `tests/fm-spawn-dispatch-profile.test.sh` owns spawn's deterministic profile and harness refusals.
 `tests/fm-bootstrap.test.sh` owns the quota-axi version-floor diagnostic.
 `tests/fm-quota-array-dispatch-live-e2e.test.sh` drives the public Pi skill-loading interface against one fake schema-5 snapshot per case, served as quota-axi's default TOON.

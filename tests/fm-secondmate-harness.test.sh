@@ -1514,6 +1514,28 @@ sm_presentation_verdict() {  # <config-dir> -> on|off
   ' "$ROOT" "$1" 2>/dev/null
 }
 
+test_claude_profiles_are_never_inherited() {
+  local w head out status err
+  w=$(new_world claude-profiles-inherit)
+  head=$(git -C "$w/main" rev-parse HEAD)
+  add_sm_worktree "$w" sm "$head"
+
+  printf '{"profiles":[{"id":"claude-max-a","config_dir":"%s"}]}\n' "$w/home/pool-a" \
+    > "$w/home/config/claude-profiles.json"
+  printf '{"default":{"harness":"claude","claude_profile":"claude-max-a"}}\n' \
+    > "$w/home/config/crew-dispatch.json"
+  err="$w/claude-profiles-inherit.err"
+  out=$(run_config_push "$w" 2>"$err"); status=$?
+  expect_code 0 "$status" "a primary holding claude-profiles.json should still push cleanly"
+  [ -e "$w/sm/config/crew-dispatch.json" ] \
+    || fail "dispatch rules must still be inherited alongside the uninherited pool file"
+  [ ! -e "$w/sm/config/claude-profiles.json" ] \
+    || fail "claude-profiles.json names per-account credential stores and must never be copied downstream"
+  assert_not_contains "$out" "claude-profiles.json" "the push report must not claim to carry the pool file"
+  assert_not_contains "$(cat "$err")" "claude-profiles.json" "the pool file must not even be considered for propagation"
+  pass "B12d claude-profiles.json is per-home configuration and is never inherited"
+}
+
 test_presentation_inheritance_default_on_and_opt_out() {
   local w head out err status verdict
   w=$(new_world presentation-inherit)
@@ -2661,6 +2683,7 @@ test_bootstrap_sweep_materializes_and_inherits_memory_default
 test_backend_inheritance_present_and_absent
 test_spawn_secondmate_claude_permission_mode_auto
 test_claude_permission_mode_inheritance_present_and_absent
+test_claude_profiles_are_never_inherited
 test_presentation_inheritance_default_on_and_opt_out
 test_bootstrap_sweep_surfaces_config_propagation_failure
 test_bootstrap_rereads_after_partial_propagation

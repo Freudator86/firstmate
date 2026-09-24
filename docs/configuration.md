@@ -440,10 +440,36 @@ This applies only to agents Firstmate launches; the captain's own primary Firstm
 
 Every claude launch's inline `--settings` JSON also carries `"attribution":{"commit":"","pr":"","sessionUrl":false}`, so a spawned worker never writes a Co-Authored-By trailer, Claude-Session link, or generated-with line into a commit or PR body regardless of which settings scopes end up loaded.
 
+## Claude profiles (config/claude-profiles.json)
+
+`config/claude-profiles.json` is an optional local, gitignored file listing named Claude capacity pools that Firstmate may launch directly.
+`bin/fm-claude-auth.sh` owns the executable check and prints only profile names, config paths, and authentication verdicts.
+
+```json
+{
+  "profiles": [
+    { "id": "claude-max-a", "config_dir": "/absolute/path/to/.claude-a" }
+  ]
+}
+```
+
+`id` is required and must match `^[a-z0-9]+(-[a-z0-9]+)*$`.
+`config_dir` selects the Claude credential/config directory for that pool, must be absolute and distinct across profiles, and is required for every configured profile.
+The `default` profile is not configured here: it is the ambient Claude store and keeps the pre-existing launch behavior.
+When a Claude spawn or relaunch explicitly names `--claude-profile <id>`, Firstmate checks only that named pool before endpoint creation.
+That check requires the configured store to probe authenticated through `claude auth status` with `CLAUDE_CONFIG_DIR` scoped to the store, and requires `<config_dir>/.claude.json` to carry `"hasCompletedOnboarding": true` so the worker does not open on Claude's first-run setup screen.
+When the check passes, spawn pins that `CLAUDE_CONFIG_DIR` into the launched worker and registers workspace trust in the same store.
+A Claude spawn with no `--claude-profile`, or with `default`, is not auth-preflighted and keeps ambient behavior: Firstmate forwards its own `CLAUDE_CONFIG_DIR` only when it is already set, and otherwise launches with no config-dir prefix.
+`config/claude-profiles.json` is per-home configuration and is deliberately never inherited between firstmate homes, because its values are absolute paths to per-account credential stores; [`fm_config_inherit_items`](../bin/fm-config-inherit-lib.sh) therefore omits it while still carrying `config/crew-dispatch.json`.
+Named Claude pools are supported for ordinary local workers only.
+`fm-spawn.sh` refuses `--claude-profile` on secondmate spawns, local or remote, because a persistent secondmate recovery currently has no durable pool pin and would otherwise restart on a different Claude store.
+`bin/fm-control.sh <id> relaunch` keeps the named pool an ordinary task's record names and preflights it before the running agent is stopped.
+An unreadable, malformed, or missing `config/claude-profiles.json` for an explicitly named pool is reported and never selected around.
+
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
 `config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.
-The shell scripts do not match those rules; firstmate chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS.md` section 4 and `quota-array-dispatch`, and passes only concrete `--harness`, `--model`, and `--effort` flags to `fm-spawn.sh`.
+The shell scripts do not match those rules; firstmate chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS.md` section 4 and `quota-array-dispatch`, and passes only concrete `--harness`, `--model`, `--effort`, and `--claude-profile` flags to `fm-spawn.sh`.
 When the file exists, `fm-spawn.sh` enforces that contract by refusing crewmate and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
 Batch spawns satisfy the same requirement with a shared `--harness`.
 Secondmate spawns are exempt and still resolve through `config/secondmate-harness` and its optional model and effort tokens.
@@ -458,7 +484,7 @@ This section is the single owner of the canonical schema and its per-field seman
       "approval": "captain",
       "floor": { "scope": "<quota-axi scope>", "min_percent": 20, "provider": "<quota-axi provider>" },
       "use": [
-        { "harness": "<adapter>", "model": "<optional model>", "effort": "<low|medium|high|xhigh|max|ultra, optional>", "provider": "<optional quota-axi provider>", "floor": { "scope": "<quota-axi scope>", "min_percent": 50 } }
+        { "harness": "<adapter>", "model": "<optional model>", "effort": "<low|medium|high|xhigh|max|ultra, optional>", "provider": "<optional quota-axi provider>", "claude_profile": "<optional Claude profile id>", "floor": { "scope": "<quota-axi scope>", "min_percent": 50 } }
       ],
       "why": "<optional rationale that helps firstmate choose>"
     }
@@ -472,13 +498,15 @@ This section is the single owner of the canonical schema and its per-field seman
 Per rule, `when` and `use` are required; the top-level `rules` array itself may be absent or empty for a default-only configuration.
 Both `use` and the optional top-level `default` accept either one profile object or a non-empty array of profile objects.
 The single-object form stays fully backward-compatible, and every profile needs `harness`.
-Profile `model` and `effort` fields and rule `why` are optional.
+Profile `model`, `effort`, `claude_profile`, and rule `why` fields are optional.
 Rule `approval` and `floor`, and profile `provider` and `floor` are optional declarations that only [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key) applies in code; without that opt-in they are inert, and firstmate's own intake reads them as ordinary hints.
 The resolver supplies the fixed neutral Choice option `No listed rule applies to this task.` for work that matches no listed rule.
 `approval` accepts only `"captain"` and means a task the rule matches is never dispatched from the tool's answer alone.
 A rule `floor` names the quota-axi `provider` and `scope` whose `effectivePercentRemaining` must be at least `min_percent` for the rule's profiles to apply.
-A known percentage below it makes the tool resolve among `default` instead; an absent or unknown row or unmeasured provider makes the floor unverifiable and escalates without authorizing default routing.
-A profile `provider` optionally names the quota-axi provider family whose rows apply to that profile; when present, profile and rule-floor provider IDs must match the strict whole-string pattern `^[a-z0-9]+(-[a-z0-9]+)*\z`.
+An absent or unknown row or unmeasured provider makes the floor unverifiable and escalates without authorizing default routing.
+A known percentage below the floor makes the tool resolve among `default` profiles instead.
+A profile `provider` optionally names the quota-axi provider family whose rows apply to that profile; `claude_profile` names the local Claude profile that `fm-spawn.sh` will preflight when the chosen harness is `claude`, and belongs only on a profile whose `harness` is `claude`.
+When present, profile and rule-floor provider IDs and `claude_profile` must match the strict whole-string pattern `^[a-z0-9]+(-[a-z0-9]+)*\z`.
 Bootstrap validates resolver-only `approval`, `floor`, and present `provider` values only while typed resolution is active; without the key those inert fields and the pre-existing verified-harness baseline preserve bootstrap behavior.
 Typed resolution additively recognizes `gemini` because AGENTS.md section 4 verifies it for crewmate and scout dispatch.
 The opted-in resolver has authoritative single-provider mappings for `claude`, `codex`, `grok`, `kimi`, `cursor`, `agy`, and `muse`; every other verified harness must declare `provider` explicitly, including multi-provider `pi`, `pi-signed`, `omp`, and `opencode` and unmapped `gemini` and `rovo`.
@@ -521,13 +549,13 @@ Everything after the answer runs in code: the confidence floor, the matched rule
 Known applicable rows from a provider with partial quota semantics remain rankable; rows whose own status is not known remain unrankable.
 Any applicable `exhausted_now` row or known zero bound makes that candidate ineligible, and a known profile-floor shortfall does the same before unrelated quota uncertainty is considered.
 Missing or nonnumeric `spendPriority` evidence is never ranked, and every candidate is printed beside its evidence or the reason it was not rankable, including on ambiguous and approval-gated outcomes that emit no profile.
-On the opted-in path, duplicate concrete profiles with the same harness, model, and effort inside one rule or the default array are configuration errors rather than ties.
+On the opted-in path, duplicate concrete profiles with the same harness, model, effort, and Claude profile inside one rule or the default array are configuration errors rather than ties.
 The result is one of `clear` (a `profile:` line ready for `fm-spawn.sh`), `ambiguous` (confidence below the floor), `escalate` (an approval-gated rule, unverifiable rule floor, nothing rankable, or a genuine tie), or `error` (API, network, malformed response metadata, rendering, or quota-axi failure), and every one of them exits 0.
 Response probabilities must contain exactly every offered choice, use numeric values from 0 through 1, and sum to approximately 1 within 0.01.
 Only a usage or configuration error exits 2: an unreadable brief, an existing but unreadable or malformed canonical rules file, or missing `jq`, each reported and never selected around.
 Missing `curl` is a normal structured `error` outcome with exit 0 so firstmate uses today's routing.
 The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns what firstmate does with each outcome.
-By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
+By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates; a chosen `claude_profile` is preflighted only when `fm-spawn.sh` launches it.
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
 The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.

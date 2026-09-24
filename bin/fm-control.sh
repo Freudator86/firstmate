@@ -66,6 +66,11 @@
 #              already recorded for it.
 #              A prefixed raw-command basename cannot reconstruct its launch
 #              command, so relaunch requires an explicit --harness for it.
+#              A claude task keeps the Claude capacity pool its record names,
+#              so a relaunch never moves a worker to another account. That
+#              pool is preflighted here, before anything is stopped, so an
+#              unauthenticated or unconfigured pool refuses with the agent
+#              still running.
 #              --note is required for a ship or scout, whose replacement
 #              inherits the local copy but none of the conversation; a
 #              secondmate reconciles its own home's records at startup, so its
@@ -590,9 +595,11 @@ CONFIG_MODEL=
 CONFIG_EFFORT=
 PRIOR_MODEL=
 PRIOR_EFFORT=
+PRIOR_CLAUDE_PROFILE=
 TARGET_HARNESS=$HARNESS
 TARGET_MODEL=
 TARGET_EFFORT=
+TARGET_CLAUDE_PROFILE=
 
 journal_write() {  # <phase> [extra-line]...
   local phase=$1
@@ -612,6 +619,8 @@ journal_write() {  # <phase> [extra-line]...
     echo "to_harness=$TARGET_HARNESS"
     echo "to_model=$TARGET_MODEL"
     echo "to_effort=$TARGET_EFFORT"
+    echo "from_claude_profile=${PRIOR_CLAUDE_PROFILE:-none}"
+    echo "to_claude_profile=${TARGET_CLAUDE_PROFILE:-none}"
     local line
     for line in "$@"; do
       echo "$line"
@@ -690,10 +699,12 @@ relaunch_rollback() {
 }
 
 resolve_relaunch_profile() {
+  local claude_auth_out
   PRIOR_HARNESS=$HARNESS
   PRIOR_RECORDED_HARNESS=$RECORDED_HARNESS
   PRIOR_MODEL=$(fm_meta_get "$META" model)
   PRIOR_EFFORT=$(fm_meta_get "$META" effort)
+  PRIOR_CLAUDE_PROFILE=$(fm_meta_get "$META" claude_profile)
   [ -n "$PRIOR_MODEL" ] || PRIOR_MODEL=default
   [ -n "$PRIOR_EFFORT" ] || PRIOR_EFFORT=default
   if [ "$HARNESS_SET" = 0 ] \
@@ -762,6 +773,21 @@ resolve_relaunch_profile() {
   fi
   if [ "$TARGET_EFFORT" = ultra ]; then
     "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
+  fi
+  # The recorded Claude pool is preserved so a relaunch never moves a worker to
+  # another account.
+  if [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ]; then
+    TARGET_CLAUDE_PROFILE=$PRIOR_CLAUDE_PROFILE
+  else
+    TARGET_CLAUDE_PROFILE=
+  fi
+  [ "$TARGET_HARNESS" = claude ] || TARGET_CLAUDE_PROFILE=
+  # Only named Claude pools are preflighted; the default profile stays ambient.
+  # Asking the same preflight here keeps a named-pool refusal on the pre-stop
+  # side, so an unavailable pool leaves the running agent alone.
+  if [ "$TARGET_HARNESS" = claude ] && [ -n "$TARGET_CLAUDE_PROFILE" ] && [ "$TARGET_CLAUDE_PROFILE" != default ]; then
+    claude_auth_out=$("$SCRIPT_DIR/fm-claude-auth.sh" check --profile "$TARGET_CLAUDE_PROFILE" 2>&1) \
+      || die "Claude named profile $TARGET_CLAUDE_PROFILE is not ready for the replacement worker, so relaunching $ID onto it would stop the running agent for a launch that must be refused; restore that pool's login with bin/fm-claude-auth.sh before relaunching. $claude_auth_out"
   fi
 }
 
@@ -913,6 +939,7 @@ do_relaunch() {
   spawn_args=("$ID" --relaunch --harness "$TARGET_HARNESS")
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
+  [ -z "$TARGET_CLAUDE_PROFILE" ] || spawn_args+=(--claude-profile "$TARGET_CLAUDE_PROFILE")
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1
@@ -946,7 +973,7 @@ do_relaunch() {
 
   journal_write complete "${CHECKPOINT_LINES[@]}" "$note_line" "exit_result=$exit_result"
   RELAUNCH_ACTIVE=0
-  echo "relaunched $ID harness=$TARGET_HARNESS from=$PRIOR_RECORDED_HARNESS model=$TARGET_MODEL effort=$TARGET_EFFORT backend=$BACKEND endpoint=$T worktree=$WT"
+  echo "relaunched $ID harness=$TARGET_HARNESS from=$PRIOR_RECORDED_HARNESS model=$TARGET_MODEL effort=$TARGET_EFFORT${TARGET_CLAUDE_PROFILE:+ claude_profile=$TARGET_CLAUDE_PROFILE} backend=$BACKEND endpoint=$T worktree=$WT"
 }
 
 # --- verbs ------------------------------------------------------------------

@@ -412,6 +412,40 @@ assert_contains "$out" 'candidate: cursor:cursor-grok-4.6-medium  provider=curso
 assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "numeric evidence wins without mixed-type ordering"
 pass "nonnumeric spendPriority evidence is never ranked"
 
+# --- Claude profile ids are routed, not auth-probed by dispatch -----------------
+reset_log
+CLAUDE_POOLS_RULES="$TMP_ROOT/claude-pools-rules.json"
+cat > "$CLAUDE_POOLS_RULES" <<'JSON'
+{
+  "rules": [
+    { "when": "New feature work on the app.", "use": { "harness": "codex", "model": "gpt-5.6-sol" } },
+    { "when": "The task generates images.", "use": { "harness": "codex", "model": "gpt-5.6-sol" } },
+    { "when": "Genuinely very difficult design or planning work.", "use": { "harness": "codex", "model": "gpt-5.6-sol" } },
+    { "when": "A simple bug fix with a stated root cause.", "use": [
+      { "harness": "claude", "model": "sonnet", "provider": "claude-max-a", "claude_profile": "claude-max-a" },
+      { "harness": "codex", "model": "gpt-5.6-sol" }
+    ] }
+  ]
+}
+JSON
+cp "$CLAUDE_POOLS_RULES" "$RULES"
+CLAUDE_POOLS_QUOTA="$TMP_ROOT/claude-pools-quota.json"
+cat > "$CLAUDE_POOLS_QUOTA" <<'JSON'
+{"generatedAt":"2030-01-01T00:00:00Z","schemaVersion":5,"providers":[
+  {"provider":"claude-max-a","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.9}}]}},
+  {"provider":"codex","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":20,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}}
+]}
+JSON
+printf '%s\n' '{"profiles":[{"id":"claude-max-a",}]}' > "$HOME_DIR/config/claude-profiles.json"
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CLAUDE_POOLS_QUOTA" run code out err "$BRIEF"
+assert_contains "$out" 'candidate: claude:sonnet  claude_profile=claude-max-a  provider=claude-max-a  scope=all_models  remaining=80%  spendPriority=0.9' "Claude profile id should be represented with quota evidence"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --claude-profile 'claude-max-a'" "chosen Claude profile id should be forwarded to spawn"
+assert_not_contains "$out" 'Claude profile evidence failed' "dispatch must not auth-probe or parse claude-profiles.json"
+assert_not_contains "$out" 'auth=' "dispatch output should not claim Claude auth evidence"
+cp "$BASE_RULES" "$RULES"
+pass "Claude profile ids are forwarded without coupling dispatch to auth probing"
+
 # --- partial providers retain their known row evidence --------------------------
 reset_log
 PARTIAL="$TMP_ROOT/partial.json"
@@ -605,10 +639,11 @@ for bad in \
   '{"rules":[{"when":"x","use":{"harness":"claude"},"select":"mystery"}]}|unknown select: mystery' \
   '{"rules":[{"when":"x","use":{"harness":"claude"},"floor":{"scope":"model:fable","min_percent":20}}]}|rule floor needs scope, min_percent 0..100, and provider matching ^[a-z0-9]+(-[a-z0-9]+)*\z' \
   '{"rules":[{"when":"x","use":{"harness":"claude"},"floor":{"scope":"model:fable","min_percent":20,"provider":"CLAUDE"}}]}|rule floor needs scope, min_percent 0..100, and provider matching ^[a-z0-9]+(-[a-z0-9]+)*\z' \
-  '{"rules":[{"when":"x","use":{"harness":"claude","provider":""}}]}|each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present' \
-  '{"rules":[{"when":"x","use":{"harness":"claude","provider":" claude"}}]}|each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present' \
-  '{"rules":[{"when":"x","use":{"harness":"claude","provider":"claude\n"}}]}|each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present' \
-  '{"rules":[{"when":"x","use":{"harness":"codex","floor":{"scope":"all_models","min_percent":20,"provider":"claude"}}}]}|each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present' \
+  '{"rules":[{"when":"x","use":{"harness":"claude","provider":""}}]}|each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present; claude_profile belongs only on a profile whose harness is claude' \
+  '{"rules":[{"when":"x","use":{"harness":"claude","provider":" claude"}}]}|each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present; claude_profile belongs only on a profile whose harness is claude' \
+  '{"rules":[{"when":"x","use":{"harness":"claude","provider":"claude\n"}}]}|each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present; claude_profile belongs only on a profile whose harness is claude' \
+  '{"rules":[{"when":"x","use":{"harness":"codex","floor":{"scope":"all_models","min_percent":20,"provider":"claude"}}}]}|each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present; claude_profile belongs only on a profile whose harness is claude' \
+  '{"rules":[{"when":"x","use":{"harness":"codex","model":"gpt-5.6-sol","claude_profile":"claude-max-a"}}]}|each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present; claude_profile belongs only on a profile whose harness is claude' \
   '{"rules":[{"when":"x","use":[{"harness":"codex","model":"gpt-5.5","effort":"high"},{"harness":"codex","model":"gpt-5.5","effort":"high"}]}]}|each rule use must not contain duplicate harness, model, and effort profiles' \
   '{"rules":[{"when":"x","use":{"harness":"codex"}}],"default":[{"harness":"claude","model":"opus"},{"harness":"claude","model":"opus"}]}|default must not contain duplicate harness, model, and effort profiles' \
   '{"rules":[{"when":"x","use":{"harness":"spaceship"}}]}|each use profile must name a verified harness' \
