@@ -1,0 +1,140 @@
+
+=== A. matched rule + six-axis classifier evidence -> clear route ===
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 6   tokens: 934/402
+  rule: rule_3 (The task is a big or ambiguous multi-file feature, a risky r)   confidence: 0.93
+  probabilities: rule_1=0.01 rule_2=0.02 rule_3=0.93 default=0.04
+  classification: intent=implementation(0.89) domain=project_code(0.9) difficulty=high(0.78) risk=medium(0.71) model_class=strong_reasoning(0.83) escalation=no(0.88)
+  note: rule matched
+  candidate: claude:claude-sonnet-5  provider=claude  scope=all_models  remaining=93%  spendPriority=-0.1716  runway=projected_exhaustion  -> eligible
+  candidate: codex:gpt-5.5  provider=codex  scope=all_models  remaining=52%  spendPriority=-1.4476  runway=projected_exhaustion  -> eligible
+  profile: --harness 'claude' --model 'claude-sonnet-5' --effort 'high'
+exit=0
+
+=== B. escalation=yes at 0.84 (>= 0.6 floor) -> escalate, no profile ===
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 6   tokens: 934/402
+  rule: rule_3 (The task is a big or ambiguous multi-file feature, a risky r)   confidence: 0.93
+  probabilities: rule_1=0.01 rule_2=0.02 rule_3=0.93 default=0.04
+  classification: intent=implementation(0.89) domain=project_code(0.9) difficulty=high(0.78) risk=medium(0.71) model_class=strong_reasoning(0.83) escalation=yes(0.84)
+  reason: classifier recommends escalation before dispatch
+  candidate: claude:claude-sonnet-5  provider=claude  scope=all_models  remaining=93%  spendPriority=-0.1716  runway=projected_exhaustion  -> eligible
+  candidate: codex:gpt-5.5  provider=codex  scope=all_models  remaining=52%  spendPriority=-1.4475  runway=projected_exhaustion  -> eligible
+exit=0
+
+=== C. escalation=yes at 0.55 (below floor) -> route still resolves ===
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 5   tokens: 934/402
+  rule: rule_3 (The task is a big or ambiguous multi-file feature, a risky r)   confidence: 0.93
+  probabilities: rule_1=0.01 rule_2=0.02 rule_3=0.93 default=0.04
+  classification: intent=implementation(0.89) domain=project_code(0.9) difficulty=high(0.78) risk=medium(0.71) model_class=strong_reasoning(0.83) escalation=yes(0.55)
+  note: rule matched
+  candidate: claude:claude-sonnet-5  provider=claude  scope=all_models  remaining=93%  spendPriority=-0.1716  runway=projected_exhaustion  -> eligible
+  candidate: codex:gpt-5.5  provider=codex  scope=all_models  remaining=52%  spendPriority=-1.4475  runway=projected_exhaustion  -> eligible
+  profile: --harness 'claude' --model 'claude-sonnet-5' --effort 'high'
+exit=0
+
+=== D. ADVERSARIAL: escalation choice outside offered options -> error, never read as no ===
+dispatch-resolve: error (response is not a typed dispatch classifier answer)
+dispatch-resolve:
+  status: error
+  reason: response is not a typed dispatch classifier answer
+exit=0
+
+=== E. ADVERSARIAL: escalation axis missing entirely -> error, no profile ===
+dispatch-resolve: error (response is not a typed dispatch classifier answer)
+dispatch-resolve:
+  status: error
+  reason: response is not a typed dispatch classifier answer
+exit=0
+
+=== F. ADVERSARIAL: evidence axis distribution sums to 1.24 -> risk=unavailable, route preserved ===
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 5   tokens: 934/402
+  rule: rule_3 (The task is a big or ambiguous multi-file feature, a risky r)   confidence: 0.93
+  probabilities: rule_1=0.01 rule_2=0.02 rule_3=0.93 default=0.04
+  classification: intent=implementation(0.89) domain=project_code(0.9) difficulty=high(0.78) risk=unavailable model_class=strong_reasoning(0.83) escalation=no(0.88)
+  note: rule matched
+  candidate: claude:claude-sonnet-5  provider=claude  scope=all_models  remaining=93%  spendPriority=-0.1716  runway=projected_exhaustion  -> eligible
+  candidate: codex:gpt-5.5  provider=codex  scope=all_models  remaining=52%  spendPriority=-1.4475  runway=projected_exhaustion  -> eligible
+  profile: --harness 'claude' --model 'claude-sonnet-5' --effort 'high'
+exit=0
+
+=== G. ADVERSARIAL: unrecognized + missing evidence axes -> both unavailable, route preserved ===
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 6   tokens: 934/402
+  rule: rule_3 (The task is a big or ambiguous multi-file feature, a risky r)   confidence: 0.93
+  probabilities: rule_1=0.01 rule_2=0.02 rule_3=0.93 default=0.04
+  classification: intent=implementation(0.89) domain=unavailable difficulty=high(0.78) risk=medium(0.71) model_class=unavailable escalation=no(0.88)
+  note: rule matched
+  note: 1 eligible candidate(s) unranked (claude)
+  candidate: claude:claude-sonnet-5  provider=claude  scope=all_models  remaining=-%  spendPriority=-  runway=unknown  -> eligible, unranked: provider claude unmeasured (unknown): disclosed uncertainty
+  candidate: codex:gpt-5.5  provider=codex  scope=all_models  remaining=52%  spendPriority=-1.4475  runway=projected_exhaustion  -> eligible
+  profile: --harness 'codex' --model 'gpt-5.5' --effort 'high'
+exit=0
+
+=== H1. rules file grew a fourth rule; the stale 4-option answer no longer matches the offered vocabulary ===
+dispatch-resolve: error (response is not a typed dispatch classifier answer)
+dispatch-resolve:
+  status: error
+  reason: response is not a typed dispatch classifier answer
+exit=0
+--- answer rebuilt from the options THIS request offered:
+{"rule":"rule_4","intent":"review","domain":"unknown","difficulty":"xhigh","risk":"sensitive","model_class":"vision","escalation":"yes"}
+
+=== H2. every axis answered with an option the request itself offered -> accepted on all seven axes ===
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 5   tokens: 900/400
+  rule: rule_4 (The task rewrites a public protocol or deletes operator data)   confidence: 0.9
+  probabilities: default=0.2 rule_1=0.2 rule_2=0.2 rule_3=0.2 rule_4=0.2
+  classification: intent=review(0.9) domain=unknown(0.9) difficulty=xhigh(0.9) risk=sensitive(0.9) model_class=vision(0.9) escalation=yes(0.9)
+  reason: rule requires the captain's explicit approval before dispatch
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=-%  spendPriority=-  runway=unknown  -> eligible, unranked: provider claude unmeasured (unknown): disclosed uncertainty
+exit=0
+
+=== I. declared approval: captain outranks a confident 'no escalation' classifier answer ===
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 5   tokens: 934/402
+  rule: rule_4 (The task rewrites a public protocol or deletes operator data)   confidence: 0.96
+  probabilities: rule_1=0.01 rule_2=0.01 rule_3=0.01 rule_4=0.96 default=0.01
+  classification: intent=implementation(0.89) domain=project_code(0.9) difficulty=high(0.78) risk=medium(0.71) model_class=strong_reasoning(0.83) escalation=no(0.97)
+  reason: rule requires the captain's explicit approval before dispatch
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=-%  spendPriority=-  runway=unknown  -> eligible, unranked: provider claude unmeasured (unknown): disclosed uncertainty
+exit=0
+
+=== J. no TYPESAFE_API_KEY: tool stays off, makes no call, blocks nothing ===
+dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and /tmp/fm-dispatch-lab.oFd382/.env)
+exit=0
+curl invoked: no - no request was made
+
+=== K. LIVE api.typesafe.ai round trip: real Jev answers all seven axes ===
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 471   tokens: 1482/377
+  rule: rule_3 (The task is a big or ambiguous multi-file feature, a risky r)   confidence: 1.0
+  probabilities: rule_2=0.0 rule_1=0.0 rule_3=1.0 default=0.0
+  classification: intent=implementation(0.89) domain=project_code(0.52) difficulty=medium(0.93) risk=medium(0.69) model_class=standard(0.28) escalation=no(0.97)
+  note: rule matched
+  candidate: claude:claude-sonnet-5  provider=claude  scope=all_models  remaining=93%  spendPriority=-0.1598  runway=projected_exhaustion  -> eligible
+  candidate: codex:gpt-5.5  provider=codex  scope=all_models  remaining=52%  spendPriority=-1.4419  runway=projected_exhaustion  -> eligible
+  profile: --harness 'claude' --model 'claude-sonnet-5' --effort 'high'
+exit=0
+
+=== L. LIVE round trip on an irreversible credential brief: real escalation gating ===
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 357   tokens: 1463/384
+  rule: rule_3 (The task is a big or ambiguous multi-file feature, a risky r)   confidence: 0.86
+  probabilities: rule_3=0.89 rule_1=0.0 default=0.11 rule_2=0.0
+  classification: intent=operations(0.93) domain=infrastructure(0.57) difficulty=xhigh(0.35) risk=sensitive(1.0) model_class=strong_reasoning(0.77) escalation=yes(1.0)
+  reason: classifier recommends escalation before dispatch
+  candidate: claude:claude-sonnet-5  provider=claude  scope=all_models  remaining=93%  spendPriority=-0.1592  runway=projected_exhaustion  -> eligible
+  candidate: codex:gpt-5.5  provider=codex  scope=all_models  remaining=52%  spendPriority=-1.4418  runway=projected_exhaustion  -> eligible
+exit=0
