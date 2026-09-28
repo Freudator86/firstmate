@@ -1,0 +1,33 @@
+Adversarial guard: a per-task named pool must not override a declared home-wide Claude account boundary.
+
+$ touch config/claude-account   # operator has pinned this home to one account
+$ bin/fm-claude-auth.sh check --profile ak-pool
+error: named Claude profiles cannot be combined with config/claude-account; choose per-task pools or the home-wide pin
+exit=2
+
+Adversarial guard: 'default' is ambient and must not be preflighted as a named pool.
+$ bin/fm-claude-auth.sh check --profile default
+error: default Claude profile is ambient and is not preflighted here
+exit=2
+
+Adversarial guard: an unconfigured pool id is refused with actionable setup guidance.
+$ bin/fm-claude-auth.sh check --profile nonexistent-pool
+error: Claude profile not configured in this home: nonexistent-pool; install config/claude-profiles.json with a local absolute config_dir for that named pool
+exit=2
+
+Adversarial guard: a world-readable token file is refused (secret hygiene).
+$ chmod 644 <token file>; bin/fm-claude-auth.sh check --profile loose-pool
+error: config/claude-profiles.json is malformed: profiles rejected-pool and loose-pool name the same Claude store /tmp/fm-auth-drive.8aLCAY/store-bad
+exit=2
+
+(re-run with its own store so the file-mode guard is the one under test)
+$ ls -l <token file>
+-rw-r--r-- <token file>
+$ bin/fm-claude-auth.sh check --profile loose-pool
+error: setup_token_file must be an owned, non-symlink mode-0600 regular file holding one CLAUDE_CODE_SETUP_TOKEN assignment
+exit=2
+
+Adversarial guard: a symlinked token file is refused (no following links to another uid's secret).
+$ bin/fm-claude-auth.sh check --profile loose-pool   # setup_token_file is now a symlink
+error: setup_token_file must be an owned, non-symlink mode-0600 regular file holding one CLAUDE_CODE_SETUP_TOKEN assignment
+exit=2

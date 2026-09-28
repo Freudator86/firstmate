@@ -1,0 +1,3 @@
+ok - 2.1.276 (Claude Code): pool 0 real token effect and fresh-store interactive bypass response
+ok - 2.1.276 (Claude Code): pool 1 real token effect and fresh-store interactive bypass response
+# live token guard checked 2 pools

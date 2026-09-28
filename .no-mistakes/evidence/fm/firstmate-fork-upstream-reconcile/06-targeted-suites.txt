@@ -1,0 +1,32 @@
+########## tests/fm-claude-auth.test.sh
+ok - fm-claude-auth: an already-onboarded store is left untouched
+ok - fm-claude-auth: rejected token is not rescued by ambient login; run rereads rotation
+ok - fm-claude-auth: token files require private permissions, literal assignment, and no symlink
+ok - fm-claude-auth: named pools cannot override a declared home-wide pin
+# all Claude auth preflight tests passed
+EXIT=0
+
+########## tests/fm-dispatch-resolve.test.sh
+ok - schema 6: each candidate binds to its account row; schema 5 is unchanged
+ok - quota evidence comes from one quota-axi --json read, and its failure is an error outcome
+ok - API, transport, and response failures are error outcomes with exit 0
+ok - configuration errors exit 2 before any network call
+# all fm-dispatch-resolve tests passed
+EXIT=0
+
+########## tests/fm-control-relaunch.test.sh
+rm: cannot remove '/tmp/fm-control-relaunch.gSQjth/poolgone-29381/home/state/rl-pool-gone.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-control-relaunch.gSQjth/poolgone-29381/home/state/rl-pool-gone.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-control-relaunch.gSQjth/poolgone-29381/home/state/rl-pool-gone.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-control-relaunch.gSQjth/poolgone-29381/home/state/rl-pool-gone.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-control-relaunch.gSQjth/poolgone-29381/home/state/rl-pool-gone.git-hooks/pre-merge-commit': Permission denied
+EXIT=0
+
+########## tests/fm-claude-trust.test.sh
+ok - fm-spawn.sh: a claude secondmate spawn pre-trusts a standalone-clone home
+ok - fm-spawn.sh: a claude secondmate spawn pre-trusts a leased worktree home
+ok - fm-claude-trust.sh: home-level trust is refused for everything but a home seeded for this secondmate
+ok - fm-claude-trust.sh: worktree mode still refuses a secondmate home
+ok - fm-spawn.sh: a claude secondmate spawn refuses when home trust cannot be recorded
+EXIT=0
+

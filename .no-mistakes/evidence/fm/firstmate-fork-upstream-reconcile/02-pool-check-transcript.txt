@@ -1,0 +1,20 @@
+Firstmate named Claude setup-token pools - operator transcript
+Ambient credentials are deliberately wrong (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN are synthetic),
+so a pass can only come from the named pool's own setup-token file.
+
+$ bin/fm-claude-auth.sh check --profile ak-pool
+profile=ak-pool auth=authenticated config_dir=/tmp/fm-auth-drive.8aLCAY/store-ak
+exit=0
+
+$ bin/fm-claude-auth.sh check --profile hlr-pool
+profile=hlr-pool auth=authenticated config_dir=/tmp/fm-auth-drive.8aLCAY/store-hlr
+exit=0
+
+$ bin/fm-claude-auth.sh check --profile rejected-pool
+profile=rejected-pool auth=unverified:token-effect config_dir=/tmp/fm-auth-drive.8aLCAY/store-bad
+exit=1
+
+Onboarding readiness written into each verified store (hasCompletedOnboarding only; no theme key):
+  store-ak   {"hasCompletedOnboarding":true,"theme":"<key absent>"}
+  store-hlr  {"hasCompletedOnboarding":true,"theme":"<key absent>"}
+  store-bad  {"hasCompletedOnboarding":null,"theme":"<key absent>"}

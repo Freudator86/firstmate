@@ -1,0 +1,41 @@
+Secondmate + spawn routing for named Claude pools
+=================================================
+
+Direct fleet lifecycle cannot be driven from this gate worktree: the product
+itself refuses it, which is the intended operator boundary --
+
+  $ bin/fm-spawn.sh ak-secondmate --secondmate --harness claude --claude-profile ak-pool
+  error: no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)
+  exit=3
+
+  $ bin/fm-spawn.sh demo-task-x1 . --mode local-only --yolo off --harness claude --claude-profile ghost-pool
+  error: refusing fleet lifecycle from inside a no-mistakes gate worktree
+  exit=3
+
+So fm-spawn's public argv interface was driven through its suite, which builds
+isolated scratch homes and launches the real script. Observed contracts:
+
+  ok - secondmate spawns refuse named Claude pools instead of promising recovery support
+  ok - a Claude capacity pool cannot be attached to a non-Claude spawn
+  ok - an unconfigured Claude pool refuses by naming the configuration gap, not a measured login state
+  ok - a pools-only Claude profile config keeps serving spawns that name no profile
+  ok - batch dispatch forwards shared --harness, --model, --effort, and --claude-profile to every pair
+  ok - active crew-dispatch profile does not block secondmate launches
+  ok - a persistent claude secondmate keeps its supervisor contract without a task-worker authority overlay
+
+fm-control relaunch preflight (tests/fm-control-relaunch.test.sh):
+
+  ok - the recorded Claude capacity pool survives a relaunch that names none
+  ok - an unavailable Claude pool refuses before the agent is stopped and stays recoverable
+  ok - an unconfigured Claude pool refuses with the per-home configuration requirement
+  ok - a Claude capacity pool does not survive a switch away from claude
+
+The second mate itself remains usable on the merged tree - the full operator
+flow ran green end to end (tests/fm-secondmate-lifecycle-e2e.test.sh):
+
+  ok - seed: registry scope+projects, charter copied, clones+origins, no-mistakes init in subhome only
+  ok - spawn: launches in the subhome with persistent charter, records routing meta
+  ok - send: a bare fm-<id> secondmate enqueues a marked request and rings the meta window
+  ok - handoff: in-scope items move verbatim, out-of-scope stays, idempotent
+  ok - recovery: respawns from the durable registry and persistent home
+  ok - teardown: removes the home, then clears meta and the registry route

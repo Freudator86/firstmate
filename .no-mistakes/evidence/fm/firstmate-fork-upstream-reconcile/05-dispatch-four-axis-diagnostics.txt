@@ -1,0 +1,20 @@
+Operator writes two Claude profiles identical in all four axes (harness, model, effort, Claude profile).
+The diagnostic must name the rule the validator actually applied - all four axes, not three.
+
+$ bin/fm-dispatch-resolve.sh brief.md --project demo
+error: malformed rules file: /tmp/fm-disp.SFzWUE/config/crew-dispatch.json - each rule use must not contain duplicate harness, model, effort, and Claude profile profiles
+
+Two profiles differing ONLY in claude_profile are now legitimately distinct capacity pools (no duplicate error):
+$ bin/fm-dispatch-resolve.sh brief.md --project demo
+dispatch-resolve: error (http 401 after 268 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}})
+dispatch-resolve:
+  status: error
+  reason: http 401 after 268 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}}
+
+Adversarial: claude_profile on a non-Claude harness must be refused.
+$ bin/fm-dispatch-resolve.sh brief.md --project demo
+error: malformed rules file: /tmp/fm-disp.SFzWUE/config/crew-dispatch.json - each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present; claude_profile belongs only on a profile whose harness is claude
+
+Adversarial: a malformed claude_profile id must be refused.
+$ bin/fm-dispatch-resolve.sh brief.md --project demo
+error: malformed rules file: /tmp/fm-disp.SFzWUE/config/crew-dispatch.json - each use profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\z when present; claude_profile belongs only on a profile whose harness is claude

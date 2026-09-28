@@ -1,0 +1,8 @@
+Adversarial: the vendor CLI hangs forever (stub 'claude' sleeps 600s).
+The removed knob is also set to 0 (FM_CLAUDE_TOKEN_CHECK_SECONDS=0), which previously meant 'timeout 0' = NO deadline.
+Expected: the preflight still returns on the hardcoded 90s bound instead of blocking a spawn forever.
+
+profile=hung-pool auth=unverified:token-effect config_dir=/tmp/fm-bound.hg03S8/store
+exit=1  elapsed=90s
+
+RESULT: bounded - preflight returned on its own deadline
