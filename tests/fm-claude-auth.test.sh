@@ -10,9 +10,20 @@ AUTH="$ROOT/bin/fm-claude-auth.sh"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT")
 cat > "$FAKEBIN/claude" <<'SH'
 #!/usr/bin/env bash
+[ "${1:-}" != --safe-mode ] || shift
 case "${1:-}" in
   --version)
     printf '%s (Claude Code)\n' "${FM_FAKE_CLAUDE_VERSION:-2.1.276}"
+    exit 0
+    ;;
+  -p)
+    # Only these synthetic tokens are accepted; auth status below still says
+    # logged in, deliberately separating presence from network effect.
+    [ -z "${ANTHROPIC_API_KEY:-}${ANTHROPIC_AUTH_TOKEN:-}${CLAUDE_CODE_USE_BEDROCK:-}" ] || exit 9
+    case "${CLAUDE_CODE_OAUTH_TOKEN:-}" in
+      fixture-token-a|fixture-token-b) printf '{"is_error":false,"subtype":"success","result":"AUTH_OK"}\n' ;;
+      *) printf '{"is_error":true,"result":"secret-echo-%s"}\n' "${CLAUDE_CODE_OAUTH_TOKEN:-missing}"; exit 1 ;;
+    esac
     exit 0
     ;;
   auth)
@@ -145,5 +156,67 @@ expect_code 2 "$status" "malformed profile config should fail closed"
 assert_contains "$out" 'config/claude-profiles.json is malformed' "malformed config should name its cause"
 assert_not_contains "$out" 'auth=' "malformed config must not invent an auth verdict"
 pass "fm-claude-auth: malformed profile config fails instead of inventing verdicts"
+
+case_dir="$TMP_ROOT/setup-tokens"
+make_home "$case_dir/home"
+mkdir -p "$case_dir/a" "$case_dir/b"
+printf '%s\n' '{"unrelated":"preserved"}' > "$case_dir/a/.claude.json"
+for pool in a b; do
+  printf 'CLAUDE_CODE_SETUP_TOKEN=fixture-token-%s\n' "$pool" > "$case_dir/token-$pool"
+  chmod 600 "$case_dir/token-$pool"
+done
+cat > "$case_dir/home/config/claude-profiles.json" <<EOF
+{"profiles":[{"id":"pool-a","config_dir":"$case_dir/a","setup_token_file":"$case_dir/token-a"},{"id":"pool-b","config_dir":"$case_dir/b","setup_token_file":"$case_dir/token-b"}]}
+EOF
+for pool in a b; do
+  out=$(PATH="$FAKEBIN:$PATH" ANTHROPIC_API_KEY=ambient-wrong CLAUDE_CODE_OAUTH_TOKEN=ambient-wrong \
+    FM_HOME="$case_dir/home" "$AUTH" check --profile "pool-$pool" 2>&1); status=$?
+  expect_code 0 "$status" "setup token should authenticate by effect: $out"
+  assert_not_contains "$out" fixture-token 'token must not appear in diagnostics'
+  jq -e '.hasCompletedOnboarding == true and .theme == "dark"' "$case_dir/$pool/.claude.json" >/dev/null || fail 'token profile onboarding not prepared'
+  # shellcheck disable=SC2016 # The launched shell, not this test, reads credentials.
+  out=$(PATH="$FAKEBIN:$PATH" ANTHROPIC_API_KEY=ambient-wrong FM_HOME="$case_dir/home" \
+    "$AUTH" run --profile "pool-$pool" -- bash -c \
+    'test "$CLAUDE_CODE_OAUTH_TOKEN" = "fixture-token-$1" && test -z "${ANTHROPIC_API_KEY:-}" && test "$CLAUDE_CONFIG_DIR" = "$2" && echo selected' bash "$pool" "$case_dir/$pool" 2>&1); status=$?
+  expect_code 0 "$status" "run must use exactly selected token and store: $out"
+  assert_contains "$out" selected 'selected pool not used'
+done
+jq -e '.unrelated == "preserved"' "$case_dir/a/.claude.json" >/dev/null || fail 'onboarding erased unrelated config'
+pass 'fm-claude-auth: setup tokens authenticate by effect, prepare onboarding and launch without ambient credentials'
+
+printf 'CLAUDE_CODE_SETUP_TOKEN=rejected-token\n' > "$case_dir/token-a"
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile pool-a 2>&1); status=$?
+expect_code 1 "$status" 'auth status success cannot rescue rejected token'
+assert_contains "$out" unverified:token-effect 'missing effect refusal'
+assert_not_contains "$out" rejected-token 'vendor error leaked token'
+# shellcheck disable=SC2016 # The launched shell verifies rotation without printing it.
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" run --profile pool-a -- bash -c 'test "$CLAUDE_CODE_OAUTH_TOKEN" = rejected-token && echo fresh' 2>&1); status=$?
+expect_code 0 "$status" 'run should read the rotated file, not cache old token'
+assert_contains "$out" fresh 'rotation was not read'
+pass 'fm-claude-auth: rejected token is not rescued by ambient login; run rereads rotation'
+
+for mode in 644 660; do
+  chmod "$mode" "$case_dir/token-a"
+  out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile pool-a 2>&1); status=$?
+  expect_code 2 "$status" 'insecure token file must refuse'
+  assert_not_contains "$out" rejected-token 'insecure file error leaked token'
+done
+chmod 600 "$case_dir/token-a"
+# shellcheck disable=SC2016 # Deliberately literal malicious input, never execute it.
+printf 'CLAUDE_CODE_SETUP_TOKEN=$(touch %s/executed)\n' "$case_dir" > "$case_dir/token-a"
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile pool-a 2>&1); status=$?
+expect_code 2 "$status" 'shell code in token file must refuse'
+[ ! -e "$case_dir/executed" ] || fail 'token file was sourced'
+mv "$case_dir/token-a" "$case_dir/token-real"
+ln -s "$case_dir/token-real" "$case_dir/token-a"
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile pool-a 2>&1); status=$?
+expect_code 2 "$status" 'symlink token must refuse'
+pass 'fm-claude-auth: token files require private permissions, literal assignment, and no symlink'
+
+printf '%s\n' ordinary > "$case_dir/home/config/claude-account"
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile pool-b 2>&1); status=$?
+expect_code 2 "$status" 'home pin and named pool must not silently override each other'
+assert_contains "$out" 'cannot be combined' 'missing account boundary diagnostic'
+pass 'fm-claude-auth: named pools cannot override a declared home-wide pin'
 
 echo '# all Claude auth preflight tests passed'
