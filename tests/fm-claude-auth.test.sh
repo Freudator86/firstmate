@@ -161,19 +161,22 @@ case_dir="$TMP_ROOT/setup-tokens"
 make_home "$case_dir/home"
 mkdir -p "$case_dir/a" "$case_dir/b"
 printf '%s\n' '{"unrelated":"preserved"}' > "$case_dir/a/.claude.json"
+fm_test_onboard_claude_store "$case_dir/c"
+printf 'CLAUDE_CODE_SETUP_TOKEN=fixture-token-a\n' > "$case_dir/token-c"
+chmod 600 "$case_dir/token-c"
 for pool in a b; do
   printf 'CLAUDE_CODE_SETUP_TOKEN=fixture-token-%s\n' "$pool" > "$case_dir/token-$pool"
   chmod 600 "$case_dir/token-$pool"
 done
 cat > "$case_dir/home/config/claude-profiles.json" <<EOF
-{"profiles":[{"id":"pool-a","config_dir":"$case_dir/a","setup_token_file":"$case_dir/token-a"},{"id":"pool-b","config_dir":"$case_dir/b","setup_token_file":"$case_dir/token-b"}]}
+{"profiles":[{"id":"pool-a","config_dir":"$case_dir/a","setup_token_file":"$case_dir/token-a"},{"id":"pool-b","config_dir":"$case_dir/b","setup_token_file":"$case_dir/token-b"},{"id":"pool-c","config_dir":"$case_dir/c","setup_token_file":"$case_dir/token-c"}]}
 EOF
 for pool in a b; do
   out=$(PATH="$FAKEBIN:$PATH" ANTHROPIC_API_KEY=ambient-wrong CLAUDE_CODE_OAUTH_TOKEN=ambient-wrong \
     FM_HOME="$case_dir/home" "$AUTH" check --profile "pool-$pool" 2>&1); status=$?
   expect_code 0 "$status" "setup token should authenticate by effect: $out"
   assert_not_contains "$out" fixture-token 'token must not appear in diagnostics'
-  jq -e '.hasCompletedOnboarding == true and .theme == "dark"' "$case_dir/$pool/.claude.json" >/dev/null || fail 'token profile onboarding not prepared'
+  jq -e '.hasCompletedOnboarding == true and (has("theme") | not)' "$case_dir/$pool/.claude.json" >/dev/null || fail 'token profile onboarding not prepared without touching presentation state'
   # shellcheck disable=SC2016 # The launched shell, not this test, reads credentials.
   out=$(PATH="$FAKEBIN:$PATH" ANTHROPIC_API_KEY=ambient-wrong FM_HOME="$case_dir/home" \
     "$AUTH" run --profile "pool-$pool" -- bash -c \
@@ -183,6 +186,12 @@ for pool in a b; do
 done
 jq -e '.unrelated == "preserved"' "$case_dir/a/.claude.json" >/dev/null || fail 'onboarding erased unrelated config'
 pass 'fm-claude-auth: setup tokens authenticate by effect, prepare onboarding and launch without ambient credentials'
+
+before=$(cat "$case_dir/c/.claude.json")
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile pool-c 2>&1); status=$?
+expect_code 0 "$status" "already-onboarded token store should pass: $out"
+[ "$(cat "$case_dir/c/.claude.json")" = "$before" ] || fail 'already-onboarded store was rewritten'
+pass 'fm-claude-auth: an already-onboarded store is left untouched'
 
 printf 'CLAUDE_CODE_SETUP_TOKEN=rejected-token\n' > "$case_dir/token-a"
 out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$case_dir/home" "$AUTH" check --profile pool-a 2>&1); status=$?

@@ -242,7 +242,7 @@ Each pane was captured after about 15 seconds without sending a key, then killed
 - `present`: no welcome or theme screen; the pane went straight to the `Accessing workspace:` folder-trust dialog, the next first-run step (owned by `bin/fm-claude-trust.sh`, not by this key).
 - Claude created `.claude.json` in the `absent` store during the run without setting `hasCompletedOnboarding`, so an abandoned first run still reads as unonboarded.
 
-So `hasCompletedOnboarding: true` in the store's `.claude.json` decides whether the text-style/theme screen opens.
+So `hasCompletedOnboarding: true` in the store's `.claude.json` alone decides whether the text-style/theme screen opens.
 `bin/fm-claude-auth.sh` requires it for stored-login profiles and prepares it for setup-token profiles only after a real authentication effect succeeds.
 It does not check that the store is logged in or that later dialogs are settled; those have their own checks above and below.
 This key is un-owned vendor state: re-run the two arms above and update this section when the vendor CLI changes.

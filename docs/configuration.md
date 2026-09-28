@@ -1003,7 +1003,7 @@ When a Claude spawn or relaunch explicitly names `--claude-profile <id>`, Firstm
 Without `setup_token_file`, the selected store must report logged in through `claude auth status` and already have completed first-run onboarding.
 With `setup_token_file`, the existing private store uses a mode-0600, owner-only, non-symlink token file holding a literal `CLAUDE_CODE_SETUP_TOKEN=<value>` assignment, never executable shell content.
 The helper maps that value to Claude's supported `CLAUDE_CODE_OAUTH_TOKEN` environment variable and requires a real, bounded model response; token presence and `auth status` alone are insufficient.
-A successful token check prepares only theme and first-run onboarding preferences, preserving unrelated configuration; workspace trust remains owned by `fm-claude-trust.sh`.
+A successful token check prepares only the first-run onboarding preference, preserving unrelated configuration; workspace trust remains owned by `fm-claude-trust.sh`.
 The worker reads the selected token file afresh at launch, so rotation does not require regenerated launch scripts and no token value enters arguments, metadata, logs, or committed material.
 Both checks and launches remove ambient credentials using upstream's worker-account credential-shedding list; rejection or uncertainty never falls back to another pool.
 For a canonical named-pool launch already configured for bypass permissions, launch-local settings suppress that mode's separate first-run consent dialog; auto mode and raw commands receive no bypass consent setting.

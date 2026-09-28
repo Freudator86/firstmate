@@ -14,7 +14,7 @@
 # The value is mapped to Claude's CLAUDE_CODE_OAUTH_TOKEN only in the process
 # environment; neither argv nor generated launch scripts contain it. check
 # requires a real bounded model response under that token, not auth status.
-# After success it prepares theme/onboarding in the selected private store.
+# After success it prepares first-run onboarding in the selected private store.
 # run reads the file afresh and execs the command; no credentials are cached.
 # Both paths shed ambient credentials using the upstream worker-account owner.
 # Named profiles refuse when config/claude-account is also present: a per-task
@@ -133,7 +133,7 @@ load_token() {
 }
 
 prepare_onboarding() {
-  # This is presentation setup, not credential storage or workspace trust.
+  # This is first-run onboarding readiness, not credential storage or workspace trust.
   node - "$dir" <<'JS'
 const fs = require('node:fs');
 const path = require('node:path');
@@ -151,9 +151,8 @@ try {
     data = JSON.parse(original);
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw Error();
   } catch (e) { if (e.code !== 'ENOENT') throw e; }
-  if (data.hasCompletedOnboarding === true && data.theme != null) process.exit(0);
+  if (data.hasCompletedOnboarding === true) process.exit(0);
   data.hasCompletedOnboarding = true;
-  data.theme ??= 'dark';
   tmp = file + '.firstmate-' + process.pid;
   fs.writeFileSync(tmp, JSON.stringify(data), {mode: 0o600, flag: 'wx'});
   let current = null;
