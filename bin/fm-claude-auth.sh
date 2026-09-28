@@ -199,7 +199,7 @@ case "$cmd" in
       if [ "$cmd" = check ]; then
         # auth status accepts an expired or fabricated environment token. Only
         # a successful model response proves the selected token works.
-        if ! result=$(fm_run_timed "${FM_CLAUDE_TOKEN_CHECK_SECONDS:-90}" claude --safe-mode -p 'Reply with exactly AUTH_OK.' \
+        if ! result=$(fm_run_timed 90 claude --safe-mode -p 'Reply with exactly AUTH_OK.' \
           --model haiku --output-format json --no-session-persistence --tools '' \
           --strict-mcp-config --mcp-config '{"mcpServers":{}}' --setting-sources '' \
           --system-prompt 'Respond only to the authentication test.' 2>/dev/null </dev/null) ||

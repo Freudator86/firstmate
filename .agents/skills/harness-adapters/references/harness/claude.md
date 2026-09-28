@@ -46,7 +46,7 @@ To recover from an already-recorded decline, remove both flags from the project'
 The bypass-permissions confirmation is a third, separate dialog, scoped to the selected Claude store rather than the project path, and trust pre-registration does not address it.
 The fork's canonical named-pool launches suppress this dialog only for an already-selected bypass mode, as specified in [Claude profiles](../../../../../docs/configuration.md#claude-profiles-configclaude-profilesjson); other launches keep the handling below.
 Never send Enter to that one either: it was observed rendering in the same shape as the trust dialog, with the selection on `No, exit` and the footer `Enter to confirm . Esc to cancel`, so Enter ends the session rather than accepting.
-Firstmate cannot move a selection with Enter, Escape, and C-c alone, so it cannot accept this dialog at all, and an operator accepts it once per machine instead.
+Firstmate cannot move a selection with Enter, Escape, and C-c alone, so it cannot accept this dialog at all, and an operator accepts it once per Claude store instead.
 Inspect the pane to identify which dialog is on screen, and report it rather than answering it.
 A launch under `config/claude-permission-mode=auto` never meets the bypass confirmation, because it does not request bypass mode: on 2.1.269 `claude --permission-mode auto` reached the composer directly with the footer `⏵⏵ auto mode on (shift+tab to cycle)`, so a captain who refuses the bypass dialog selects `auto` there instead of accepting it.
 The workspace-trust dialog is unaffected by the permission mode and still needs the pre-registration above.
