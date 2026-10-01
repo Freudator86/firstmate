@@ -17,10 +17,11 @@ make_world() {
   printf 'See AGENTS.md\n' > "$root/CLAUDE.md"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-session-start.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-bootstrap.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-startup-memory-budget.sh"
   cp "$ROOT/bin/fm-startup-memory-budget-lib.sh" "$root/bin/fm-startup-memory-budget-lib.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-supervision-instructions.sh"
   printf '7500\n' > "$home/config/startup-memory-budget"
+  printf 'projects\n' > "$home/data/projects.md"
+  printf 'secondmates\n' > "$home/data/secondmates.md"
   printf 'captain\n' > "$home/data/captain.md"
   printf 'shared\n' > "$home/data/captain-shared.md"
   printf 'learnings\n' > "$home/data/learnings.md"
@@ -41,6 +42,10 @@ add_bytes() {
   dd if=/dev/zero bs=1 count="$count" 2>/dev/null | tr '\000' x >> "$path"
 }
 
+budget_total() {  # <home>
+  awk -F '\t' '$1 == "memory_budget" { print $3; exit }' "$1/state/.startup-growth-check"
+}
+
 test_initial_baseline_is_silent_and_records_metadata() {
   local rec root home result out
   rec=$(make_world baseline)
@@ -53,6 +58,8 @@ test_initial_baseline_is_silent_and_records_metadata() {
   assert_grep $'last_eval\t1000' "$home/state/.startup-growth-check" "baseline did not record the evaluation time"
   assert_grep $'AGENTS.md\ttracked\tpresent' "$home/state/.startup-growth-check" "baseline did not record tracked startup metadata"
   assert_grep $'data/learnings.md\tmemory\tpresent' "$home/state/.startup-growth-check" "baseline did not record memory metadata"
+  assert_grep $'data/projects.md\tprinted-memory\tpresent' "$home/state/.startup-growth-check" "baseline did not record printed projects metadata"
+  assert_grep $'data/secondmates.md\tprinted-memory\tpresent' "$home/state/.startup-growth-check" "baseline did not record printed secondmates metadata"
 }
 
 test_same_day_poll_does_not_touch_surfaces() {
@@ -82,11 +89,56 @@ test_due_growth_reports_once_and_dedupes() {
   [ "$(status_part "$result")" = 0 ] || fail "growth check failed: $(output_part "$result")"
   out=$(output_part "$result")
   assert_contains "$out" 'tracked startup surface growth AGENTS.md +2500 bytes' "tracked growth was not reported"
-  assert_contains "$out" 'memory growth data/learnings.md +300 estimated_tokens (+900 bytes)' "memory growth was not reported as estimated prompt cost"
+  assert_contains "$out" 'memory growth data/learnings.md +300 estimated_tokens (+900 bytes' "memory growth was not reported as estimated prompt cost"
   result=$(run_check "$root" "$home" 173802)
   [ "$(status_part "$result")" = 0 ] || fail "dedupe check failed: $(output_part "$result")"
   out=$(output_part "$result")
   [ -z "$out" ] || fail "unchanged persistent finding was repeated: $out"
+}
+
+test_gradual_growth_below_daily_threshold_is_reported_cumulatively() {
+  local rec root home result out now day
+  rec=$(make_world cumulative)
+  root=${rec%%|*}
+  home=${rec#*|}
+  now=1000
+  result=$(run_check "$root" "$home" "$now")
+  [ "$(status_part "$result")" = 0 ] || fail "cumulative baseline failed: $(output_part "$result")"
+  for day in 1 2 3; do
+    add_bytes "$root/AGENTS.md" 700
+    add_bytes "$home/data/learnings.md" 300
+    now=$((now + 86401))
+    result=$(run_check "$root" "$home" "$now")
+    [ "$(status_part "$result")" = 0 ] || fail "cumulative day $day failed: $(output_part "$result")"
+    out=$(output_part "$result")
+    if [ "$day" -lt 3 ]; then
+      [ -z "$out" ] || fail "sub-threshold day $day should stay silent: $out"
+    fi
+  done
+  assert_contains "$out" 'tracked startup surface growth AGENTS.md +2100 bytes' "cumulative tracked growth was not reported once it added up"
+  assert_contains "$out" 'memory growth data/learnings.md +300 estimated_tokens (+900 bytes' "cumulative memory growth was not reported once it added up"
+
+  now=$((now + 86401))
+  result=$(run_check "$root" "$home" "$now")
+  [ "$(status_part "$result")" = 0 ] || fail "post-report check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "reported growth was repeated after the baseline was rebased: $out"
+}
+
+test_printed_memory_growth_is_reported_without_entering_the_budget_total() {
+  local rec root home result out before after
+  rec=$(make_world printed)
+  root=${rec%%|*}
+  home=${rec#*|}
+  run_check "$root" "$home" 1000 >/dev/null
+  before=$(budget_total "$home")
+  add_bytes "$home/data/projects.md" 900
+  result=$(run_check "$root" "$home" 87401)
+  [ "$(status_part "$result")" = 0 ] || fail "printed-memory check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_contains "$out" 'printed-memory growth data/projects.md +300 estimated_tokens (+900 bytes' "printed startup memory growth was not reported"
+  after=$(budget_total "$home")
+  assert_equals "$before" "$after" "printed startup memory changed the budget total it must not own"
 }
 
 test_budget_overrun_reports_and_separates_prompt_cost() {
@@ -129,6 +181,16 @@ test_arm_and_disarm_use_authenticated_custom_check() {
   assert_contains "$out" 'armed: state/startup-growth.check.sh' "arm did not announce the check shim"
   assert_present "$home/state/startup-growth.check.sh" "arm did not write the check shim"
   assert_present "$home/state/startup-growth.check-trust" "arm did not register trust for the check shim"
+
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 "$home/state/startup-growth.check.sh" 2>&1) \
+    || fail "registered check shim failed: $out"
+  [ -z "$out" ] || fail "registered shim baseline run should stay silent: $out"
+  assert_present "$home/state/.startup-growth-check" "registered shim did not run the daily check"
+  add_bytes "$root/AGENTS.md" 2500
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=87401 "$home/state/startup-growth.check.sh" 2>&1) \
+    || fail "registered check shim failed on growth: $out"
+  assert_contains "$out" 'startup-growth: tracked startup surface growth AGENTS.md +2500 bytes' "registered shim did not report growth to the watcher"
+
   FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$CHECK" disarm >/dev/null
   assert_absent "$home/state/startup-growth.check.sh" "disarm left the check shim"
   assert_absent "$home/state/startup-growth.check-trust" "disarm left the trust binding"
@@ -137,6 +199,8 @@ test_arm_and_disarm_use_authenticated_custom_check() {
 test_initial_baseline_is_silent_and_records_metadata
 test_same_day_poll_does_not_touch_surfaces
 test_due_growth_reports_once_and_dedupes
+test_gradual_growth_below_daily_threshold_is_reported_cumulatively
+test_printed_memory_growth_is_reported_without_entering_the_budget_total
 test_budget_overrun_reports_and_separates_prompt_cost
 test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not
 test_arm_and_disarm_use_authenticated_custom_check

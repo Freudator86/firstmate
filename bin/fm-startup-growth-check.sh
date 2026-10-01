@@ -7,23 +7,29 @@
 #   fm-startup-growth-check.sh disarm
 #   fm-startup-growth-check.sh --help
 #
-# `check` runs at most once per FM_STARTUP_GROWTH_INTERVAL seconds, defaulting
-# to 86400 for one daily evaluation.  Polls inside that interval only read this
-# check's small state record and stay silent.
+# `check` evaluates at most once every 86400 seconds, one daily evaluation.
+# Polls inside that interval only read this check's small state record and stay
+# silent.
 #
 # A due evaluation uses metadata only: regular-file safety checks plus stat(1)
 # byte sizes and mtimes.  It does not run the startup digest, bootstrap, network
 # checks, model calls, repository refreshes, /stow, or full preference/learning
-# rereads.  The measured prompt-memory surface is only data/captain.md,
-# data/captain-shared.md, and data/learnings.md; tracked startup scripts and
-# instructions are reported as code/instruction bytes, not as LLM prompt cost.
+# rereads.  Only data/captain.md, data/captain-shared.md, and data/learnings.md
+# count toward config/startup-memory-budget, whose total and verdict
+# bin/fm-startup-memory-budget.sh owns.  data/projects.md and
+# data/secondmates.md are printed in full by every session start too, so they
+# are watched for prompt growth without entering that budget total.  Tracked
+# startup scripts and instructions are reported as code/instruction bytes, not
+# as LLM prompt cost.
 #
-# Defaults are deliberately small and inspectable:
-#   FM_STARTUP_GROWTH_BYTES_THRESHOLD=2048
-#   FM_STARTUP_GROWTH_TOKEN_THRESHOLD=250
-# The byte threshold applies to tracked startup/instruction files.  The token
-# threshold applies to the local startup-memory estimate, ceil(bytes / 3), for
-# the three measured memory files.  Budget overrun is always meaningful.
+# Growth is measured against a retained per-file baseline rather than only
+# against the previous evaluation, so accumulation that stays under one day's
+# threshold is still caught.  Reporting a file rebases its baseline to the
+# reported size, so accepted growth then stays silent.  The thresholds are
+# fixed:
+#   2048 bytes for tracked startup/instruction files
+#   250 estimated tokens, ceil(bytes / 3), for printed startup memory files
+# Budget overrun is always meaningful.
 #
 # `arm` writes state/startup-growth.check.sh and binds its bytes with
 # fm-check-register.sh so the existing watcher slow-check cadence invokes the
@@ -53,7 +59,7 @@ REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 
 usage() {
-  sed -n '2,31{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,36{s/^# \{0,1\}//;p;}' "$0"
 }
 
 fail() {
@@ -68,16 +74,9 @@ now_epoch() {
   esac
 }
 
-positive_int_or() {  # <value> <default> <name>
-  case "$1" in
-    ''|*[!0-9]*|0*) printf 'fm-startup-growth-check: %s must be a positive whole number\n' "$3" >&2; return 2 ;;
-    *) printf '%s\n' "$1" ;;
-  esac
-}
-
-INTERVAL=$(positive_int_or "${FM_STARTUP_GROWTH_INTERVAL:-86400}" 86400 FM_STARTUP_GROWTH_INTERVAL) || exit $?
-BYTE_THRESHOLD=$(positive_int_or "${FM_STARTUP_GROWTH_BYTES_THRESHOLD:-2048}" 2048 FM_STARTUP_GROWTH_BYTES_THRESHOLD) || exit $?
-TOKEN_THRESHOLD=$(positive_int_or "${FM_STARTUP_GROWTH_TOKEN_THRESHOLD:-250}" 250 FM_STARTUP_GROWTH_TOKEN_THRESHOLD) || exit $?
+INTERVAL=86400
+BYTE_THRESHOLD=2048
+TOKEN_THRESHOLD=250
 
 file_size() {
   if [ "$(uname)" = Darwin ]; then
@@ -104,7 +103,7 @@ append_finding() {
 }
 
 stat_surface() {  # <kind> <display-path> <absolute-path> <absence-ok>
-  local kind=$1 display=$2 path=$3 absence_ok=$4 bytes mtime tokens prev_bytes delta presence=present
+  local kind=$1 display=$2 path=$3 absence_ok=$4 bytes mtime tokens prev_baseline baseline delta presence=present
   if [ ! -e "$path" ] && [ ! -L "$path" ]; then
     bytes=0
     mtime=0
@@ -123,27 +122,36 @@ stat_surface() {  # <kind> <display-path> <absolute-path> <absence-ok>
     esac
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\n' "$display" "$kind" "$presence" "$bytes" "$mtime" >> "$NEW_RECORD"
-  prev_bytes=$(awk -F '\t' -v p="$display" '$1 == p { print $4; found=1; exit } END { if (!found) print "" }' "$OLD_RECORD" 2>/dev/null || true)
-  case "$prev_bytes" in
-    ''|*[!0-9]*) return 0 ;;
+  prev_baseline=$(awk -F '\t' -v p="$display" '$1 == p { print $6; found=1; exit } END { if (!found) print "" }' "$OLD_RECORD" 2>/dev/null || true)
+  case "$prev_baseline" in
+    ''|*[!0-9]*) prev_baseline= ;;
   esac
-  [ "$presence" = present ] || return 0
-  [ "$bytes" -gt "$prev_bytes" ] || return 0
-  delta=$((bytes - prev_bytes))
-  case "$kind" in
-    memory)
-      tokens=$(fm_startup_memory_estimated_tokens_for_bytes "$delta") || tokens=0
-      if [ "$tokens" -ge "$TOKEN_THRESHOLD" ]; then
-        append_finding "memory growth $display +${tokens} estimated_tokens (+${delta} bytes)"
-      fi
-      ;;
-    tracked)
-      if [ "$delta" -ge "$BYTE_THRESHOLD" ]; then
-        append_finding "tracked startup surface growth $display +${delta} bytes"
-      fi
-      ;;
-  esac
+
+  if [ "$presence" != present ]; then
+    baseline=${prev_baseline:-0}
+  elif [ -z "$prev_baseline" ] || [ "$bytes" -le "$prev_baseline" ]; then
+    baseline=$bytes
+  else
+    baseline=$prev_baseline
+    delta=$((bytes - baseline))
+    case "$kind" in
+      memory|printed-memory)
+        tokens=$(fm_startup_memory_estimated_tokens_for_bytes "$delta") || tokens=0
+        if [ "$tokens" -ge "$TOKEN_THRESHOLD" ]; then
+          append_finding "$kind growth $display +${tokens} estimated_tokens (+${delta} bytes, total ${bytes} bytes)"
+          baseline=$bytes
+        fi
+        ;;
+      tracked)
+        if [ "$delta" -ge "$BYTE_THRESHOLD" ]; then
+          append_finding "tracked startup surface growth $display +${delta} bytes (total ${bytes} bytes)"
+          baseline=$bytes
+        fi
+        ;;
+    esac
+  fi
+
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$display" "$kind" "$presence" "$bytes" "$mtime" "$baseline" >> "$NEW_RECORD"
 }
 
 write_record_atomically() {
@@ -175,7 +183,7 @@ check_due() {
 }
 
 run_check() {
-  local now tmp budget memory_total=0 memory_tokens status display reported_previous
+  local now tmp budget memory_total=0 memory_tokens memory_bytes status display kind _mtime _baseline reported_previous
   if ! now=$(check_due); then
     return 0
   fi
@@ -187,24 +195,24 @@ run_check() {
   FINDINGS=
   printf '%s\t%s\n' schema "$RECORD_SCHEMA" > "$NEW_RECORD" || exit 1
   printf '%s\t%s\n' last_eval "$now" >> "$NEW_RECORD" || exit 1
-  printf '%s\t%s\n' thresholds "bytes=$BYTE_THRESHOLD tokens=$TOKEN_THRESHOLD interval=$INTERVAL" >> "$NEW_RECORD" || exit 1
 
   stat_surface tracked AGENTS.md "$FM_ROOT/AGENTS.md" no
   stat_surface tracked CLAUDE.md "$FM_ROOT/CLAUDE.md" yes
   stat_surface tracked bin/fm-session-start.sh "$FM_ROOT/bin/fm-session-start.sh" no
   stat_surface tracked bin/fm-bootstrap.sh "$FM_ROOT/bin/fm-bootstrap.sh" no
-  stat_surface tracked bin/fm-startup-memory-budget.sh "$FM_ROOT/bin/fm-startup-memory-budget.sh" no
   stat_surface tracked bin/fm-startup-memory-budget-lib.sh "$FM_ROOT/bin/fm-startup-memory-budget-lib.sh" no
   stat_surface tracked bin/fm-supervision-instructions.sh "$FM_ROOT/bin/fm-supervision-instructions.sh" no
+  stat_surface printed-memory data/projects.md "$DATA_DIR/projects.md" yes
+  stat_surface printed-memory data/secondmates.md "$DATA_DIR/secondmates.md" yes
   stat_surface memory data/captain.md "$DATA_DIR/captain.md" yes
   stat_surface memory data/captain-shared.md "$DATA_DIR/captain-shared.md" yes
   stat_surface memory data/learnings.md "$DATA_DIR/learnings.md" yes
 
   if fm_startup_memory_budget_read "$CONFIG_DIR" >/dev/null; then
     budget=$FM_STARTUP_MEMORY_BUDGET_VALUE
-    while IFS=$'\t' read -r display kind status memory_tokens _mtime; do
+    while IFS=$'\t' read -r display kind status memory_bytes _mtime _baseline; do
       [ "$kind" = memory ] && [ "$status" = present ] || continue
-      memory_tokens=$(fm_startup_memory_estimated_tokens_for_bytes "$memory_tokens") || memory_tokens=0
+      memory_tokens=$(fm_startup_memory_estimated_tokens_for_bytes "$memory_bytes") || memory_tokens=0
       memory_total=$((memory_total + memory_tokens))
     done < "$NEW_RECORD"
     printf '%s\t%s\t%s\n' memory_budget "$budget" "$memory_total" >> "$NEW_RECORD"

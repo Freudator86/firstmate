@@ -667,12 +667,14 @@ A home can arm a lightweight daily growth monitor with `bin/fm-startup-growth-ch
 It writes `state/startup-growth.check.sh` and binds it through the existing authenticated watcher-check mechanism, so no extra daemon or scheduler is installed.
 Use `bin/fm-startup-growth-check.sh disarm` to remove the check and its local report records.
 
-The check evaluates at most once per day by default and stays silent when nothing meaningful changed.
-A due evaluation uses file metadata and byte sizes before any content inspection: it measures `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md` against `config/startup-memory-budget`, and separately watches the tracked startup/instruction owner files named by the script header.
+The check evaluates at most once per day and stays silent when nothing meaningful changed.
+A due evaluation uses file metadata and byte sizes before any content inspection: it measures `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md` against `config/startup-memory-budget`, watches the `data/projects.md` and `data/secondmates.md` that session start also prints in full for growth without entering that budget total, and separately watches the tracked startup/instruction owner files named by the script header.
+`bin/fm-startup-memory-budget.sh` remains the sole owner of the budget total and its verdict.
 Those tracked bytes are code and instruction-surface size, not prompt-memory cost.
 The check does not run session-start, bootstrap, network checks, model calls, repository refreshes, `/stow`, or full preference/learnings rereads.
 
-The default growth thresholds are inspectable in the script header: 2048 bytes for tracked startup/instruction files and 250 estimated tokens for the local startup-memory files.
+Growth is measured against a per-file baseline retained in the check's own state record, so accumulation that stays under one day's threshold is still caught once it adds up; reporting a file rebases its baseline to the reported size, so accepted growth then stays silent.
+The fixed growth thresholds are inspectable in the script header: 2048 bytes for tracked startup/instruction files and 250 estimated tokens for the printed startup-memory files.
 Budget overrun, unsafe inputs, missing required tracked owner files, or material growth are reported once and deduplicated until the finding changes or clears.
 Older bulk learning files remain reference-only; this monitor neither loads nor merges them.
 A reported review need is only a recommendation, not cleanup authority.
