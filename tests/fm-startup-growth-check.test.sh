@@ -4,6 +4,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$ROOT/bin/fm-pr-lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-startup-growth-check)
 CHECK="$ROOT/bin/fm-startup-growth-check.sh"
@@ -17,7 +19,6 @@ make_world() {
   printf 'See AGENTS.md\n' > "$root/CLAUDE.md"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-session-start.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-bootstrap.sh"
-  cp "$ROOT/bin/fm-startup-memory-budget-lib.sh" "$root/bin/fm-startup-memory-budget-lib.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-supervision-instructions.sh"
   printf '7500\n' > "$home/config/startup-memory-budget"
   printf 'projects\n' > "$home/data/projects.md"
@@ -338,10 +339,7 @@ test_over_long_finding_set_is_capped_with_the_shared_marker() {
 
 test_unknown_budget_verdict_fields_are_reported_as_unparseable() {
   local rec root home fixbin out
-  fixbin="$TMP_ROOT/verdict-bin"
-  mkdir -p "$fixbin"
-  cp "$ROOT/bin/fm-startup-growth-check.sh" "$ROOT/bin/fm-pr-lib.sh" \
-    "$ROOT/bin/fm-startup-memory-budget-lib.sh" "$ROOT/bin/fm-line-cap-lib.sh" "$fixbin/"
+  fixbin=$(make_isolated_bin verdict 0)
 
   cat > "$fixbin/fm-startup-memory-budget.sh" <<'STUB'
 #!/usr/bin/env bash
@@ -417,6 +415,80 @@ test_findings_are_delivered_even_when_the_record_cannot_be_published() {
   [ -z "$leftover" ] || fail "a failed evaluation leaked its temporary record: $leftover"
 }
 
+# Copies the check and the libraries it sources into an isolated bin, so the
+# helpers it execs can be replaced: the budget owner with a stub report, or the
+# register with a failing one.
+make_isolated_bin() {  # <name> <register-exit-code>
+  local name=$1 code=$2 bin
+  bin="$TMP_ROOT/$name/bin"
+  mkdir -p "$bin"
+  cp "$ROOT/bin/fm-startup-growth-check.sh" "$ROOT/bin/fm-pr-lib.sh" \
+    "$ROOT/bin/fm-startup-memory-budget-lib.sh" "$ROOT/bin/fm-line-cap-lib.sh" \
+    "$ROOT/bin/fm-check-lib.sh" "$ROOT/bin/fm-startup-memory-budget.sh" "$bin/"
+  if [ "$code" = 0 ]; then
+    cp "$ROOT/bin/fm-check-register.sh" "$bin/fm-check-register.sh"
+  else
+    printf '#!/usr/bin/env bash\nexit %s\n' "$code" > "$bin/fm-check-register.sh"
+    chmod 0755 "$bin/fm-check-register.sh"
+  fi
+  printf '%s\n' "$bin"
+}
+
+test_rearming_an_unchanged_binding_does_not_replace_the_shim() {
+  local rec root home bin before after out
+  rec=$(make_world rearm-noop)
+  root=${rec%%|*}
+  home=${rec#*|}
+  bin=$(make_isolated_bin rearm-noop 0)
+  FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$bin/fm-startup-growth-check.sh" arm >/dev/null \
+    || fail "first arm failed"
+  before=$(fm_pr_file_inode "$home/state/startup-growth.check.sh")
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$bin/fm-startup-growth-check.sh" arm 2>&1) \
+    || fail "re-arm of an unchanged binding failed: $out"
+  after=$(fm_pr_file_inode "$home/state/startup-growth.check.sh")
+  assert_equals "$before" "$after" "re-arming replaced a shim whose bytes were already correct"
+  out=$(env -u FM_HOME FM_ROOT_OVERRIDE="$root" FM_STARTUP_GROWTH_NOW=1000 \
+    "$home/state/startup-growth.check.sh" 2>&1) || fail "the re-armed shim no longer runs: $out"
+  assert_present "$home/state/.startup-growth-check" "the re-armed shim did not run the daily check"
+}
+
+test_failed_first_arm_leaves_the_home_plainly_unarmed() {
+  local rec root home bin status=0 out leftover
+  rec=$(make_world arm-fail)
+  root=${rec%%|*}
+  home=${rec#*|}
+  bin=$(make_isolated_bin arm-fail 1)
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$bin/fm-startup-growth-check.sh" arm 2>&1) || status=$?
+  [ "$status" != 0 ] || fail "a failed registration reported a successful arm"
+  assert_absent "$home/state/startup-growth.check.sh" "a failed first arm left an unregistered shim behind"
+  assert_absent "$home/state/startup-growth.check-trust" "a failed first arm left a trust binding behind"
+  leftover=$(cd "$home/state" && ls -1 .startup-growth-check-shim.?????? 2>/dev/null || true)
+  [ -z "$leftover" ] || fail "a failed arm leaked its staged shim: $leftover"
+}
+
+test_failed_rearm_keeps_the_previously_armed_shim_and_trust() {
+  local rec root home bin good bad shim trust status=0 out
+  rec=$(make_world rearm-fail)
+  root=${rec%%|*}
+  home=${rec#*|}
+  good=$(make_isolated_bin rearm-fail 0)
+  FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$good/fm-startup-growth-check.sh" arm >/dev/null \
+    || fail "first arm failed"
+  shim=$(cat "$home/state/startup-growth.check.sh")
+  trust=$(cat "$home/state/startup-growth.check-trust")
+
+  bad=$(make_isolated_bin rearm-fail-bad 1)
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$bad/fm-startup-growth-check.sh" arm 2>&1) || status=$?
+  [ "$status" != 0 ] || fail "a failed re-registration reported a successful arm"
+  assert_present "$home/state/startup-growth.check.sh" "a failed re-arm disarmed a working home"
+  assert_present "$home/state/startup-growth.check-trust" "a failed re-arm removed the trust binding of a working home"
+  assert_equals "$shim" "$(cat "$home/state/startup-growth.check.sh")" "a failed re-arm changed the armed shim"
+  assert_equals "$trust" "$(cat "$home/state/startup-growth.check-trust")" "a failed re-arm changed the trust binding"
+  out=$(env -u FM_HOME FM_ROOT_OVERRIDE="$root" FM_STARTUP_GROWTH_NOW=1000 \
+    "$home/state/startup-growth.check.sh" 2>&1) || fail "the preserved shim no longer runs: $out"
+  assert_present "$home/state/.startup-growth-check" "the preserved shim did not run the daily check"
+}
+
 test_arm_and_disarm_use_authenticated_custom_check() {
   local rec root home out
   rec=$(make_world arm)
@@ -459,4 +531,7 @@ test_record_with_a_foreign_schema_marker_is_not_trusted
 test_over_long_finding_set_is_capped_with_the_shared_marker
 test_unknown_budget_verdict_fields_are_reported_as_unparseable
 test_arm_and_disarm_use_authenticated_custom_check
+test_rearming_an_unchanged_binding_does_not_replace_the_shim
+test_failed_first_arm_leaves_the_home_plainly_unarmed
+test_failed_rearm_keeps_the_previously_armed_shim_and_trust
 pass "fm-startup-growth-check"
