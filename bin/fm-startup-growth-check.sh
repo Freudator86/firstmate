@@ -14,9 +14,11 @@
 # A due evaluation uses metadata only: regular-file safety checks plus stat(1)
 # byte sizes and mtimes.  It does not run the startup digest, bootstrap, network
 # checks, model calls, repository refreshes, /stow, or full preference/learning
-# rereads.  Only data/captain.md, data/captain-shared.md, and data/learnings.md
-# count toward config/startup-memory-budget, whose total and verdict
-# bin/fm-startup-memory-budget.sh owns.  data/projects.md and
+# rereads.  The budget total, its verdict, and its secondmate exception come
+# from `bin/fm-startup-memory-budget.sh report`, the single owner of
+# config/startup-memory-budget, and are never re-derived here; an overrun whose
+# cause is the primary-owned data/captain-shared.md alone is therefore not
+# reported to a secondmate that cannot act on it.  data/projects.md and
 # data/secondmates.md are printed in full by every session start too, so they
 # are watched for prompt growth without entering that budget total.  Tracked
 # startup scripts and instructions are reported as code/instruction bytes, not
@@ -33,7 +35,7 @@
 #
 # `arm` writes state/startup-growth.check.sh and binds its bytes with
 # fm-check-register.sh so the existing watcher slow-check cadence invokes the
-# daily gate.  `disarm` removes the shim, trust binding, and report records.
+# daily gate.  `disarm` removes the shim, trust binding, and report record.
 set -u
 export LC_ALL=C
 
@@ -47,19 +49,17 @@ CHECK_ID=startup-growth
 CHECK_SHIM="$STATE/$CHECK_ID.check.sh"
 CHECK_TRUST="$STATE/$CHECK_ID.check-trust"
 RECORD="$STATE/.startup-growth-check"
-REPORTED="$STATE/.startup-growth-check.reported"
 RECORD_SCHEMA=fm-startup-growth-check-v1
 REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
+BUDGET_BIN="$SCRIPT_DIR/fm-startup-memory-budget.sh"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
-# shellcheck source=bin/fm-check-lib.sh
-. "$SCRIPT_DIR/fm-check-lib.sh"
 # shellcheck source=bin/fm-startup-memory-budget-lib.sh
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 
 usage() {
-  sed -n '2,36{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,38{s/^# \{0,1\}//;p;}' "$0"
 }
 
 fail() {
@@ -115,10 +115,15 @@ stat_surface() {  # <kind> <display-path> <absolute-path> <absence-ok>
     presence=unsafe
     append_finding "unsafe $kind $display"
   else
-    bytes=$(file_size "$path") || { append_finding "unreadable $kind $display"; bytes=0; }
-    mtime=$(file_mtime "$path") || { append_finding "unreadable $kind $display"; mtime=0; }
+    bytes=$(file_size "$path") || true
+    mtime=$(file_mtime "$path") || true
     case "$bytes:$mtime" in
-      *[!0-9:]*|:*|*:) append_finding "unreadable $kind $display"; bytes=0; mtime=0 ;;
+      *[!0-9:]*|:*|*:)
+        bytes=0
+        mtime=0
+        presence=unreadable
+        append_finding "unreadable $kind $display"
+        ;;
     esac
   fi
 
@@ -182,14 +187,42 @@ check_due() {
   return 1
 }
 
+evaluate_budget() {
+  local report line reason budget='' total='' status='' exception=''
+  if ! report=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG_DIR" FM_DATA_OVERRIDE="$DATA_DIR" \
+    "$BUDGET_BIN" report 2>&1); then
+    reason=${report##*startup-memory-budget: }
+    append_finding "startup memory budget unavailable owner=bin/fm-startup-memory-budget.sh reason=${reason//$'\n'/ }"
+    return 0
+  fi
+  while IFS= read -r line; do
+    case "$line" in
+      effective_budget_tokens=*) budget=${line#*=} ;;
+      total_estimated_tokens=*) total=${line#*=} ;;
+      budget_status=*) status=${line#*=} ;;
+      exception=*) exception=${line#*=} ;;
+    esac
+  done < <(printf '%s\n' "$report")
+  case "$budget:$total" in
+    *[!0-9:]*|:*|*:)
+      append_finding "startup memory budget unavailable owner=bin/fm-startup-memory-budget.sh reason=unparseable report"
+      return 0
+      ;;
+  esac
+  printf '%s\t%s\t%s\t%s\t%s\n' memory_budget "$budget" "$total" "$status" "$exception" >> "$NEW_RECORD"
+  [ "$status" = over-budget ] && [ -z "$exception" ] || return 0
+  append_finding "startup memory budget overrun total_estimated_tokens=$total budget=$budget owner=bin/fm-startup-memory-budget.sh"
+}
+
 run_check() {
-  local now tmp budget memory_total=0 memory_tokens memory_bytes status display kind _mtime _baseline reported_previous
+  local now reported_previous
   if ! now=$(check_due); then
     return 0
   fi
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || fail "state directory is unavailable"
   OLD_RECORD=$RECORD
   [ -f "$OLD_RECORD" ] && [ ! -L "$OLD_RECORD" ] || OLD_RECORD=/dev/null
+  reported_previous=$(awk -F '\t' '$1 == "reported" { print substr($0, index($0, "\t") + 1); exit }' "$OLD_RECORD" 2>/dev/null || true)
   NEW_RECORD=$(mktemp "$STATE/.startup-growth-check.XXXXXX") || exit 1
   trap 'rm -f -- "${NEW_RECORD:-}"' EXIT HUP INT TERM
   FINDINGS=
@@ -208,58 +241,40 @@ run_check() {
   stat_surface memory data/captain-shared.md "$DATA_DIR/captain-shared.md" yes
   stat_surface memory data/learnings.md "$DATA_DIR/learnings.md" yes
 
-  if fm_startup_memory_budget_read "$CONFIG_DIR" >/dev/null; then
-    budget=$FM_STARTUP_MEMORY_BUDGET_VALUE
-    while IFS=$'\t' read -r display kind status memory_bytes _mtime _baseline; do
-      [ "$kind" = memory ] && [ "$status" = present ] || continue
-      memory_tokens=$(fm_startup_memory_estimated_tokens_for_bytes "$memory_bytes") || memory_tokens=0
-      memory_total=$((memory_total + memory_tokens))
-    done < "$NEW_RECORD"
-    printf '%s\t%s\t%s\n' memory_budget "$budget" "$memory_total" >> "$NEW_RECORD"
-    if ! fm_startup_memory_decimal_le "$memory_total" "$budget"; then
-      append_finding "startup memory budget overrun total_estimated_tokens=$memory_total budget=$budget owner=bin/fm-startup-memory-budget.sh"
-    fi
-  else
-    append_finding "invalid startup memory budget owner=config/startup-memory-budget reason=$FM_STARTUP_MEMORY_BUDGET_ERROR"
-  fi
+  evaluate_budget
 
+  if [ -n "$FINDINGS" ]; then
+    [ "$FINDINGS" = "$reported_previous" ] || printf '%s\n' "startup-growth: $FINDINGS"
+    printf '%s\t%s\n' reported "$FINDINGS" >> "$NEW_RECORD"
+  fi
   write_record_atomically "$NEW_RECORD" "$RECORD" || fail "could not publish report record"
   NEW_RECORD=
-  if [ -z "$FINDINGS" ]; then
-    rm -f -- "$REPORTED"
-    return 0
-  fi
-  reported_previous=
-  [ ! -f "$REPORTED" ] || reported_previous=$(cat "$REPORTED" 2>/dev/null || true)
-  if [ "$reported_previous" = "$FINDINGS" ]; then
-    return 0
-  fi
-  tmp=$(mktemp "$STATE/.startup-growth-reported.XXXXXX") || exit 1
-  printf '%s\n' "$FINDINGS" > "$tmp" || exit 1
-  write_record_atomically "$tmp" "$REPORTED" || fail "could not publish dedupe record"
-  printf '%s\n' "startup-growth: $FINDINGS"
 }
 
 arm() {
-  local tmp state_device
+  local tmp state_device home
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || fail "state directory is unavailable"
+  case "$FM_HOME" in
+    /*) home=$FM_HOME ;;
+    *) home=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) || fail "cannot resolve FM_HOME $FM_HOME" ;;
+  esac
   state_device=$(fm_pr_file_device "$STATE") || fail "state directory is unavailable"
   fm_pr_regular_destination_on_device_or_absent "$CHECK_SHIM" "$state_device" || fail "check shim path is unavailable"
   tmp=$(mktemp "$STATE/.startup-growth-check-shim.XXXXXX") || exit 1
   trap 'rm -f -- "${tmp:-}"' EXIT HUP INT TERM
-  cat > "$tmp" <<SH
-#!/usr/bin/env bash
-exec "$(printf '%s' "$SCRIPT_DIR")/fm-startup-growth-check.sh" check
-SH
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    "export FM_HOME=$(printf '%q' "$home")" \
+    "exec $(printf '%q' "$SCRIPT_DIR/fm-startup-growth-check.sh") check" > "$tmp" || exit 1
   chmod 0700 "$tmp" || exit 1
   mv -f -- "$tmp" "$CHECK_SHIM" || exit 1
   tmp=
-  "$REGISTER_BIN" "$CHECK_ID" >/dev/null || { rm -f -- "$CHECK_SHIM" "$CHECK_TRUST"; exit 1; }
+  FM_HOME="$home" "$REGISTER_BIN" "$CHECK_ID" >/dev/null || { rm -f -- "$CHECK_SHIM" "$CHECK_TRUST"; exit 1; }
   printf 'armed: state/%s.check.sh\n' "$CHECK_ID"
 }
 
 disarm() {
-  rm -f -- "$CHECK_SHIM" "$CHECK_TRUST" "$RECORD" "$REPORTED"
+  rm -f -- "$CHECK_SHIM" "$CHECK_TRUST" "$RECORD"
   printf 'disarmed: state/%s.check.sh\n' "$CHECK_ID"
 }
 

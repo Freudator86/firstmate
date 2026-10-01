@@ -155,6 +155,64 @@ test_budget_overrun_reports_and_separates_prompt_cost() {
   assert_contains "$out" 'startup memory budget overrun total_estimated_tokens=' "budget overrun was not reported"
   assert_not_contains "$out" 'tracked startup surface growth' "initial tracked growth should not be inferred without a baseline"
   assert_not_contains "$out" 'bin/fm-bootstrap.sh' "initial tracked bytes were incorrectly counted as prompt-memory overrun evidence"
+  result=$(run_check "$root" "$home" 87401)
+  [ "$(status_part "$result")" = 0 ] || fail "repeated overrun check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "standing budget overrun was reported again instead of deduplicated: $out"
+}
+
+test_secondmate_is_not_woken_about_the_primary_owned_shared_overrun() {
+  local rec root home result out
+  rec=$(make_world secondmate)
+  root=${rec%%|*}
+  home=${rec#*|}
+  printf '10\n' > "$home/config/startup-memory-budget"
+  add_bytes "$home/data/captain-shared.md" 900
+  : > "$home/.fm-secondmate-home"
+  result=$(run_check "$root" "$home" 1000)
+  [ "$(status_part "$result")" = 0 ] || fail "secondmate overrun check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_not_contains "$out" 'startup memory budget overrun' "a secondmate was woken about the primary-owned shared overrun it cannot act on"
+
+  rm -f "$home/.fm-secondmate-home"
+  result=$(run_check "$root" "$home" 87401)
+  [ "$(status_part "$result")" = 0 ] || fail "primary overrun check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_contains "$out" 'startup memory budget overrun total_estimated_tokens=' "the same overrun was not reported in a primary home"
+}
+
+test_metadata_read_failure_keeps_the_retained_baseline() {
+  local rec root home result out fakebin real_stat
+  if [ "$(uname)" = Darwin ]; then
+    printf 'note - metadata read failure is exercised through the stat -c branch; skipping on Darwin\n'
+    return 0
+  fi
+  rec=$(make_world unreadable)
+  root=${rec%%|*}
+  home=${rec#*|}
+  add_bytes "$root/AGENTS.md" 5000
+  result=$(run_check "$root" "$home" 1000)
+  [ "$(status_part "$result")" = 0 ] || fail "unreadable baseline failed: $(output_part "$result")"
+
+  real_stat=$(command -v stat) || fail "no stat(1) on PATH"
+  fakebin="$TMP_ROOT/unreadable/fakebin"
+  mkdir -p "$fakebin"
+  cat > "$fakebin/stat" <<FAKE
+#!/usr/bin/env bash
+case "\${1:-}:\${2:-}" in
+  -c:%s|-c:%Y) exit 1 ;;
+esac
+exec $real_stat "\$@"
+FAKE
+  chmod 0755 "$fakebin/stat"
+  out=$(PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=87401 "$CHECK" check 2>&1) \
+    || fail "unreadable due run failed: $out"
+  assert_contains "$out" 'unreadable tracked AGENTS.md' "a failed size read was not reported as unreadable"
+
+  result=$(run_check "$root" "$home" 173802)
+  [ "$(status_part "$result")" = 0 ] || fail "post-failure check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "a failed metadata read destroyed the retained baseline and fabricated growth: $out"
 }
 
 test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not() {
@@ -170,6 +228,24 @@ test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not() {
   out=$(output_part "$result")
   assert_contains "$out" 'unsafe memory data/learnings.md' "unsafe symlinked memory was not reported"
   assert_not_contains "$out" 'missing memory data/captain-shared.md' "absent optional shared memory should not be reported"
+  result=$(run_check "$root" "$home" 173802)
+  [ "$(status_part "$result")" = 0 ] || fail "repeated unsafe check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "standing unsafe finding was reported again instead of deduplicated: $out"
+}
+
+test_findings_are_delivered_even_when_the_record_cannot_be_published() {
+  local rec root home out status=0 leftover
+  rec=$(make_world unpublishable)
+  root=${rec%%|*}
+  home=${rec#*|}
+  printf '5\n' > "$home/config/startup-memory-budget"
+  ln -s /no/such/place "$home/state/.startup-growth-check"
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 "$CHECK" check 2>/dev/null) || status=$?
+  [ "$status" != 0 ] || fail "an unpublishable report record should surface as a failure"
+  assert_contains "$out" 'startup memory budget overrun' "the finding was dropped because the record could not be published"
+  leftover=$(cd "$home/state" && ls -1 .startup-growth-check.?????? 2>/dev/null || true)
+  [ -z "$leftover" ] || fail "a failed evaluation leaked its temporary record: $leftover"
 }
 
 test_arm_and_disarm_use_authenticated_custom_check() {
@@ -182,12 +258,13 @@ test_arm_and_disarm_use_authenticated_custom_check() {
   assert_present "$home/state/startup-growth.check.sh" "arm did not write the check shim"
   assert_present "$home/state/startup-growth.check-trust" "arm did not register trust for the check shim"
 
-  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 "$home/state/startup-growth.check.sh" 2>&1) \
+  out=$(env -u FM_HOME FM_ROOT_OVERRIDE="$root" FM_STARTUP_GROWTH_NOW=1000 "$home/state/startup-growth.check.sh" 2>&1) \
     || fail "registered check shim failed: $out"
   [ -z "$out" ] || fail "registered shim baseline run should stay silent: $out"
-  assert_present "$home/state/.startup-growth-check" "registered shim did not run the daily check"
+  assert_present "$home/state/.startup-growth-check" "registered shim did not run the daily check in the pinned home"
+  assert_absent "$root/state/.startup-growth-check" "registered shim resolved the home from the environment instead of its pinned value"
   add_bytes "$root/AGENTS.md" 2500
-  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=87401 "$home/state/startup-growth.check.sh" 2>&1) \
+  out=$(env -u FM_HOME FM_ROOT_OVERRIDE="$root" FM_STARTUP_GROWTH_NOW=87401 "$home/state/startup-growth.check.sh" 2>&1) \
     || fail "registered check shim failed on growth: $out"
   assert_contains "$out" 'startup-growth: tracked startup surface growth AGENTS.md +2500 bytes' "registered shim did not report growth to the watcher"
 
@@ -202,6 +279,9 @@ test_due_growth_reports_once_and_dedupes
 test_gradual_growth_below_daily_threshold_is_reported_cumulatively
 test_printed_memory_growth_is_reported_without_entering_the_budget_total
 test_budget_overrun_reports_and_separates_prompt_cost
+test_secondmate_is_not_woken_about_the_primary_owned_shared_overrun
+test_metadata_read_failure_keeps_the_retained_baseline
 test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not
+test_findings_are_delivered_even_when_the_record_cannot_be_published
 test_arm_and_disarm_use_authenticated_custom_check
 pass "fm-startup-growth-check"
