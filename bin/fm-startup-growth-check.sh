@@ -19,9 +19,9 @@
 # config/startup-memory-budget, and are never re-derived here.  data/projects.md
 # and data/secondmates.md are printed in full by every session start too, so
 # they are watched for prompt growth without entering that budget total.
-# The tracked set is exactly the startup entrypoints and agent instruction
-# surfaces session start reads or executes, reported as code/instruction bytes
-# rather than as LLM prompt cost.
+# The tracked set is the startup entrypoints session start executes directly
+# plus the agent instruction files, not every script and library the startup
+# path reaches; those bytes are code/instruction size, not LLM prompt cost.
 #
 # A secondmate home is never notified about the primary-owned
 # data/captain-shared.md it cannot edit: the owner suppresses the budget overrun
@@ -285,6 +285,7 @@ shim_write() {  # <wanted-bytes> <state-device>
   SHIM_TMP=$(umask 077; mktemp "$STATE/.startup-growth-check-shim.XXXXXX" 2>/dev/null) || return 1
   if ! printf '%s\n' "$want" > "$SHIM_TMP" \
     || ! chmod 0700 "$SHIM_TMP" \
+    || ! fm_pr_private_file_valid "$SHIM_TMP" 700 "$device" \
     || ! fm_pr_regular_destination_on_device_or_absent "$CHECK_SHIM" "$device" \
     || ! mv -f -- "$SHIM_TMP" "$CHECK_SHIM"; then
     rm -f -- "$SHIM_TMP"
@@ -292,12 +293,15 @@ shim_write() {  # <wanted-bytes> <state-device>
     return 1
   fi
   SHIM_TMP=
+  fm_pr_private_file_valid "$CHECK_SHIM" 700 "$device"
 }
 
-shim_backup() {
-  local tmp
+shim_backup() {  # <state-device>
+  local device=$1 tmp
   tmp=$(umask 077; mktemp "$STATE/.startup-growth-check-shim.XXXXXX" 2>/dev/null) || return 1
-  if ! cat "$CHECK_SHIM" > "$tmp" 2>/dev/null || ! chmod 0700 "$tmp"; then
+  if ! cat "$CHECK_SHIM" > "$tmp" 2>/dev/null \
+    || ! chmod 0700 "$tmp" \
+    || ! fm_pr_private_file_valid "$tmp" 700 "$device"; then
     rm -f -- "$tmp"
     return 1
   fi
@@ -337,7 +341,7 @@ arm() {
     "exec $(printf '%q' "$SCRIPT_DIR/fm-startup-growth-check.sh") check")
   ARM_BACKUP=
   if [ -f "$CHECK_SHIM" ] && [ ! -L "$CHECK_SHIM" ]; then
-    ARM_BACKUP=$(shim_backup) || fail "could not save the existing check shim"
+    ARM_BACKUP=$(shim_backup "$state_device") || fail "could not save the existing check shim"
   fi
   trap 'arm_failed "arming was interrupted"' HUP INT TERM
   shim_write "$want" "$state_device" || arm_failed "check shim path is unavailable"
