@@ -54,7 +54,7 @@ CHECK_ID=startup-growth
 CHECK_SHIM="$STATE/$CHECK_ID.check.sh"
 CHECK_TRUST="$STATE/$CHECK_ID.check-trust"
 RECORD="$STATE/.startup-growth-check"
-RECORD_SCHEMA=fm-startup-growth-check-v1
+RECORD_SCHEMA_LINE=$'schema\tfm-startup-growth-check-v1'
 REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
 BUDGET_BIN="$SCRIPT_DIR/fm-startup-memory-budget.sh"
 
@@ -157,7 +157,7 @@ stat_surface() {  # <kind> <display-path> <absolute-path> <absence-ok>
     esac
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\n' "$display" "$kind" "$presence" "$bytes" "$baseline" >> "$NEW_RECORD"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$display" "$kind" "$presence" "$bytes" "$baseline" >> "$NEW_RECORD" || exit 1
 }
 
 write_record_atomically() {
@@ -168,8 +168,15 @@ write_record_atomically() {
   mv -f -- "$tmp" "$dest"
 }
 
+record_usable() {
+  local line
+  [ -f "$RECORD" ] && [ ! -L "$RECORD" ] || return 1
+  IFS= read -r line < "$RECORD" || return 1
+  [ "$line" = "$RECORD_SCHEMA_LINE" ]
+}
+
 read_last_eval() {
-  [ -f "$RECORD" ] && [ ! -L "$RECORD" ] || return 0
+  record_usable || return 0
   awk -F '\t' '$1 == "last_eval" { print $2; exit }' "$RECORD" 2>/dev/null || true
 }
 
@@ -219,7 +226,7 @@ evaluate_budget() {
     append_finding "startup memory budget unavailable owner=bin/fm-startup-memory-budget.sh reason=unparseable report"
     return 0
   fi
-  printf '%s\t%s\t%s\t%s\t%s\n' memory_budget "$budget" "$total" "$status" "$exception" >> "$NEW_RECORD"
+  printf '%s\t%s\t%s\t%s\t%s\n' memory_budget "$budget" "$total" "$status" "$exception" >> "$NEW_RECORD" || exit 1
   [ "$status" = over-budget ] && [ -z "$exception" ] || return 0
   append_finding "startup memory budget overrun total_estimated_tokens=$total budget=$budget owner=bin/fm-startup-memory-budget.sh"
 }
@@ -231,12 +238,12 @@ run_check() {
   fi
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || fail "state directory is unavailable"
   OLD_RECORD=$RECORD
-  [ -f "$OLD_RECORD" ] && [ ! -L "$OLD_RECORD" ] || OLD_RECORD=/dev/null
+  record_usable || OLD_RECORD=/dev/null
   reported_previous=$(awk -F '\t' '$1 == "reported" { print substr($0, index($0, "\t") + 1); exit }' "$OLD_RECORD" 2>/dev/null || true)
   NEW_RECORD=$(mktemp "$STATE/.startup-growth-check.XXXXXX") || exit 1
   trap 'rm -f -- "${NEW_RECORD:-}"' EXIT HUP INT TERM
   FINDINGS=
-  printf '%s\t%s\n' schema "$RECORD_SCHEMA" > "$NEW_RECORD" || exit 1
+  printf '%s\n' "$RECORD_SCHEMA_LINE" > "$NEW_RECORD" || exit 1
   printf '%s\t%s\n' last_eval "$now" >> "$NEW_RECORD" || exit 1
 
   stat_surface tracked AGENTS.md "$FM_ROOT/AGENTS.md" no
@@ -255,10 +262,9 @@ run_check() {
 
   if [ -n "$FINDINGS" ]; then
     if [ "$FINDINGS" != "$reported_previous" ]; then
-      fm_cap_line_var "startup-growth: $FINDINGS" "$MAX_LINE"
-      printf '%s\n' "$FM_LINE_CAP_LINE"
+      fm_cap_line "startup-growth: $FINDINGS" "$MAX_LINE"
     fi
-    printf '%s\t%s\n' reported "$FINDINGS" >> "$NEW_RECORD"
+    printf '%s\t%s\n' reported "$FINDINGS" >> "$NEW_RECORD" || exit 1
   fi
   write_record_atomically "$NEW_RECORD" "$RECORD" || fail "could not publish report record"
   NEW_RECORD=

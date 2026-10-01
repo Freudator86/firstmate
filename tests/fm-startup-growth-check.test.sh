@@ -276,7 +276,7 @@ test_metadata_read_failure_keeps_the_retained_baseline() {
   cat > "$fakebin/stat" <<FAKE
 #!/usr/bin/env bash
 case "\${1:-}:\${2:-}" in
-  -c:%s|-c:%Y) exit 1 ;;
+  -c:%s) exit 1 ;;
 esac
 exec $real_stat "\$@"
 FAKE
@@ -360,7 +360,7 @@ STUB
   home=${rec#*|}
   out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 \
     "$fixbin/fm-startup-growth-check.sh" check 2>&1) || fail "unknown-status check failed: $out"
-  assert_contains "$out" 'startup memory budget unavailable' "an unrecognized budget_status was accepted as within-budget"
+  assert_contains "$out" 'reason=unparseable report' "an unrecognized budget_status was accepted as within-budget"
 
   cat > "$fixbin/fm-startup-memory-budget.sh" <<'STUB'
 #!/usr/bin/env bash
@@ -381,7 +381,26 @@ STUB
   home=${rec#*|}
   out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 \
     "$fixbin/fm-startup-growth-check.sh" check 2>&1) || fail "unknown-exception check failed: $out"
-  assert_contains "$out" 'startup memory budget unavailable' "an unrecognized exception annotation silently suppressed the overrun"
+  assert_contains "$out" 'reason=unparseable report' "an unrecognized exception annotation silently suppressed the overrun"
+}
+
+test_record_with_a_foreign_schema_marker_is_not_trusted() {
+  local rec root home record out first
+  rec=$(make_world foreign-schema)
+  root=${rec%%|*}
+  home=${rec#*|}
+  record="$home/state/.startup-growth-check"
+  {
+    printf 'schema\tfm-startup-growth-check-v2\n'
+    printf 'last_eval\t1000\n'
+    printf 'AGENTS.md\tpresent\t1\t1\t1\n'
+  } > "$record"
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1200 "$CHECK" check 2>&1) \
+    || fail "foreign-schema check failed: $out"
+  [ -z "$out" ] || fail "a record from another schema was reinterpreted instead of re-baselined: $out"
+  IFS= read -r first < "$record"
+  assert_equals "$(printf 'schema\tfm-startup-growth-check-v1')" "$first" "the foreign record was kept instead of replaced"
+  assert_grep $'last_eval\t1200' "$record" "the foreign record's last_eval gated the evaluation instead of being ignored"
 }
 
 test_findings_are_delivered_even_when_the_record_cannot_be_published() {
@@ -436,6 +455,7 @@ test_secondmate_is_not_woken_about_the_primary_owned_shared_overrun
 test_metadata_read_failure_keeps_the_retained_baseline
 test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not
 test_findings_are_delivered_even_when_the_record_cannot_be_published
+test_record_with_a_foreign_schema_marker_is_not_trusted
 test_over_long_finding_set_is_capped_with_the_shared_marker
 test_unknown_budget_verdict_fields_are_reported_as_unparseable
 test_arm_and_disarm_use_authenticated_custom_check
