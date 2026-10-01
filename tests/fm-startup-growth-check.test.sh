@@ -141,6 +141,82 @@ test_printed_memory_growth_is_reported_without_entering_the_budget_total() {
   assert_equals "$before" "$after" "printed startup memory changed the budget total it must not own"
 }
 
+test_first_content_of_an_optional_file_is_baselined_silently() {
+  local rec root home result out
+  rec=$(make_world first-content)
+  root=${rec%%|*}
+  home=${rec#*|}
+  rm -f "$home/data/secondmates.md"
+  result=$(run_check "$root" "$home" 1000)
+  [ "$(status_part "$result")" = 0 ] || fail "absent-surface baseline failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "an absent optional surface should stay silent: $out"
+
+  add_bytes "$home/data/secondmates.md" 1000
+  result=$(run_check "$root" "$home" 87401)
+  [ "$(status_part "$result")" = 0 ] || fail "first-content check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "first content of an optional file was reported as growth: $out"
+
+  add_bytes "$home/data/secondmates.md" 900
+  result=$(run_check "$root" "$home" 173802)
+  [ "$(status_part "$result")" = 0 ] || fail "post-baseline growth check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_contains "$out" 'printed-memory growth data/secondmates.md +300 estimated_tokens (+900 bytes' "growth above the silently established baseline was not reported"
+}
+
+test_established_baseline_survives_disappearance_and_restoration() {
+  local rec root home result out
+  rec=$(make_world restored)
+  root=${rec%%|*}
+  home=${rec#*|}
+  add_bytes "$home/data/projects.md" 3000
+  run_check "$root" "$home" 1000 >/dev/null
+
+  rm -f "$home/data/projects.md"
+  result=$(run_check "$root" "$home" 87401)
+  [ "$(status_part "$result")" = 0 ] || fail "disappearance check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "an absent optional surface should stay silent: $out"
+
+  printf 'projects\n' > "$home/data/projects.md"
+  add_bytes "$home/data/projects.md" 3000
+  result=$(run_check "$root" "$home" 173802)
+  [ "$(status_part "$result")" = 0 ] || fail "restoration check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "restoring a file at its established size was reported as growth: $out"
+
+  add_bytes "$home/data/projects.md" 900
+  result=$(run_check "$root" "$home" 260203)
+  [ "$(status_part "$result")" = 0 ] || fail "post-restoration growth check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_contains "$out" 'printed-memory growth data/projects.md +300 estimated_tokens (+900 bytes' "growth above the preserved baseline was not reported after restoration"
+}
+
+test_secondmate_is_not_notified_about_primary_owned_shared_growth() {
+  local rec root home result out
+  rec=$(make_world shared-growth)
+  root=${rec%%|*}
+  home=${rec#*|}
+  : > "$home/.fm-secondmate-home"
+  run_check "$root" "$home" 1000 >/dev/null
+  add_bytes "$home/data/captain-shared.md" 900
+  result=$(run_check "$root" "$home" 87401)
+  [ "$(status_part "$result")" = 0 ] || fail "secondmate shared-growth check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "a secondmate was notified about growth of the read-only primary-owned shared file: $out"
+
+  rec=$(make_world shared-growth-primary)
+  root=${rec%%|*}
+  home=${rec#*|}
+  run_check "$root" "$home" 1000 >/dev/null
+  add_bytes "$home/data/captain-shared.md" 900
+  result=$(run_check "$root" "$home" 87401)
+  [ "$(status_part "$result")" = 0 ] || fail "primary shared-growth check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_contains "$out" 'memory growth data/captain-shared.md +300 estimated_tokens (+900 bytes' "a primary home did not report growth of its own shared file"
+}
+
 test_budget_overrun_reports_and_separates_prompt_cost() {
   local rec root home result out
   rec=$(make_world overrun)
@@ -278,6 +354,9 @@ test_same_day_poll_does_not_touch_surfaces
 test_due_growth_reports_once_and_dedupes
 test_gradual_growth_below_daily_threshold_is_reported_cumulatively
 test_printed_memory_growth_is_reported_without_entering_the_budget_total
+test_first_content_of_an_optional_file_is_baselined_silently
+test_established_baseline_survives_disappearance_and_restoration
+test_secondmate_is_not_notified_about_primary_owned_shared_growth
 test_budget_overrun_reports_and_separates_prompt_cost
 test_secondmate_is_not_woken_about_the_primary_owned_shared_overrun
 test_metadata_read_failure_keeps_the_retained_baseline

@@ -12,23 +12,28 @@
 # silent.
 #
 # A due evaluation uses metadata only: regular-file safety checks plus stat(1)
-# byte sizes and mtimes.  It does not run the startup digest, bootstrap, network
-# checks, model calls, repository refreshes, /stow, or full preference/learning
+# byte sizes.  It does not run the startup digest, bootstrap, network checks,
+# model calls, repository refreshes, /stow, or full preference/learning
 # rereads.  The budget total, its verdict, and its secondmate exception come
 # from `bin/fm-startup-memory-budget.sh report`, the single owner of
-# config/startup-memory-budget, and are never re-derived here; an overrun whose
-# cause is the primary-owned data/captain-shared.md alone is therefore not
-# reported to a secondmate that cannot act on it.  data/projects.md and
-# data/secondmates.md are printed in full by every session start too, so they
-# are watched for prompt growth without entering that budget total.  Tracked
-# startup scripts and instructions are reported as code/instruction bytes, not
-# as LLM prompt cost.
+# config/startup-memory-budget, and are never re-derived here.  data/projects.md
+# and data/secondmates.md are printed in full by every session start too, so
+# they are watched for prompt growth without entering that budget total.
+# Tracked startup scripts and instructions are reported as code/instruction
+# bytes, not as LLM prompt cost.
+#
+# A secondmate home is never notified about the primary-owned
+# data/captain-shared.md it cannot edit: the owner suppresses the budget overrun
+# it causes alone, and this check suppresses its per-file growth there while
+# still recording the observation.
 #
 # Growth is measured against a retained per-file baseline rather than only
 # against the previous evaluation, so accumulation that stays under one day's
-# threshold is still caught.  Reporting a file rebases its baseline to the
-# reported size, so accepted growth then stays silent.  The thresholds are
-# fixed:
+# threshold is still caught.  A surface seen for the first time is baselined
+# silently, including the first content of an optional file that was absent when
+# the check started; an established baseline survives the file disappearing and
+# coming back.  Reporting a file rebases its baseline to the reported size, so
+# accepted growth then stays silent.  The thresholds are fixed:
 #   2048 bytes for tracked startup/instruction files
 #   250 estimated tokens, ceil(bytes / 3), for printed startup memory files
 # Budget overrun is always meaningful.
@@ -59,7 +64,7 @@ BUDGET_BIN="$SCRIPT_DIR/fm-startup-memory-budget.sh"
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 
 usage() {
-  sed -n '2,38{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,43{s/^# \{0,1\}//;p;}' "$0"
 }
 
 fail() {
@@ -77,20 +82,16 @@ now_epoch() {
 INTERVAL=86400
 BYTE_THRESHOLD=2048
 TOKEN_THRESHOLD=250
+PRIMARY_OWNED_MEMORY=
+if [ -e "$FM_HOME/.fm-secondmate-home" ] || [ -L "$FM_HOME/.fm-secondmate-home" ]; then
+  PRIMARY_OWNED_MEMORY=data/captain-shared.md
+fi
 
 file_size() {
   if [ "$(uname)" = Darwin ]; then
     /usr/bin/stat -f %z "$1" 2>/dev/null
   else
     stat -c %s "$1" 2>/dev/null
-  fi
-}
-
-file_mtime() {
-  if [ "$(uname)" = Darwin ]; then
-    /usr/bin/stat -f %m "$1" 2>/dev/null
-  else
-    stat -c %Y "$1" 2>/dev/null
   fi
 }
 
@@ -103,37 +104,33 @@ append_finding() {
 }
 
 stat_surface() {  # <kind> <display-path> <absolute-path> <absence-ok>
-  local kind=$1 display=$2 path=$3 absence_ok=$4 bytes mtime tokens prev_baseline baseline delta presence=present
+  local kind=$1 display=$2 path=$3 absence_ok=$4 bytes tokens prev_baseline baseline delta presence=present
   if [ ! -e "$path" ] && [ ! -L "$path" ]; then
     bytes=0
-    mtime=0
     presence=absent
     [ "$absence_ok" = yes ] || append_finding "missing $kind $display"
   elif [ -L "$path" ] || [ ! -f "$path" ]; then
     bytes=0
-    mtime=0
     presence=unsafe
     append_finding "unsafe $kind $display"
   else
     bytes=$(file_size "$path") || true
-    mtime=$(file_mtime "$path") || true
-    case "$bytes:$mtime" in
-      *[!0-9:]*|:*|*:)
+    case "$bytes" in
+      ''|*[!0-9]*)
         bytes=0
-        mtime=0
         presence=unreadable
         append_finding "unreadable $kind $display"
         ;;
     esac
   fi
 
-  prev_baseline=$(awk -F '\t' -v p="$display" '$1 == p { print $6; found=1; exit } END { if (!found) print "" }' "$OLD_RECORD" 2>/dev/null || true)
+  prev_baseline=$(awk -F '\t' -v p="$display" '$1 == p { print $5; found=1; exit } END { if (!found) print "" }' "$OLD_RECORD" 2>/dev/null || true)
   case "$prev_baseline" in
     ''|*[!0-9]*) prev_baseline= ;;
   esac
 
   if [ "$presence" != present ]; then
-    baseline=${prev_baseline:-0}
+    baseline=${prev_baseline:--}
   elif [ -z "$prev_baseline" ] || [ "$bytes" -le "$prev_baseline" ]; then
     baseline=$bytes
   else
@@ -143,8 +140,9 @@ stat_surface() {  # <kind> <display-path> <absolute-path> <absence-ok>
       memory|printed-memory)
         tokens=$(fm_startup_memory_estimated_tokens_for_bytes "$delta") || tokens=0
         if [ "$tokens" -ge "$TOKEN_THRESHOLD" ]; then
-          append_finding "$kind growth $display +${tokens} estimated_tokens (+${delta} bytes, total ${bytes} bytes)"
           baseline=$bytes
+          [ "$display" = "$PRIMARY_OWNED_MEMORY" ] \
+            || append_finding "$kind growth $display +${tokens} estimated_tokens (+${delta} bytes, total ${bytes} bytes)"
         fi
         ;;
       tracked)
@@ -156,7 +154,7 @@ stat_surface() {  # <kind> <display-path> <absolute-path> <absence-ok>
     esac
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$display" "$kind" "$presence" "$bytes" "$mtime" "$baseline" >> "$NEW_RECORD"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$display" "$kind" "$presence" "$bytes" "$baseline" >> "$NEW_RECORD"
 }
 
 write_record_atomically() {
