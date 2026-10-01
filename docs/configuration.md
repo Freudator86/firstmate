@@ -661,6 +661,22 @@ The internal [`/stow` skill](../.agents/skills/stow/SKILL.md) owns curation and 
 
 The helper's header owns exact parsing, publication, and report output mechanics.
 
+### Daily startup growth check
+
+A home can arm a lightweight daily growth monitor with `bin/fm-startup-growth-check.sh arm`.
+It writes `state/startup-growth.check.sh` and binds it through the existing authenticated watcher-check mechanism, so no extra daemon or scheduler is installed.
+Use `bin/fm-startup-growth-check.sh disarm` to remove the check and its local report records.
+
+The check evaluates at most once per day by default and stays silent when nothing meaningful changed.
+A due evaluation uses file metadata and byte sizes before any content inspection: it measures `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md` against `config/startup-memory-budget`, and separately watches the tracked startup/instruction owner files named by the script header.
+Those tracked bytes are code and instruction-surface size, not prompt-memory cost.
+The check does not run session-start, bootstrap, network checks, model calls, repository refreshes, `/stow`, or full preference/learnings rereads.
+
+The default growth thresholds are inspectable in the script header: 2048 bytes for tracked startup/instruction files and 250 estimated tokens for the local startup-memory files.
+Budget overrun, unsafe inputs, missing required tracked owner files, or material growth are reported once and deduplicated until the finding changes or clears.
+Older bulk learning files remain reference-only; this monitor neither loads nor merges them.
+A reported review need is only a recommendation, not cleanup authority.
+
 ## Stow pass horizon (config/stow-pass-horizon)
 
 `config/stow-pass-horizon` is an optional local, gitignored presence flag that opts this home in to the pass-count decay horizon in the internal [`/stow` skill](../.agents/skills/stow/SKILL.md).

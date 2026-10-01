@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Behavioral coverage for the daily startup growth check.
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+TMP_ROOT=$(fm_test_tmproot fm-startup-growth-check)
+CHECK="$ROOT/bin/fm-startup-growth-check.sh"
+
+make_world() {
+  local name=$1 root home
+  root="$TMP_ROOT/$name/root"
+  home="$TMP_ROOT/$name/home"
+  mkdir -p "$root/bin" "$home/config" "$home/data" "$home/state"
+  printf '# Firstmate\n' > "$root/AGENTS.md"
+  printf 'See AGENTS.md\n' > "$root/CLAUDE.md"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-session-start.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-bootstrap.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-startup-memory-budget.sh"
+  cp "$ROOT/bin/fm-startup-memory-budget-lib.sh" "$root/bin/fm-startup-memory-budget-lib.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$root/bin/fm-supervision-instructions.sh"
+  printf '7500\n' > "$home/config/startup-memory-budget"
+  printf 'captain\n' > "$home/data/captain.md"
+  printf 'shared\n' > "$home/data/captain-shared.md"
+  printf 'learnings\n' > "$home/data/learnings.md"
+  printf '%s|%s\n' "$root" "$home"
+}
+
+run_check() {
+  local root=$1 home=$2 now=$3 out status=0
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW="$now" "$CHECK" check 2>&1) || status=$?
+  printf '%s\t%s\n' "$status" "$out"
+}
+
+output_part() { printf '%s' "$1" | cut -f2-; }
+status_part() { printf '%s' "$1" | cut -f1; }
+
+add_bytes() {
+  local path=$1 count=$2
+  dd if=/dev/zero bs=1 count="$count" 2>/dev/null | tr '\000' x >> "$path"
+}
+
+test_initial_baseline_is_silent_and_records_metadata() {
+  local rec root home result out
+  rec=$(make_world baseline)
+  root=${rec%%|*}
+  home=${rec#*|}
+  result=$(run_check "$root" "$home" 1000)
+  [ "$(status_part "$result")" = 0 ] || fail "baseline check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "baseline without findings should stay silent: $out"
+  assert_grep $'last_eval\t1000' "$home/state/.startup-growth-check" "baseline did not record the evaluation time"
+  assert_grep $'AGENTS.md\ttracked\tpresent' "$home/state/.startup-growth-check" "baseline did not record tracked startup metadata"
+  assert_grep $'data/learnings.md\tmemory\tpresent' "$home/state/.startup-growth-check" "baseline did not record memory metadata"
+}
+
+test_same_day_poll_does_not_touch_surfaces() {
+  local rec root home result out
+  rec=$(make_world same-day)
+  root=${rec%%|*}
+  home=${rec#*|}
+  run_check "$root" "$home" 1000 >/dev/null
+  rm -f "$root/AGENTS.md"
+  ln -s /no/such/place "$root/AGENTS.md"
+  result=$(run_check "$root" "$home" 1200)
+  [ "$(status_part "$result")" = 0 ] || fail "same-day poll failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "same-day poll inspected surfaces instead of staying gated: $out"
+  assert_grep $'last_eval\t1000' "$home/state/.startup-growth-check" "same-day poll rewrote the daily record"
+}
+
+test_due_growth_reports_once_and_dedupes() {
+  local rec root home result out
+  rec=$(make_world growth)
+  root=${rec%%|*}
+  home=${rec#*|}
+  run_check "$root" "$home" 1000 >/dev/null
+  add_bytes "$root/AGENTS.md" 2500
+  add_bytes "$home/data/learnings.md" 900
+  result=$(run_check "$root" "$home" 87401)
+  [ "$(status_part "$result")" = 0 ] || fail "growth check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_contains "$out" 'tracked startup surface growth AGENTS.md +2500 bytes' "tracked growth was not reported"
+  assert_contains "$out" 'memory growth data/learnings.md +300 estimated_tokens (+900 bytes)' "memory growth was not reported as estimated prompt cost"
+  result=$(run_check "$root" "$home" 173802)
+  [ "$(status_part "$result")" = 0 ] || fail "dedupe check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  [ -z "$out" ] || fail "unchanged persistent finding was repeated: $out"
+}
+
+test_budget_overrun_reports_and_separates_prompt_cost() {
+  local rec root home result out
+  rec=$(make_world overrun)
+  root=${rec%%|*}
+  home=${rec#*|}
+  printf '10\n' > "$home/config/startup-memory-budget"
+  add_bytes "$home/data/captain.md" 90
+  add_bytes "$root/bin/fm-bootstrap.sh" 3000
+  result=$(run_check "$root" "$home" 1000)
+  [ "$(status_part "$result")" = 0 ] || fail "overrun check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_contains "$out" 'startup memory budget overrun total_estimated_tokens=' "budget overrun was not reported"
+  assert_not_contains "$out" 'tracked startup surface growth' "initial tracked growth should not be inferred without a baseline"
+  assert_not_contains "$out" 'bin/fm-bootstrap.sh' "initial tracked bytes were incorrectly counted as prompt-memory overrun evidence"
+}
+
+test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not() {
+  local rec root home result out
+  rec=$(make_world unsafe)
+  root=${rec%%|*}
+  home=${rec#*|}
+  run_check "$root" "$home" 1000 >/dev/null
+  rm -f "$home/data/captain-shared.md" "$home/data/learnings.md"
+  ln -s "$home/data/captain.md" "$home/data/learnings.md"
+  result=$(run_check "$root" "$home" 87401)
+  [ "$(status_part "$result")" = 0 ] || fail "unsafe check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_contains "$out" 'unsafe memory data/learnings.md' "unsafe symlinked memory was not reported"
+  assert_not_contains "$out" 'missing memory data/captain-shared.md' "absent optional shared memory should not be reported"
+}
+
+test_arm_and_disarm_use_authenticated_custom_check() {
+  local rec root home out
+  rec=$(make_world arm)
+  root=${rec%%|*}
+  home=${rec#*|}
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$CHECK" arm)
+  assert_contains "$out" 'armed: state/startup-growth.check.sh' "arm did not announce the check shim"
+  assert_present "$home/state/startup-growth.check.sh" "arm did not write the check shim"
+  assert_present "$home/state/startup-growth.check-trust" "arm did not register trust for the check shim"
+  FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$CHECK" disarm >/dev/null
+  assert_absent "$home/state/startup-growth.check.sh" "disarm left the check shim"
+  assert_absent "$home/state/startup-growth.check-trust" "disarm left the trust binding"
+}
+
+test_initial_baseline_is_silent_and_records_metadata
+test_same_day_poll_does_not_touch_surfaces
+test_due_growth_reports_once_and_dedupes
+test_budget_overrun_reports_and_separates_prompt_cost
+test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not
+test_arm_and_disarm_use_authenticated_custom_check
+pass "fm-startup-growth-check"
