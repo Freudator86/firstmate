@@ -62,6 +62,8 @@ BUDGET_BIN="$SCRIPT_DIR/fm-startup-memory-budget.sh"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-startup-memory-budget-lib.sh
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
+# shellcheck source=bin/fm-line-cap-lib.sh
+. "$SCRIPT_DIR/fm-line-cap-lib.sh"
 
 usage() {
   sed -n '2,43{s/^# \{0,1\}//;p;}' "$0"
@@ -82,6 +84,7 @@ now_epoch() {
 INTERVAL=86400
 BYTE_THRESHOLD=2048
 TOKEN_THRESHOLD=250
+MAX_LINE=1000
 PRIMARY_OWNED_MEMORY=
 if [ -e "$FM_HOME/.fm-secondmate-home" ] || [ -L "$FM_HOME/.fm-secondmate-home" ]; then
   PRIMARY_OWNED_MEMORY=data/captain-shared.md
@@ -186,7 +189,7 @@ check_due() {
 }
 
 evaluate_budget() {
-  local report line reason budget='' total='' status='' exception=''
+  local report line reason valid=yes budget='' total='' status='' exception=''
   if ! report=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG_DIR" FM_DATA_OVERRIDE="$DATA_DIR" \
     "$BUDGET_BIN" report 2>&1); then
     reason=${report##*startup-memory-budget: }
@@ -202,11 +205,20 @@ evaluate_budget() {
     esac
   done < <(printf '%s\n' "$report")
   case "$budget:$total" in
-    *[!0-9:]*|:*|*:)
-      append_finding "startup memory budget unavailable owner=bin/fm-startup-memory-budget.sh reason=unparseable report"
-      return 0
-      ;;
+    *[!0-9:]*|:*|*:) valid=no ;;
   esac
+  case "$status" in
+    within-budget|over-budget) ;;
+    *) valid=no ;;
+  esac
+  case "$exception" in
+    ''|primary-owned-shared-file-alone-exceeds-budget) ;;
+    *) valid=no ;;
+  esac
+  if [ "$valid" = no ]; then
+    append_finding "startup memory budget unavailable owner=bin/fm-startup-memory-budget.sh reason=unparseable report"
+    return 0
+  fi
   printf '%s\t%s\t%s\t%s\t%s\n' memory_budget "$budget" "$total" "$status" "$exception" >> "$NEW_RECORD"
   [ "$status" = over-budget ] && [ -z "$exception" ] || return 0
   append_finding "startup memory budget overrun total_estimated_tokens=$total budget=$budget owner=bin/fm-startup-memory-budget.sh"
@@ -242,7 +254,10 @@ run_check() {
   evaluate_budget
 
   if [ -n "$FINDINGS" ]; then
-    [ "$FINDINGS" = "$reported_previous" ] || printf '%s\n' "startup-growth: $FINDINGS"
+    if [ "$FINDINGS" != "$reported_previous" ]; then
+      fm_cap_line_var "startup-growth: $FINDINGS" "$MAX_LINE"
+      printf '%s\n' "$FM_LINE_CAP_LINE"
+    fi
     printf '%s\t%s\n' reported "$FINDINGS" >> "$NEW_RECORD"
   fi
   write_record_atomically "$NEW_RECORD" "$RECORD" || fail "could not publish report record"

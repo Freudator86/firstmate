@@ -310,6 +310,80 @@ test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not() {
   [ -z "$out" ] || fail "standing unsafe finding was reported again instead of deduplicated: $out"
 }
 
+test_over_long_finding_set_is_capped_with_the_shared_marker() {
+  local rec root home deep seg out reported
+  rec=$(make_world capped)
+  root=${rec%%|*}
+  home=${rec#*|}
+  seg=
+  while [ "${#seg}" -lt 100 ]; do
+    seg="${seg}memory"
+  done
+  deep="$home/data"
+  while [ "${#deep}" -lt 1200 ]; do
+    deep="$deep/$seg"
+  done
+  mkdir -p "$deep"
+  ln -s "$home/data/captain.md" "$deep/learnings.md"
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_DATA_OVERRIDE="$deep" FM_STARTUP_GROWTH_NOW=1000 \
+    "$CHECK" check 2>/dev/null) || fail "capped check failed"
+  assert_contains "$out" 'unsafe memory data/learnings.md' "the leading finding was lost"
+  [ "${#out}" -le 1000 ] || fail "the wake line was emitted uncapped at ${#out} characters"
+  assert_contains "$out" ' [truncated]' "the capped wake line carries no truncation marker"
+  reported=$(awk -F '\t' '$1 == "reported" { print substr($0, index($0, "\t") + 1); exit }' \
+    "$home/state/.startup-growth-check")
+  [ "${#reported}" -gt "${#out}" ] \
+    || fail "the dedupe record stored the capped line instead of the full finding set"
+}
+
+test_unknown_budget_verdict_fields_are_reported_as_unparseable() {
+  local rec root home fixbin out
+  fixbin="$TMP_ROOT/verdict-bin"
+  mkdir -p "$fixbin"
+  cp "$ROOT/bin/fm-startup-growth-check.sh" "$ROOT/bin/fm-pr-lib.sh" \
+    "$ROOT/bin/fm-startup-memory-budget-lib.sh" "$ROOT/bin/fm-line-cap-lib.sh" "$fixbin/"
+
+  cat > "$fixbin/fm-startup-memory-budget.sh" <<'STUB'
+#!/usr/bin/env bash
+printf 'role=primary
+'
+printf 'effective_budget_tokens=7500
+'
+printf 'total_estimated_tokens=10
+'
+printf 'budget_status=sideways
+'
+STUB
+  chmod 0755 "$fixbin/fm-startup-memory-budget.sh"
+  rec=$(make_world verdict-status)
+  root=${rec%%|*}
+  home=${rec#*|}
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 \
+    "$fixbin/fm-startup-growth-check.sh" check 2>&1) || fail "unknown-status check failed: $out"
+  assert_contains "$out" 'startup memory budget unavailable' "an unrecognized budget_status was accepted as within-budget"
+
+  cat > "$fixbin/fm-startup-memory-budget.sh" <<'STUB'
+#!/usr/bin/env bash
+printf 'role=primary
+'
+printf 'effective_budget_tokens=10
+'
+printf 'total_estimated_tokens=7500
+'
+printf 'budget_status=over-budget
+'
+printf 'exception=some-unrelated-annotation
+'
+STUB
+  chmod 0755 "$fixbin/fm-startup-memory-budget.sh"
+  rec=$(make_world verdict-exception)
+  root=${rec%%|*}
+  home=${rec#*|}
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 \
+    "$fixbin/fm-startup-growth-check.sh" check 2>&1) || fail "unknown-exception check failed: $out"
+  assert_contains "$out" 'startup memory budget unavailable' "an unrecognized exception annotation silently suppressed the overrun"
+}
+
 test_findings_are_delivered_even_when_the_record_cannot_be_published() {
   local rec root home out status=0 leftover
   rec=$(make_world unpublishable)
@@ -362,5 +436,7 @@ test_secondmate_is_not_woken_about_the_primary_owned_shared_overrun
 test_metadata_read_failure_keeps_the_retained_baseline
 test_due_unsafe_inputs_are_reported_but_absent_optional_memory_is_not
 test_findings_are_delivered_even_when_the_record_cannot_be_published
+test_over_long_finding_set_is_capped_with_the_shared_marker
+test_unknown_budget_verdict_fields_are_reported_as_unparseable
 test_arm_and_disarm_use_authenticated_custom_check
 pass "fm-startup-growth-check"
