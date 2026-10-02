@@ -489,6 +489,55 @@ test_failed_rearm_keeps_the_previously_armed_shim_and_trust() {
   assert_present "$home/state/.startup-growth-check" "the preserved shim did not run the daily check"
 }
 
+test_interrupted_evaluation_abandons_its_partial_record() {
+  local rec root home bin ready pid status=0 waited=0 first leftover result out
+  rec=$(make_world interrupted)
+  root=${rec%%|*}
+  home=${rec#*|}
+  run_check "$root" "$home" 1000 >/dev/null
+  add_bytes "$root/AGENTS.md" 1500
+
+  bin=$(make_isolated_bin interrupted 0)
+  ready="$TMP_ROOT/interrupted/budget-entered"
+  cat > "$bin/fm-startup-memory-budget.sh" <<STUB
+#!/usr/bin/env bash
+: > "$ready"
+while [ -f "$ready" ]; do
+  sleep 0.05
+done
+printf 'role=primary\n'
+printf 'effective_budget_tokens=7500\n'
+printf 'total_estimated_tokens=10\n'
+printf 'budget_status=within-budget\n'
+STUB
+  chmod 0755 "$bin/fm-startup-memory-budget.sh"
+
+  FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=87401 \
+    "$bin/fm-startup-growth-check.sh" check >/dev/null 2>&1 &
+  pid=$!
+  while [ ! -f "$ready" ]; do
+    [ "$waited" -lt 200 ] || fail "the check never reached its budget call"
+    waited=$((waited + 1))
+    sleep 0.05
+  done
+  kill -TERM "$pid" || fail "could not signal the running check"
+  rm -f "$ready"
+  wait "$pid" || status=$?
+  [ "$status" != 0 ] || fail "an interrupted evaluation finished as if it had published a record"
+
+  IFS= read -r first < "$home/state/.startup-growth-check"
+  assert_equals "$(printf 'schema\tfm-startup-growth-check-v1')" "$first" "an interrupted evaluation published a partial record"
+  assert_grep $'last_eval\t1000' "$home/state/.startup-growth-check" "an interrupted evaluation advanced the daily gate"
+  leftover=$(cd "$home/state" && ls -1 .startup-growth-check.?????? 2>/dev/null || true)
+  [ -z "$leftover" ] || fail "an interrupted evaluation left its temporary record behind: $leftover"
+
+  add_bytes "$root/AGENTS.md" 1000
+  result=$(run_check "$root" "$home" 173802)
+  [ "$(status_part "$result")" = 0 ] || fail "post-interrupt check failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_contains "$out" 'tracked startup surface growth AGENTS.md +2500 bytes' "the retained baselines did not survive an interrupted evaluation"
+}
+
 test_arm_and_disarm_use_authenticated_custom_check() {
   local rec root home out
   rec=$(make_world arm)
@@ -530,6 +579,7 @@ test_findings_are_delivered_even_when_the_record_cannot_be_published
 test_record_with_a_foreign_schema_marker_is_not_trusted
 test_over_long_finding_set_is_capped_with_the_shared_marker
 test_unknown_budget_verdict_fields_are_reported_as_unparseable
+test_interrupted_evaluation_abandons_its_partial_record
 test_arm_and_disarm_use_authenticated_custom_check
 test_rearming_an_unchanged_binding_does_not_replace_the_shim
 test_failed_first_arm_leaves_the_home_plainly_unarmed

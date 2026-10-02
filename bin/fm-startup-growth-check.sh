@@ -244,7 +244,8 @@ run_check() {
   record_usable || OLD_RECORD=/dev/null
   reported_previous=$(awk -F '\t' '$1 == "reported" { print substr($0, index($0, "\t") + 1); exit }' "$OLD_RECORD" 2>/dev/null || true)
   NEW_RECORD=$(mktemp "$STATE/.startup-growth-check.XXXXXX") || exit 1
-  trap 'rm -f -- "${NEW_RECORD:-}"' EXIT HUP INT TERM
+  trap 'rm -f -- "${NEW_RECORD:-}"' EXIT
+  trap 'rm -f -- "${NEW_RECORD:-}"; exit 1' HUP INT TERM
   FINDINGS=
   printf '%s\n' "$RECORD_SCHEMA_LINE" > "$NEW_RECORD" || exit 1
   printf '%s\t%s\n' last_eval "$now" >> "$NEW_RECORD" || exit 1
