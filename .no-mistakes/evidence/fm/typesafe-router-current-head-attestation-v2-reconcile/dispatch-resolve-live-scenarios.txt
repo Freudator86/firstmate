@@ -1,0 +1,229 @@
+
+=========== S1 clear route publishes the multi-axis classifier evidence
+dispatch-resolve:
+  status: clear
+  model: jev-1.13.0   latency_ms: 51   tokens: 812/386
+  rule: rule_3 (A simple bug fix with a stated root cause.)   confidence: 0.9
+  probabilities: rule_1=0.02 rule_2=0.02 rule_3=0.94 default=0.02
+  classification: intent=bugfix(0.91) domain=project_code(0.88) difficulty=medium(0.87) risk=low(0.86) model_class=standard(0.9) escalation=no(0.93)
+  note: rule matched
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=-0.4627  runway=projected_exhaustion  -> eligible
+  candidate: cursor:cursor-grok-4.6-medium  provider=cursor  scope=all_models  remaining=91%  spendPriority=0.7597  runway=through_reset  -> eligible
+  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'
+exit=0
+--- the request the product actually sent (questions offered) ---
+rule: default|rule_1|rule_2|rule_3
+intent: bugfix|design|documentation|implementation|investigation|operations|other|review
+domain: browser_visual|docs|firstmate|github|infrastructure|project_code|unknown
+difficulty: high|low|medium|xhigh
+risk: high|low|medium|sensitive
+model_class: code_execution|current_web|small_fast|standard|strong_reasoning|vision
+escalation: no|yes
+--- local-only fields that must never leave the machine ---
+absent from request: LAB-ONLY-WHY
+absent from request: spendPriority
+absent from request: cursor-grok
+absent from request: LAB-BOILERPLATE
+absent from request: min_percent
+
+=========== S2 a confident escalation answer stops dispatch and emits no profile
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 51   tokens: 812/386
+  rule: rule_3 (A simple bug fix with a stated root cause.)   confidence: 0.9
+  probabilities: rule_1=0.02 rule_2=0.02 rule_3=0.94 default=0.02
+  classification: intent=bugfix(0.91) domain=project_code(0.88) difficulty=medium(0.87) risk=low(0.86) model_class=standard(0.9) escalation=yes(0.84)
+  reason: classifier recommends escalation before dispatch
+  note: rule matched
+  candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=-0.4627  runway=projected_exhaustion  -> eligible
+  candidate: cursor:cursor-grok-4.6-medium  provider=cursor  scope=all_models  remaining=91%  spendPriority=0.7597  runway=through_reset  -> eligible
+
+=========== S3 escalation on a rule whose quota floor fell through reports the profiles actually selected
+--- current head ---
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 52   tokens: 812/386
+  rule: rule_1 (New feature work on the app.)   confidence: 0.97
+  probabilities: rule_1=0.95 rule_2=0.02 rule_3=0.02 default=0.01
+  classification: intent=bugfix(0.91) domain=project_code(0.88) difficulty=medium(0.87) risk=low(0.86) model_class=standard(0.9) escalation=yes(0.84)
+  reason: classifier recommends escalation before dispatch
+  note: rule rule_1 floor model:fable below 20%: fall through to default
+  candidate: claude:opus  provider=claude  scope=all_models  remaining=79%  spendPriority=-0.4627  runway=projected_exhaustion  -> eligible
+  candidate: cursor:cursor-grok-4.6-high  provider=cursor  scope=all_models  remaining=91%  spendPriority=0.7597  runway=through_reset  -> eligible
+--- same input, pre-fix revision 2e9eed7 (reports the floor-rejected claude:fable route, no note) ---
+dispatch-resolve:
+  status: escalate
+  model: jev-1.13.0   latency_ms: 51   tokens: 812/386
+  rule: rule_1 (New feature work on the app.)   confidence: 0.97
+  probabilities: rule_1=0.95 rule_2=0.02 rule_3=0.02 default=0.01
+  classification: intent=bugfix(0.91) domain=project_code(0.88) difficulty=medium(0.87) risk=low(0.86) model_class=standard(0.9) escalation=yes(0.84)
+  reason: classifier recommends escalation before dispatch
+  candidate: claude:fable  provider=claude  scope=model:fable  remaining=15%  spendPriority=-0.79  runway=projected_exhaustion  bounds=all_models:79%/projected_exhaustion,model:fable:15%/projected_exhaustion  -> eligible
+
+=========== S4 a malformed, missing, or unrecognized evidence axis is unavailable and never discards the route
+--- response tweak: .answers.risk.probabilities.medium = 0.24
+  status: clear
+  classification: intent=bugfix(0.91) domain=project_code(0.88) difficulty=medium(0.87) risk=unavailable model_class=standard(0.9) escalation=no(0.93)
+  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'
+--- response tweak: del(.answers.domain)
+  status: clear
+  classification: intent=bugfix(0.91) domain=unavailable difficulty=medium(0.87) risk=low(0.86) model_class=standard(0.9) escalation=no(0.93)
+  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'
+--- response tweak: .answers.intent.choice = "Bugfix"
+  status: clear
+  classification: intent=unavailable domain=project_code(0.88) difficulty=medium(0.87) risk=low(0.86) model_class=standard(0.9) escalation=no(0.93)
+  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'
+
+=========== S5 a malformed gating escalation axis is an error outcome, never read as no escalation
+--- response tweak: .answers.escalation.choice = "YES"
+dispatch-resolve: error (response is not a typed dispatch classifier answer)
+  status: error
+  reason: response is not a typed dispatch classifier answer
+--- response tweak: del(.answers.escalation)
+dispatch-resolve: error (response is not a typed dispatch classifier answer)
+  status: error
+  reason: response is not a typed dispatch classifier answer
+
+=========== S6 one classifier vocabulary: a newly offered intent option routes on head and breaks the pre-fix revision
+--- head + one extra offered intent option ---
+  status: clear
+  classification: intent=triage(0.77) domain=project_code(0.88) difficulty=medium(0.87) risk=low(0.86) model_class=standard(0.9) escalation=no(0.93)
+  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'
+--- revision 427e365 (hardcoded validator arrays) + the same extra option ---
+  status: error
+  reason: response is not a typed dispatch classifier answer
+
+=========== S7 a never-send value that only the tool's own fixed question text carries keeps routing
+  status: clear
+  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'
+request reached the endpoint: yes
+fixed escalation question still carries the listed value: 1
+operator-controlled strings carrying it: 0
+--- same list and brief, pre-CI-fix revision b5ca0cc (resolution off for every brief) ---
+dispatch-resolve: off (brief text matches $LAB/config/dispatch-never-send line 1; nothing sent)
+request reached the endpoint: no (nothing sent)
+
+=========== S8 privacy coverage: the task text, the project name, a rule's own when, and a bad list all withhold the request
+--- listed value in the task text ---
+dispatch-resolve: off (brief, project, or rule text matches $LAB/config/dispatch-never-send line 1; nothing sent)
+exit=0
+request reached the endpoint: no (nothing sent)
+--- listed value only in the project name ---
+dispatch-resolve: off (brief, project, or rule text matches $LAB/config/dispatch-never-send line 2; nothing sent)
+exit=0
+request reached the endpoint: no (nothing sent)
+--- listed value only in a rule's own when ---
+dispatch-resolve: off (brief, project, or rule text matches $LAB/config/dispatch-never-send line 1; nothing sent)
+exit=0
+request reached the endpoint: no (nothing sent)
+--- listed value the brief wraps across lines, a tab and a no-break space ---
+dispatch-resolve: off (brief, project, or rule text matches $LAB/config/dispatch-never-send line 1; nothing sent)
+exit=0
+request reached the endpoint: no (nothing sent)
+--- the list path is a directory ---
+dispatch-resolve: off ($LAB/config/dispatch-never-send is not a readable regular file; nothing sent)
+exit=0
+request reached the endpoint: no (nothing sent)
+
+=========== S9 the evidence-based ten-second budget
+--- endpoint answers after 7s, current head ---
+  status: clear
+  model: jev-1.13.0   latency_ms: 7012   tokens: 812/386
+  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'
+--- endpoint answers after 7s, base revision 8f756bb (5s budget) ---
+dispatch-resolve: error (http 000 after 5009 ms: )
+  status: error
+  reason: http 000 after 5009 ms: 
+--- endpoint answers after 12s, current head hands control back ---
+dispatch-resolve: error (http 000 after 10009 ms: )
+  status: error
+  reason: http 000 after 10009 ms: 
+
+=========== S10 local policy and the fixed 0.6 escalation floor
+--- rule confidence below the floor stays ambiguous and still publishes evidence ---
+  status: ambiguous
+  classification: intent=bugfix(0.91) domain=project_code(0.88) difficulty=medium(0.87) risk=low(0.86) model_class=standard(0.9) escalation=no(0.93)
+  reason: confidence 0.41 below floor 0.6
+--- an escalation answer at 0.55 does not stop dispatch ---
+  status: clear
+  classification: intent=bugfix(0.91) domain=project_code(0.88) difficulty=medium(0.87) risk=low(0.86) model_class=standard(0.9) escalation=yes(0.55)
+  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'
+--- a declared captain-approval rule is reported ahead of the classifier ---
+  status: escalate
+  reason: rule requires the captain's explicit approval before dispatch
+--- a rule min_confidence of 0.9 never raises the 0.6 escalation floor ---
+  status: escalate
+  classification: intent=bugfix(0.91) domain=project_code(0.88) difficulty=medium(0.87) risk=low(0.86) model_class=standard(0.9) escalation=yes(0.7)
+  reason: classifier recommends escalation before dispatch
+
+=========== end of live scenario replay
+
+=========== S11 nothing outside the checked set carries operator content
+The never-send check skips the request strings below. Two runs with a different brief,
+a different --project, and a different rules file produced byte-identical skipped text
+(47 strings), and no operator marker (ZZZ-MARKER / zeta-marker-project) appeared in it.
+
+  A registered project codebase or tests.
+  Broad, ambiguous, multi-system, or high-risk reasoning.
+  Browser, visual, UI, or screenshot-driven work.
+  Build or change product/code behavior.
+  Classify the dominant domain for routing evidence only.
+  Classify the task intent for routing evidence only; local Firstmate policy still owns the route.
+  Clear objective with moderate integration or validation.
+  Destructive, irreversible, credential, security-sensitive, payment, privacy, or merge-authority concern.
+  Documentation or prose surface.
+  Escalation appears necessary before dispatch or action.
+  Estimate implementation or reasoning difficulty; use high only for broad exploration, ambiguity, or higher risk, and do not make xhigh routine.
+  Estimate the highest relevant safety or delivery risk; sensitive means a human authority boundary may be involved.
+  ... (47 strings total, all tool-authored constants)
+
+=========== S12 the operator contract in docs/configuration.md matches what the runs showed
+standalone bold section labels parsed as their own blocks:
+  - **When firstmate invokes the resolver**
+  - **What the model receives**
+  - **Never-send list (config/dispatch-never-send)**
+  - **Missing or invalid rules**
+  - **Checks performed after the answer**
+  - **Confidence and fallback rules**
+  - **Classifier answer validation and evidence**
+  - **Candidate eligibility and evidence**
+  - **Outcomes and exit status**
+  - **Firstmate retains the dispatch decision**
+  - **Key handling and fixed settings**
+labels absorbed into a neighbouring paragraph: none
+
+contract text '0.6 escalation floor': present
+    - Each axis is validated against the options that axis actually offered in the request, so the
+    offered vocabulary and the accepted vocabulary cannot drift apart. - The rule answer and the
+    `escalation` answer must contain exactly every offered choice, use numeric probabilities from 0
+    through 1 that sum to approximately 1 within 0.01, and carry a confidence from 0 through 1; the
+    `escalation` answer must also be present and name one of its own offered options, so a missing or
+    unrecognized escalation answer is an `error` outcome, never read as "no escalation". - The
+    classifier axes other than `escalation` are published evidence only: their choices and confidences
+    ride on the `classification:` line and never gate the route, so low confidence on an axis no gate
+    reads cannot veto an otherwise valid rule match. - An evidence axis that is missing, malformed, or
+    answered outside its offered options is published as `unavailable` on the `classification:` line and
+    changes nothing else, so one bad evidence distribution never discards a valid rule match. - The
+    `escalation` axis can make the tool decline to emit a profile, but only when its own confidence
+    reaches the fixed 0.6 escalation floor, which a rule's `min_confidence` never raises. - A `yes`
+    below the floor is published on the `classification:` line and routes as usual, so a near-coin-flip
+    reading never spends a full intake. - No classifier answer can directly authorize a model launch, a
+    merge, a sensitive action, or an exception to local policy, and a declared `approval` or rule-floor
+    gate is always reported ahead of the classifier, whatever its confidence.
+
+contract text 'min_confidence': present
+    - A rule that declares `min_confidence` is checked against that rule's own probability, whether it
+    is the picked option or a runner-up, so a runner-up never needs weaker support than it would as the
+    pick. - A picked rule without `min_confidence`, and the neutral option, keep the global 0.6 floor on
+    the answer's confidence exactly as before, so a file with no declared floors behaves as it did.
+
+contract text 'the project name, the task text, and each rule': present
+    Before the request is sent, every operator-controlled string in it is checked: the project name, the
+    task text, and each rule's `when`. The tool's own fixed question and option text carries no operator
+    content and is not checked, so a listed value that appears only in that vocabulary leaves resolution
+    running. A match stops the request: the resolver behaves exactly as when it is off, printing one
+    `dispatch-resolve: off (...; nothing sent)` line on stderr and nothing on stdout, making no network
+    or quota call, and exiting 0, so firstmate dispatches through its existing intake. A list that is
+    present but not a readable regular file also stops the request the same way rather than sending
+    unchecked text. That one diagnostic names the list line number at most and never prints the listed
+    value or the matching text.

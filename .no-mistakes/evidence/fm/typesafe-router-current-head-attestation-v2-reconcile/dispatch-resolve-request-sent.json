@@ -1,0 +1,99 @@
+{
+  "path": "/v1/systemone",
+  "headers": {
+    "Host": "api.typesafe.ai",
+    "User-Agent": "curl/8.5.0",
+    "Accept": "*/*",
+    "Content-Type": "application/json",
+    "Authorization": "Bearer <lab key, redacted>",
+    "Content-Length": "4546"
+  },
+  "body": {
+    "model": "jev-latest",
+    "state": {
+      "task": {
+        "project": "pager",
+        "brief": "## Captain's intent\nFix the off-by-one in the pager: root cause is the `<=` on line 40 of pager.sh.\n\n## Firstmate spec\n- Keep the change small and add one regression test.\n"
+      }
+    },
+    "questions": {
+      "rule": {
+        "type": "choice",
+        "instructions": "Which ONE dispatch rule best fits `task` (read `task.brief` and `task.project`)? Each option is the rule's own matching condition; pick `default` when no rule's condition is met, including when a rule's own exemption text excludes this task.",
+        "criteria": {
+          "rule_1": "New feature work on the app.",
+          "rule_2": "Genuinely very difficult design or planning work.",
+          "rule_3": "A simple bug fix with a stated root cause.",
+          "default": "No listed rule applies to this task."
+        }
+      },
+      "intent": {
+        "type": "choice",
+        "instructions": "Classify the task intent for routing evidence only; local Firstmate policy still owns the route.",
+        "criteria": {
+          "implementation": "Build or change product/code behavior.",
+          "bugfix": "Fix a reported defect or regression.",
+          "investigation": "Research, diagnose, reproduce, audit, or report without changing code.",
+          "review": "Review existing work, a PR, or a design.",
+          "operations": "Operate Firstmate, GitHub, CI, credentials, releases, or project management.",
+          "documentation": "Write or update documentation.",
+          "design": "Plan architecture, product behavior, or implementation shape.",
+          "other": "None of the listed intents is a confident fit."
+        }
+      },
+      "domain": {
+        "type": "choice",
+        "instructions": "Classify the dominant domain for routing evidence only.",
+        "criteria": {
+          "firstmate": "Firstmate supervisor tooling or instructions.",
+          "project_code": "A registered project codebase or tests.",
+          "infrastructure": "Runtime, shell, CI, deployment, or local tooling infrastructure.",
+          "github": "GitHub issues, pull requests, reviews, or repository settings.",
+          "browser_visual": "Browser, visual, UI, or screenshot-driven work.",
+          "docs": "Documentation or prose surface.",
+          "unknown": "The domain is unclear from the brief."
+        }
+      },
+      "difficulty": {
+        "type": "choice",
+        "instructions": "Estimate implementation or reasoning difficulty; use high only for broad exploration, ambiguity, or higher risk, and do not make xhigh routine.",
+        "criteria": {
+          "low": "Small, clear, well-bounded work.",
+          "medium": "Clear objective with moderate integration or validation.",
+          "high": "Broad, ambiguous, multi-system, or high-risk reasoning.",
+          "xhigh": "Exceptionally difficult, architecture-heavy, or safety-critical reasoning."
+        }
+      },
+      "risk": {
+        "type": "choice",
+        "instructions": "Estimate the highest relevant safety or delivery risk; sensitive means a human authority boundary may be involved.",
+        "criteria": {
+          "low": "Routine reversible change with low blast radius.",
+          "medium": "Moderate complexity or user-visible impact.",
+          "high": "High blast radius, security-adjacent, data-affecting, or hard-to-reverse work.",
+          "sensitive": "Destructive, irreversible, credential, security-sensitive, payment, privacy, or merge-authority concern."
+        }
+      },
+      "model_class": {
+        "type": "choice",
+        "instructions": "Recommend likely model capability class as evidence only, not a concrete model launch.",
+        "criteria": {
+          "small_fast": "Small or fast model is likely sufficient.",
+          "standard": "Standard coding/reasoning model is likely sufficient.",
+          "strong_reasoning": "Stronger reasoning model is likely useful.",
+          "current_web": "Needs current external facts or web/forge context.",
+          "vision": "Needs visual/browser evidence.",
+          "code_execution": "Needs substantial local code execution or test iteration."
+        }
+      },
+      "escalation": {
+        "type": "choice",
+        "instructions": "Should Firstmate escalate before dispatch because the request may need captain approval, a sensitive decision, unclear scope, credentials, destructive or irreversible action, or a safety boundary?",
+        "criteria": {
+          "no": "No escalation appears necessary before normal Firstmate policy checks.",
+          "yes": "Escalation appears necessary before dispatch or action."
+        }
+      }
+    }
+  }
+}
