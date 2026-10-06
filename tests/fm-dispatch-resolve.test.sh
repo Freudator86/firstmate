@@ -493,6 +493,15 @@ assert_contains "$out" '  status: escalate' "an explicit escalation answer escal
 assert_contains "$out" '  reason: classifier recommends escalation before dispatch' "the escalation axis names itself"
 assert_not_contains "$out" '  profile:' "classifier evidence cannot authorize a model launch or sensitive action"
 
+write_response "$CLASSIFIER" rule_1 0.97
+jq '.answers.escalation.choice = "yes" | .answers.escalation.confidence = 0.84 | .answers.escalation.probabilities = {"no":0.16,"yes":0.84}' "$CLASSIFIER" > "$RESPONSE"
+reset_log
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" '  status: escalate' "a classifier escalation on a rule whose floor fell through still escalates"
+assert_contains "$out" '  note: rule rule_1 floor model:fable below 20%: fall through to default' "classifier escalation keeps the note for the profile set in play"
+assert_contains "$out" 'candidate: cursor:cursor-grok-4.6-high' "classifier escalation reports the selected default candidates"
+assert_not_contains "$out" 'candidate: claude:fable' "classifier escalation never reports a profile the floor gate rejected"
+
 write_response "$CLASSIFIER" rule_4 0.9
 jq '.answers.escalation.choice = "yes" | .answers.escalation.confidence = 0.55 | .answers.escalation.probabilities = {"no":0.45,"yes":0.55}' "$CLASSIFIER" > "$RESPONSE"
 reset_log

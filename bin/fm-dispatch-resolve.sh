@@ -284,11 +284,11 @@ never_send_off() {
   exit 0
 }
 
-# Checks every operator-controlled string the request carries - the project
-# name, the task text, and each rule's `when` - so no text of yours reaches the
-# network unchecked. The tool's own fixed question and option vocabulary carries
-# no operator content, so it is not matched and a listed value that collides
-# with it alone never turns resolution off.
+# Checks every string the request carries except the tool's own fixed question
+# and option vocabulary, so no text of yours - the project name, the task text,
+# each rule's `when`, and any content the request grows later - reaches the
+# network unchecked. That fixed vocabulary carries no operator content, so a
+# listed value that collides with it alone never turns resolution off.
 # grep's own stderr is discarded because it can echo the pattern.
 never_send_check() {
   local list value n=0 rc
@@ -297,7 +297,11 @@ never_send_check() {
     || never_send_off "$NEVER_SEND_PATH is not a readable regular file"
   # Collapse whitespace runs on both sides so a value the brief wraps across
   # lines or spaces differently still matches
-  jq -r '[.state, (.questions.rule.criteria | del(.default))]
+  jq -r 'del(.model, .questions[].type, .questions[].instructions,
+      .questions.rule.criteria.default,
+      .questions.intent.criteria, .questions.domain.criteria,
+      .questions.difficulty.criteria, .questions.risk.criteria,
+      .questions.model_class.criteria, .questions.escalation.criteria)
     | .. | strings | gsub("\\s+"; " ")' <<<"$REQUEST" > "$SEND_TEXT" 2>/dev/null \
     || never_send_off "could not extract the request text to check"
   list=$(jq -Rr 'gsub("\\s+"; " ")' "$NEVER_SEND_PATH" 2>/dev/null) \
@@ -524,7 +528,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
   elif $sel.escalate then
     $ev + {status: "escalate", reason: $sel.escalate, candidates: ($answer_use | map(evaluate(.)))}
   elif ans("escalation").choice == "yes" and ans("escalation").confidence >= ($floor | tonumber) then
-    $ev + {status: "escalate", reason: "classifier recommends escalation before dispatch", candidates: ($answer_use | map(evaluate(.)))}
+    $ev + {status: "escalate", reason: "classifier recommends escalation before dispatch", note: $sel.note, candidates: ($sel.use | map(evaluate(.)))}
   elif ($sel.use | length) == 0 then $ev + {status: "escalate", reason: "no profiles configured for \($sel.source)", note: $sel.note, candidates: []}
   else
     ($sel.use | map(evaluate(.))) as $cands |
