@@ -538,6 +538,46 @@ STUB
   assert_contains "$out" 'tracked startup surface growth AGENTS.md +2500 bytes' "the retained baselines did not survive an interrupted evaluation"
 }
 
+test_aged_empty_orphan_records_are_swept_without_touching_live_work() {
+  local rec root home state now result out
+  rec=$(make_world orphan-sweep)
+  root=${rec%%|*}
+  home=${rec#*|}
+  state="$home/state"
+  now=$(date +%s)
+  run_check "$root" "$home" "$((now - 90000))" >/dev/null
+  add_bytes "$root/AGENTS.md" 2500
+
+  : > "$state/.startup-growth-check.aaaaaa"
+  printf 'schema\tfm-startup-growth-check-v1\n' > "$state/.startup-growth-check.bbbbbb"
+  touch -t 202001010000 "$state/.startup-growth-check.aaaaaa" "$state/.startup-growth-check.bbbbbb"
+  : > "$state/.startup-growth-check.cccccc"
+
+  result=$(run_check "$root" "$home" "$now")
+  [ "$(status_part "$result")" = 0 ] || fail "sweeping evaluation failed: $(output_part "$result")"
+  out=$(output_part "$result")
+  assert_absent "$state/.startup-growth-check.aaaaaa" "an interrupted evaluation's empty temporary record was never swept"
+  assert_present "$state/.startup-growth-check.bbbbbb" "the sweep removed an orphan that still held record bytes"
+  assert_present "$state/.startup-growth-check.cccccc" "the sweep removed a concurrent evaluation's live temporary record"
+  assert_contains "$out" 'tracked startup surface growth AGENTS.md +2500 bytes' "the sweep cost the evaluation its retained baselines"
+  assert_grep $'last_eval\t'"$now" "$state/.startup-growth-check" "the sweeping evaluation did not publish its own record"
+}
+
+test_orphan_sweep_stays_inside_the_daily_cadence() {
+  local rec root home state now result
+  rec=$(make_world orphan-sweep-gated)
+  root=${rec%%|*}
+  home=${rec#*|}
+  state="$home/state"
+  now=$(date +%s)
+  run_check "$root" "$home" "$now" >/dev/null
+  : > "$state/.startup-growth-check.aaaaaa"
+  touch -t 202001010000 "$state/.startup-growth-check.aaaaaa"
+  result=$(run_check "$root" "$home" "$((now + 200))")
+  [ "$(status_part "$result")" = 0 ] || fail "same-day poll failed: $(output_part "$result")"
+  assert_present "$state/.startup-growth-check.aaaaaa" "a same-day poll did work instead of staying gated"
+}
+
 test_arm_and_disarm_use_authenticated_custom_check() {
   local rec root home out
   rec=$(make_world arm)
@@ -580,6 +620,8 @@ test_record_with_a_foreign_schema_marker_is_not_trusted
 test_over_long_finding_set_is_capped_with_the_shared_marker
 test_unknown_budget_verdict_fields_are_reported_as_unparseable
 test_interrupted_evaluation_abandons_its_partial_record
+test_aged_empty_orphan_records_are_swept_without_touching_live_work
+test_orphan_sweep_stays_inside_the_daily_cadence
 test_arm_and_disarm_use_authenticated_custom_check
 test_rearming_an_unchanged_binding_does_not_replace_the_shim
 test_failed_first_arm_leaves_the_home_plainly_unarmed

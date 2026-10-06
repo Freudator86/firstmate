@@ -39,6 +39,10 @@
 #   250 estimated tokens, ceil(bytes / 3), for printed startup memory files
 # Budget overrun is always meaningful.
 #
+# A due evaluation also removes the empty temporary records a killed
+# evaluation can leave in state/: only files matching its own mint pattern
+# that are empty and untouched for an hour, never a record with bytes in it.
+#
 # `arm` writes state/startup-growth.check.sh and binds its bytes with
 # fm-check-register.sh so the existing watcher slow-check cadence invokes the
 # daily gate.  `disarm` removes the shim, trust binding, and report record.
@@ -69,7 +73,7 @@ BUDGET_BIN="$SCRIPT_DIR/fm-startup-memory-budget.sh"
 . "$SCRIPT_DIR/fm-check-lib.sh"
 
 usage() {
-  sed -n '2,44{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,48{s/^# \{0,1\}//;p;}' "$0"
 }
 
 fail() {
@@ -88,6 +92,8 @@ INTERVAL=86400
 BYTE_THRESHOLD=2048
 TOKEN_THRESHOLD=250
 MAX_LINE=1000
+ORPHAN_GRACE=3600
+ORPHAN_SWEEP_LIMIT=64
 PRIMARY_OWNED_MEMORY=
 if [ -e "$FM_HOME/.fm-secondmate-home" ] || [ -L "$FM_HOME/.fm-secondmate-home" ]; then
   PRIMARY_OWNED_MEMORY=data/captain-shared.md
@@ -99,6 +105,35 @@ file_size() {
   else
     stat -c %s "$1" 2>/dev/null
   fi
+}
+
+file_mtime() {
+  if [ "$(uname)" = Darwin ]; then
+    /usr/bin/stat -f %m "$1" 2>/dev/null
+  else
+    stat -c %Y "$1" 2>/dev/null
+  fi
+}
+
+# A kill landing between mktemp(1) and the traps that own the temporary record
+# leaves an empty scratch file nothing else would ever remove.  A due
+# evaluation sweeps those, bounded on every axis: only the mint pattern, only
+# empty regular files, only ones untouched for ORPHAN_GRACE seconds, and at
+# most ORPHAN_SWEEP_LIMIT per evaluation.  A concurrent evaluation's live
+# scratch is minutes younger than that grace, and a scratch carrying any
+# record bytes is never a candidate, so neither published baselines nor work in
+# flight can be removed here.
+sweep_orphan_records() {  # <now>
+  local now=$1 scratch mtime swept=0
+  for scratch in "$STATE"/.startup-growth-check.??????; do
+    [ "$swept" -lt "$ORPHAN_SWEEP_LIMIT" ] || break
+    [ -f "$scratch" ] && [ ! -L "$scratch" ] && [ ! -s "$scratch" ] || continue
+    mtime=$(file_mtime "$scratch") || continue
+    case "$mtime" in ''|*[!0-9]*) continue ;; esac
+    [ $((now - mtime)) -ge "$ORPHAN_GRACE" ] || continue
+    rm -f -- "$scratch" || true
+    swept=$((swept + 1))
+  done
 }
 
 append_finding() {
@@ -240,6 +275,7 @@ run_check() {
     return 0
   fi
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || fail "state directory is unavailable"
+  sweep_orphan_records "$now"
   OLD_RECORD=$RECORD
   record_usable || OLD_RECORD=/dev/null
   reported_previous=$(awk -F '\t' '$1 == "reported" { print substr($0, index($0, "\t") + 1); exit }' "$OLD_RECORD" 2>/dev/null || true)
