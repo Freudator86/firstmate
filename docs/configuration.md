@@ -665,6 +665,7 @@ The helper's header owns exact parsing, publication, and report output mechanics
 
 A home can arm a lightweight daily growth monitor with `bin/fm-startup-growth-check.sh arm`.
 It writes `state/startup-growth.check.sh` and binds it through the existing authenticated watcher-check mechanism, so no extra daemon or scheduler is installed.
+Registering it is a reason to watch on the same terms as the [watched-tool check](#watched-tool-updates-configwatched-toolsjson), so an armed home keeps needing a watcher after its last task is torn down.
 Use `bin/fm-startup-growth-check.sh disarm` to remove the check and its local report record.
 
 The check evaluates at most once per day and stays silent when nothing meaningful changed.
