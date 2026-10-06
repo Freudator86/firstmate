@@ -1,0 +1,18 @@
+# fresh armed home: shrink the memory files back inside budget, drop the record,
+# and let the real watcher take the first daily evaluation
+now=40000000 rc=124 wake=Terminated
+
+# the record the first evaluation published (tab-separated: path, kind, presence, bytes, baseline)
+schema	fm-startup-growth-check-v1
+last_eval	40000000
+AGENTS.md	tracked	present	61258	61258
+CLAUDE.md	tracked	present	90	90
+bin/fm-session-start.sh	tracked	present	55508	55508
+bin/fm-bootstrap.sh	tracked	present	80324	80324
+bin/fm-supervision-instructions.sh	tracked	present	10437	10437
+data/projects.md	printed-memory	present	19	19
+data/secondmates.md	printed-memory	present	22	22
+data/captain.md	memory	present	36	36
+data/captain-shared.md	memory	present	9	9
+data/learnings.md	memory	present	12	12
+memory_budget	7500	19	within-budget	

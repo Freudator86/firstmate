@@ -1,0 +1,28 @@
+Live strace of the armed daily check in the lab home
+  $ strace -f -e trace=openat,open,read,statx,newfstatat,stat \
+      /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh
+  -> startup-growth: memory growth data/learnings.md +1000 estimated_tokens
+     (+3000 bytes, total 32939 bytes); startup memory budget overrun
+     total_estimated_tokens=11002 budget=7500 owner=bin/fm-startup-memory-budget.sh
+
+data/learnings.md is 32939 bytes of filler (y/z/L/M); AGENTS.md carries 'x' filler.
+Searching the whole traced process tree for a read() that returned that content:
+reads returning learnings.md filler : 0
+reads returning AGENTS.md filler    : 0
+
+Syscalls issued against the two watched paths (the check process is 535048):
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/root/AGENTS.md", 
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/root/AGENTS.md", 
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/root/AGENTS.md", 
+535061 statx(AT_FDCWD, "/tmp/fm-lab.J6LhXw/root/AGENTS.md", AT_STATX_SYNC_AS_STAT|AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT, STATX_SIZE, 
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", 
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", 
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", 
+535106 statx(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", AT_STATX_SYNC_AS_STAT|AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT, STATX_SIZE, 
+535111 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", 
+535111 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", 
+535111 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", 
+535130 openat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", O_RDONLY) = 3
+
+The single openat belongs to the pre-existing budget owner running `wc -c < file`,
+which GNU wc answers from fstat/lseek - no content bytes are read (counts above).

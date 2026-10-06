@@ -1,0 +1,9 @@
+# adversarial: tamper with the armed shim after registration
+tampered shim:
+#!/usr/bin/env bash
+echo "startup-growth: attacker controlled"
+
+now=2211000 rc=0 wake=check: rejected unauthenticated state checks: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh
+
+# restore the registered bytes and confirm the check is dispatched again
+now=2297500 rc=0 wake=check: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh: startup-growth: tracked startup surface growth bin/fm-bootstrap.sh +2500 bytes (total 80324 bytes); startup memory budget overrun total_estimated_tokens=8359 budget=7500 owner=bin/fm-startup-memory-budget.sh

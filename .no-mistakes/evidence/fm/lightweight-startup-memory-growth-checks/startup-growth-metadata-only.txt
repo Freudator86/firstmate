@@ -1,0 +1,61 @@
+### A home with a 5 MB historical data/learnings.md, check armed
+  data/learnings.md: 5000000 bytes
+armed: state/startup-growth.check.sh
+
+## A. first evaluation on the real clock: every surface is baselined silently,
+##    but the pre-existing 5 MB learnings file already breaks the token budget
+  printed: [startup-growth: startup memory budget overrun total_estimated_tokens=1666673 budget=7500 owner=bin/fm-startup-memory-budget.sh]
+  last_eval	1791318628
+  data/learnings.md	memory	present	5000000	5000000
+
+## B. the operator then grows AGENTS.md by 9000 bytes and learnings by 400000,
+##    and a poll lands inside the same day
+  wall clock: 0.018s
+  printed: []   <= silent
+  last_eval	1791318628   <= unchanged, the day is not re-evaluated
+  every path under the home this gated poll touched:
+  $FM_HOME
+  $FM_HOME/.fm-secondmate-home
+  $FM_HOME/checkout
+  $FM_HOME/checkout\n
+  $FM_HOME/state/.startup-growth-check
+  $FM_HOME/state/startup-growth.check.sh
+  => only its own small state record and its own shim; no watched surface is
+     stat-ed, opened, or reread inside the day
+  total bytes read(2): 110257
+
+## C. a day later, the due evaluation: sizes only, contents never loaded
+  wall clock: 0.112s
+  printed: [startup-growth: tracked startup surface growth AGENTS.md +9000 bytes (total 56958 bytes); memory growth data/learnings.md +133334 estimated_tokens (+400000 bytes, total 5400000 bytes); startup memory budget overrun total_estimated_tokens=1800006 budget=7500 owner=bin/fm-startup-memory-budget.sh]
+  syscalls naming the 5 MB data/learnings.md:
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/data/learnings.md", {st_mode=S_IFREG|0664, st_size=5400000, ...}, 0) = 0
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/data/learnings.md", {st_mode=S_IFREG|0664, st_size=5400000, ...}, AT_SYMLINK_NOFOLLOW) = 0
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/data/learnings.md", {st_mode=S_IFREG|0664, st_size=5400000, ...}, 0) = 0
+    statx(AT_FDCWD, "/tmp/fm-lab.nUDUZC/data/learnings.md", AT_STATX_SYNC_AS_STAT|AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT, STATX_SIZE, {stx_mask=STA
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/data/learnings.md", {st_mode=S_IFREG|0664, st_size=5400000, ...}, 0) = 0
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/data/learnings.md", {st_mode=S_IFREG|0664, st_size=5400000, ...}, AT_SYMLINK_NOFOLLOW) = 0
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/data/learnings.md", {st_mode=S_IFREG|0664, st_size=5400000, ...}, 0) = 0
+    openat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/data/learnings.md", O_RDONLY) = 3
+    <... read resumed>"file=data/learnings.md bytes=540"..., 4096) = 77
+    (one openat from wc -c for the size; GNU wc -c answers from fstat, see the read total)
+  syscalls naming the tracked instruction surfaces:
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/checkout/AGENTS.md", {st_mode=S_IFREG|0664, st_size=56958, ...}, 0) = 0
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/checkout/AGENTS.md", {st_mode=S_IFREG|0664, st_size=56958, ...}, AT_SYMLINK_NOFOLLOW) = 0
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/checkout/AGENTS.md", {st_mode=S_IFREG|0664, st_size=56958, ...}, 0) = 0
+    statx(AT_FDCWD, "/tmp/fm-lab.nUDUZC/checkout/AGENTS.md", AT_STATX_SYNC_AS_STAT|AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT, STATX_SIZE, {stx_mask=ST
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/checkout/CLAUDE.md", {st_mode=S_IFREG|0664, st_size=90, ...}, 0) = 0
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/checkout/CLAUDE.md", {st_mode=S_IFREG|0664, st_size=90, ...}, AT_SYMLINK_NOFOLLOW) = 0
+    newfstatat(AT_FDCWD, "/tmp/fm-lab.nUDUZC/checkout/CLAUDE.md", {st_mode=S_IFREG|0664, st_size=90, ...}, 0) = 0
+    statx(AT_FDCWD, "/tmp/fm-lab.nUDUZC/checkout/CLAUDE.md", AT_STATX_SYNC_AS_STAT|AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT, STATX_SIZE, {stx_mask=ST
+    (no openat at all: byte sizes come from stat)
+  total bytes read(2) by the whole evaluation: 210311
+  largest single read(2): 58021 bytes
+  => a 5.4 MB learnings file is reported as prompt cost without being loaded
+
+## D. an instruction surface swapped for a symlink is flagged, never followed
+  startup-growth: unsafe tracked AGENTS.md; startup memory budget overrun total_estimated_tokens=1800006 budget=7500 owner=bin/fm-startup-memory-budget.sh
+  openat() calls naming the symlink target: 0
+  record row (the retained baseline survives the unsafe state):
+    AGENTS.md	tracked	unsafe	0	56958
+
+### lab home removed: /tmp/fm-lab.nUDUZC

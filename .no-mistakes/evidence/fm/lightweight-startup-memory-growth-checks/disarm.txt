@@ -1,0 +1,14 @@
+# state before disarm
+startup-growth.check-trust
+startup-growth.check.sh
+.startup-growth-check
+startup-growth.check-trust
+startup-growth.check.sh
+
+disarmed: state/startup-growth.check.sh
+
+# state after disarm
+(no startup-growth artifacts remain)
+
+# a later watcher sweep neither dispatches nor rejects anything
+now=21500000 rc=124 wake=Terminated

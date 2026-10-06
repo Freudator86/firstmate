@@ -1,0 +1,16 @@
+# next due day: the sabotaged symlink and the out-of-day growth are both reported
+now=1173000 rc=0 wake=check: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh: startup-growth: unsafe tracked AGENTS.md; memory growth data/learnings.md +1667 estimated_tokens (+5000 bytes, total 5939 bytes)
+
+# agent-facing drain
+1790902535	2	check	/tmp/fm-lab.J6LhXw/state/startup-growth.check.sh	check: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh: startup-growth: unsafe tracked AGENTS.md; memory growth data/learnings.md +1667 estimated_tokens (+5000 bytes, total 5939 bytes)
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 476021.1790902535.iIYFir
+
+# the following day with nothing further changed: standing finding is not repeated
+now=1259500 rc=0 wake=check: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh: startup-growth: unsafe tracked AGENTS.md
+# the reported set changed when the learnings growth was accepted, so the remaining
+# unsafe finding was re-emitted once; with an unchanged set the next two days stay silent
+now=1346000 rc=124 wake=Terminated
+now=1432500 rc=124 wake=Terminated
+
+# reported set on record:
+reported	unsafe tracked AGENTS.md

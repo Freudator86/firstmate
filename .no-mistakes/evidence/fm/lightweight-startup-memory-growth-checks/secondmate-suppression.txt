@@ -1,0 +1,12 @@
+# Shrink learnings back, then let the primary-owned data/captain-shared.md alone
+# blow the 7500-token budget, in a home marked as a secondmate.
+captain-shared.md bytes: 25028
+
+## secondmate home - must stay silent about a file it receives read-only
+now=2038000 rc=124 wake=<silent, watcher kept polling>
+record rows for the shared file (observation still recorded):
+data/captain-shared.md	memory	present	25028	25028
+memory_budget	7500	8359	over-budget	primary-owned-shared-file-alone-exceeds-budget
+
+## same home, secondmate marker removed - a primary reports it
+now=2124500 rc=0 wake=check: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh: startup-growth: startup memory budget overrun total_estimated_tokens=8359 budget=7500 owner=bin/fm-startup-memory-budget.sh

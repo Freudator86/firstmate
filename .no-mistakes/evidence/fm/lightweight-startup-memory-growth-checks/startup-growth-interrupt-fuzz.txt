@@ -1,0 +1,13 @@
+### 150 due evaluations, each killed with SIGTERM after 4-84 ms
+    (an evaluation takes ~110 ms, so many die mid-flight)
+
+  interrupts that landed mid-evaluation : 62
+  evaluations that finished before SIGTERM: 88
+  partial or incomplete records published: 0
+  retained baselines lost without a publish: 0
+  leftover temporary records: 0
+
+### a clean evaluation after all of that still reports the accumulated growth
+  startup-growth: tracked startup surface growth AGENTS.md +2200 bytes (total 52658 bytes)
+
+### lab home removed: /tmp/fm-lab.ncggtF

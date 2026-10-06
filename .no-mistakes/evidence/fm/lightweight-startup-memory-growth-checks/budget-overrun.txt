@@ -1,0 +1,19 @@
+# budget is 7500 estimated tokens; grow the bulk learnings file to ~30 KB
+learnings.md bytes: 29939
+
+# next due day
+now=1865000 rc=0 wake=check: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh: startup-growth: memory growth data/learnings.md +8000 estimated_tokens (+24000 bytes, total 29939 bytes); startup memory budget overrun total_estimated_tokens=10002 budget=7500 owner=bin/fm-startup-memory-budget.sh
+
+# what the supervising agent sees
+1790902670	5	check	/tmp/fm-lab.J6LhXw/state/startup-growth.check.sh	check: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh: startup-growth: memory growth data/learnings.md +8000 estimated_tokens (+24000 bytes, total 29939 bytes); startup memory budget overrun total_estimated_tokens=10002 budget=7500 owner=bin/fm-startup-memory-budget.sh
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 5 --recovery-generation 533617.1790902670.QZtCAb
+
+# the owner's own report for the same home
+estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate
+role=primary
+effective_budget_tokens=7500
+file=data/captain.md bytes=36 estimated_tokens=12 status=present
+file=data/captain-shared.md bytes=28 estimated_tokens=10 status=present
+file=data/learnings.md bytes=29939 estimated_tokens=9980 status=present
+total_estimated_tokens=10002
+budget_status=over-budget

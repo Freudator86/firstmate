@@ -1,0 +1,21 @@
+# re-arm, then prove a due evaluation never writes, merges, or rewrites the watched files
+armed: state/startup-growth.check.sh
+a8261a022bee93b0  data/captain-shared.md  mtime=1790902744
+8c374209c92a42e0  data/captain.md  mtime=1790902316
+302e1a59cb88869c  data/learnings.md  mtime=1790902744
+4071a5bf390aba77  data/projects.md  mtime=1790902316
+bb657da31ca32f3d  data/secondmates.md  mtime=1790902316
+4618c4ee1649d000  root/AGENTS.md  mtime=1790902907
+71e896252aba5d0b  root/CLAUDE.md  mtime=1790902308
+e7c7a2750a8bd7a1  root/bin/fm-bootstrap.sh  mtime=1790902782
+
+## baseline evaluation
+startup-growth: startup memory budget overrun total_estimated_tokens=8359 budget=7500 owner=bin/fm-startup-memory-budget.sh
+## growth evaluation
+startup-growth: memory growth data/learnings.md +1000 estimated_tokens (+3000 bytes, total 3012 bytes); startup memory budget overrun total_estimated_tokens=9359 budget=7500 owner=bin/fm-startup-memory-budget.sh
+
+## diff of digests+mtimes across both evaluations (only my own learnings.md append expected)
+3c3
+< 302e1a59cb88869c  data/learnings.md  mtime=1790902744
+---
+> bb8ac4e3ac0302cc  data/learnings.md  mtime=1790902950

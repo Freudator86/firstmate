@@ -1,0 +1,13 @@
+## a primary home, which owns that file
+  a day later, after the primary added 1200 bytes to data/captain-shared.md:
+    printed: [startup-growth: memory growth data/captain-shared.md +400 estimated_tokens (+1200 bytes, total 1235 bytes)]
+    recorded anyway:
+      data/captain-shared.md	memory	present	1235	1235
+
+## a secondmate home, which cannot edit that file
+  a day later, after the primary added 1200 bytes to data/captain-shared.md:
+    printed: []
+    recorded anyway:
+      data/captain-shared.md	memory	present	1235	1235
+
+### both lab homes removed

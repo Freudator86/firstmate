@@ -1,0 +1,88 @@
+### An operator arms the daily check in their home
+$ FM_HOME=/tmp/fm-lab.ZCB7WS bin/fm-startup-growth-check.sh arm
+armed: state/startup-growth.check.sh
+-rw------- 1 quartermaster quartermaster  84 Oct  6 20:27 /tmp/fm-lab.ZCB7WS/state/startup-growth.check-trust
+-rwx------ 1 quartermaster quartermaster 124 Oct  6 20:27 /tmp/fm-lab.ZCB7WS/state/startup-growth.check.sh
+
+### 1. The first watcher cycle baselines the surfaces silently
+$ fm-watch.sh   # first cycle, nothing known yet
+  (no further output above => the watcher absorbed the cycle and kept polling)
+
+state/.startup-growth-check published by that cycle:
+schema	fm-startup-growth-check-v1
+last_eval	1791318426
+AGENTS.md	tracked	present	47958	47958
+CLAUDE.md	tracked	present	90	90
+bin/fm-session-start.sh	tracked	present	55508	55508
+bin/fm-bootstrap.sh	tracked	present	77824	77824
+bin/fm-supervision-instructions.sh	tracked	present	10437	10437
+data/projects.md	printed-memory	present	23	23
+data/secondmates.md	printed-memory	absent	0	-
+data/captain.md	memory	present	33	33
+data/captain-shared.md	memory	absent	0	-
+data/learnings.md	memory	present	51	51
+memory_budget	7500	28	within-budget	
+
+### 2. The operator appends 2500 bytes to AGENTS.md and 900 bytes of learnings,
+###    then the watcher polls again the same day
+50458 /tmp/fm-lab.ZCB7WS/checkout/AGENTS.md
+  951 /tmp/fm-lab.ZCB7WS/data/learnings.md
+51409 total
+$ fm-watch.sh   # same day as the last evaluation
+  (no further output above => the watcher absorbed the cycle and kept polling)
+
+last_eval is untouched, so the day's evaluation was not repeated:
+last_eval	1791318426
+
+### 3. A day later the same growth surfaces as an actionable watcher wake
+$ fm-watch.sh   # a day later (clock advanced to 1791404827)
+check: /tmp/fm-lab.ZCB7WS/state/startup-growth.check.sh: startup-growth: tracked startup surface growth AGENTS.md +2500 bytes (total 50458 bytes); memory growth data/learnings.md +300 estimated_tokens (+900 bytes, total 951 bytes)
+  (no further output above => the watcher absorbed the cycle and kept polling)
+
+record after the report (baselines rebased to the reported sizes):
+schema	fm-startup-growth-check-v1
+last_eval	1791404827
+AGENTS.md	tracked	present	50458	50458
+CLAUDE.md	tracked	present	90	90
+bin/fm-session-start.sh	tracked	present	55508	55508
+bin/fm-bootstrap.sh	tracked	present	77824	77824
+bin/fm-supervision-instructions.sh	tracked	present	10437	10437
+data/projects.md	printed-memory	present	23	23
+data/secondmates.md	printed-memory	absent	0	-
+data/captain.md	memory	present	33	33
+data/captain-shared.md	memory	absent	0	-
+data/learnings.md	memory	present	951	951
+memory_budget	7500	328	within-budget	
+reported	tracked startup surface growth AGENTS.md +2500 bytes (total 50458 bytes); memory growth data/learnings.md +300 estimated_tokens (+900 bytes, total 951 bytes)
+
+### 4. The next day, with nothing further changed, the watcher stays silent
+$ fm-watch.sh   # next day, no new growth
+  (no further output above => the watcher absorbed the cycle and kept polling)
+
+last_eval	1791491228
+  (last_eval advanced: the evaluation ran and chose silence)
+
+### 5. The budget owner reports an overrun, and it is always meaningful
+$ fm-watch.sh   # day after the budget was lowered to 100 tokens
+check: /tmp/fm-lab.ZCB7WS/state/startup-growth.check.sh: startup-growth: startup memory budget overrun total_estimated_tokens=328 budget=100 owner=bin/fm-startup-memory-budget.sh
+  (no further output above => the watcher absorbed the cycle and kept polling)
+
+
+### 6. The same overrun the next day is not repeated
+$ fm-watch.sh   # next day, same unchanged overrun
+  (no further output above => the watcher absorbed the cycle and kept polling)
+
+memory_budget	100	328	over-budget	
+reported	startup memory budget overrun total_estimated_tokens=328 budget=100 owner=bin/fm-startup-memory-budget.sh
+
+### 7. disarm retires the check, and the watcher stops dispatching it
+$ FM_HOME=/tmp/fm-lab.ZCB7WS bin/fm-startup-growth-check.sh disarm
+disarmed: state/startup-growth.check.sh
+  no shim, trust binding, or report record remains
+$ fm-watch.sh   # after disarm
+  (no further output above => the watcher absorbed the cycle and kept polling)
+
+  the disarmed check recreated nothing
+
+### lab home torn down
+removed /tmp/fm-lab.ZCB7WS

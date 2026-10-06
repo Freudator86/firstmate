@@ -1,0 +1,4 @@
+-- /tmp/fm-lab.J6LhXw/state/.wake-queue
+1790902380	1	check	/tmp/fm-lab.J6LhXw/state/startup-growth.check.sh	check: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh: startup-growth: tracked startup surface growth AGENTS.md +2500 bytes (total 50458 bytes); memory growth data/learnings.md +300 estimated_tokens (+900 bytes, total 939 bytes)
+-- /tmp/fm-lab.J6LhXw/state/.wake-queue.seq
+1

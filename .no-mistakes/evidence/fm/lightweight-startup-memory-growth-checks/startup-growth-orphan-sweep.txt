@@ -1,0 +1,53 @@
+### yesterday's evaluation, so today's poll is due
+  last_eval	1791228662
+
+## A. scratch files in state/ before the due evaluation
+    17:31:02 .aged-empty-target    
+    17:31:02 .startup-growth-check.aaaaaa    
+    17:31:02 .startup-growth-check.bbbbbb    
+    20:31:02 .startup-growth-check.cccccc    
+    17:31:02 .startup-growth-check.ddddddd    
+    20:31:02 .startup-growth-check.ffffff -> /tmp/fm-lab.nfW5ZJ/state/.aged-empty-target  
+
+## B. the due evaluation runs
+  startup-growth: tracked startup surface growth AGENTS.md +3000 bytes (total 50958 bytes)
+  state/ afterwards:
+    17:31:02 .aged-empty-target    
+    17:31:02 .startup-growth-check.bbbbbb    
+    20:31:02 .startup-growth-check.cccccc    
+    17:31:02 .startup-growth-check.ddddddd    
+    20:31:02 .startup-growth-check.ffffff -> /tmp/fm-lab.nfW5ZJ/state/.aged-empty-target  
+  -> .aaaaaa (aged + empty + its own mint pattern) reclaimed
+  -> .bbbbbb kept: a scratch holding record bytes is never a candidate
+  -> .cccccc kept: minutes old, far inside the one-hour grace (a live sibling)
+  -> .ddddddd kept: not the mint pattern
+  -> .ffffff and its target kept: a symlink is never followed or removed
+  and the evaluation still published its own complete record:
+    schema	fm-startup-growth-check-v1
+    last_eval	1791318662
+    surface rows: 10
+
+## C. a poll inside the same day does no sweeping at all
+  printed: []
+    17:31:02 .aged-empty-target    
+    17:31:02 .startup-growth-check.bbbbbb    
+    20:31:02 .startup-growth-check.cccccc    
+    17:31:02 .startup-growth-check.ddddddd    
+    15:31:02 .startup-growth-check.eeeeee    
+    20:31:02 .startup-growth-check.ffffff -> /tmp/fm-lab.nfW5ZJ/state/.aged-empty-target  
+  -> the aged orphan survives: the sweep lives inside the daily cadence
+
+## D. a genuinely leaked record, produced by racing SIGTERM into the mktemp window
+  SIGTERM landed in the mktemp window on attempt 1
+  leaked: .startup-growth-check.2SWcFc mode=600 bytes=0
+  the record the interrupted evaluation left untouched:
+    schema	fm-startup-growth-check-v1
+    last_eval	1791318662
+  an evaluation whose clock puts the leak inside the grace keeps it:
+    kept .startup-growth-check.2SWcFc
+  the next due evaluation, with the leak two hours old, reclaims it:
+    reclaimed .startup-growth-check.2SWcFc
+    remaining scratch files: 0
+    record still complete: 10 surface rows, first line schema fm-startup-growth-check-v1
+
+### lab home removed: /tmp/fm-lab.nfW5ZJ

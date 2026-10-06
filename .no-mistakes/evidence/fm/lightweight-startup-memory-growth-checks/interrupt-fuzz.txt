@@ -1,0 +1,8 @@
+iter 129: leftover .startup-growth-check.kJsrHL (0 bytes, mode 600)
+iter 189: leftover .startup-growth-check.0gmvOk (0 bytes, mode 600)
+
+iterations=200 completed=13 interrupted=187
+partial_records_published=0  retained_baselines_lost=0  leftover_temp_files=2
+AGENTS.md retained baseline before=50058 after=50058 ; last_eval=19916000
+# after 200 interrupted evaluations, growth against the retained baseline still reports
+now=21400000 rc=0 wake=check: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh: startup-growth: tracked startup surface growth AGENTS.md +2200 bytes (total 52258 bytes); startup memory budget overrun total_estimated_tokens=8359 budget=7500 owner=bin/fm-startup-memory-budget.sh

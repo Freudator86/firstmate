@@ -1,0 +1,14 @@
+535048 <... read resumed>"memory growth data/learnings.md "..., 4096) = 199
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/root/AGENTS.md", {st_mode=S_IFREG|0664, st_size=50058, ...}, 0) = 0
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/root/AGENTS.md", {st_mode=S_IFREG|0664, st_size=50058, ...}, AT_SYMLINK_NOFOLLOW) = 0
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/root/AGENTS.md", {st_mode=S_IFREG|0664, st_size=50058, ...}, 0) = 0
+535061 statx(AT_FDCWD, "/tmp/fm-lab.J6LhXw/root/AGENTS.md", AT_STATX_SYNC_AS_STAT|AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT, STATX_SIZE, {stx_mask=STATX_TYPE|STATX_MODE|STATX_NLINK|STATX_UID|STATX_GID|STATX_ATIME|STATX_INO|STATX_SIZE|STATX_BLOCKS|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0664, stx_size=50058, ...}) = 0
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", {st_mode=S_IFREG|0664, st_size=32939, ...}, 0) = 0
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", {st_mode=S_IFREG|0664, st_size=32939, ...}, AT_SYMLINK_NOFOLLOW) = 0
+535048 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", {st_mode=S_IFREG|0664, st_size=32939, ...}, 0) = 0
+535106 statx(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", AT_STATX_SYNC_AS_STAT|AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT, STATX_SIZE, {stx_mask=STATX_TYPE|STATX_MODE|STATX_NLINK|STATX_UID|STATX_GID|STATX_ATIME|STATX_INO|STATX_SIZE|STATX_BLOCKS|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0664, stx_size=32939, ...}) = 0
+535111 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", {st_mode=S_IFREG|0664, st_size=32939, ...}, 0) = 0
+535111 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", {st_mode=S_IFREG|0664, st_size=32939, ...}, AT_SYMLINK_NOFOLLOW) = 0
+535111 newfstatat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", {st_mode=S_IFREG|0664, st_size=32939, ...}, 0) = 0
+535130 openat(AT_FDCWD, "/tmp/fm-lab.J6LhXw/data/learnings.md", O_RDONLY) = 3
+535048 <... read resumed>"file=data/learnings.md bytes=329"..., 4096) = 73

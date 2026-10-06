@@ -1,0 +1,15 @@
+# lab state before the same-day sweep
+AGENTS.md: lrwxrwxrwx 1 quartermaster quartermaster 14 Oct  2 00:53 /tmp/fm-lab.J6LhXw/root/AGENTS.md -> /no/such/place
+learnings.md bytes: 5939 (recorded baseline 939)
+record last_eval: last_eval	1086500
+
+# three consecutive watcher sweeps inside the same day
+now=1086610 rc=124 wake=<silent, watcher kept polling>
+now=1086620 rc=124 wake=Terminated
+now=1086630 rc=124 wake=Terminated
+
+# record afterwards
+last_eval	1086500
+AGENTS.md	tracked	present	50458	50458
+data/learnings.md	memory	present	939	939
+reported	tracked startup surface growth AGENTS.md +2500 bytes (total 50458 bytes); memory growth data/learnings.md +300 estimated_tokens (+900 bytes, total 939 bytes)

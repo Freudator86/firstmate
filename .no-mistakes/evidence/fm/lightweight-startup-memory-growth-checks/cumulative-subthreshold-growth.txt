@@ -1,0 +1,8 @@
+# AGENTS.md restored as a regular file; the unsafe finding clears silently
+now=1519000 rc=124 wake=Terminated
+recorded baseline: AGENTS.md	tracked	present	47958	47958
+
+# adversarial: sneak 700 bytes a day into AGENTS.md, under the 2048-byte daily threshold
+day 1 (AGENTS.md now 48658 bytes): now=1605500 rc=124 wake=Terminated
+day 2 (AGENTS.md now 49358 bytes): now=1692000 rc=124 wake=Terminated
+day 3 (AGENTS.md now 50058 bytes): now=1778500 rc=0 wake=check: /tmp/fm-lab.J6LhXw/state/startup-growth.check.sh: startup-growth: tracked startup surface growth AGENTS.md +2100 bytes (total 50058 bytes)
