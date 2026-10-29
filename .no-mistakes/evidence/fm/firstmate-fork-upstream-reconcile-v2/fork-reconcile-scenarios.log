@@ -1,0 +1,53 @@
+Live scenario evidence: fm/firstmate-fork-upstream-reconcile-v2
+Driven by directly invoking the real bin/fm-claude-auth.sh, bin/fm-spawn.sh,
+bin/fm-control.sh, bin/fm-dispatch-resolve.sh against isolated fixture homes
+(tests/*.test.sh), with only the external vendor `claude` CLI faked via PATH.
+Ambient FM_HOME/FM_CONFIG_OVERRIDE/FM_ROOT_OVERRIDE (this gate shell's own
+fleet-path env) were unset for these runs so fixtures resolve inside their own
+tmp homes instead of the operator's real firstmate home.
+
+== Named Claude capacity pool auth preflight (bin/fm-claude-auth.sh) ==
+tests/fm-claude-auth.test.sh  exit=0  (14/14 assertions ok)
+ok - fm-claude-auth: authenticated named Claude profile proceeds without printing secrets
+ok - fm-claude-auth: unauthenticated named profile is rejected
+ok - fm-claude-auth: named profile that has not finished first-run onboarding is rejected
+ok - fm-claude-auth: setup tokens authenticate by effect, prepare onboarding and launch without ambient credentials
+ok - fm-claude-auth: rejected token is not rescued by ambient login; run rereads rotation
+ok - fm-claude-auth: token files require private permissions, literal assignment, and no symlink
+ok - fm-claude-auth: named pools cannot override a declared home-wide pin
+
+== Named pool wired through spawn (bin/fm-spawn.sh) ==
+tests/fm-spawn-dispatch-profile.test.sh  exit=0  (total=1 failed=0)
+ok - claude spawn refuses an unauthenticated named profile before endpoint launch
+ok - claude spawn refuses a logged-in named profile whose first-run onboarding is incomplete
+ok - claude pins the checked named profile without broadening bypass permissions
+ok - claude pins the checked named profile without broadening auto permissions
+ok - a pools-only Claude profile config keeps serving spawns that name no profile
+ok - batch dispatch forwards shared --harness, --model, --effort, and --claude-profile to every pair
+
+== Relaunch pre-stop checks keep the recorded pool (bin/fm-control.sh) ==
+tests/fm-control-relaunch.test.sh  exit=0  (all assertions ok)
+ok - fm-control relaunch: the recorded Claude capacity pool survives a relaunch that names none
+ok - fm-control relaunch: an unavailable Claude pool refuses before the agent is stopped and stays recoverable
+ok - fm-control relaunch: named pools retain upstream pre-stop tool-exclusion checks
+ok - fm-control relaunch: an unconfigured Claude pool refuses with the per-home configuration requirement
+ok - fm-control relaunch: a Claude capacity pool does not survive a switch away from claude
+
+== T3 backend refuses named pools before any mutation ==
+tests/fm-backend-t3code.test.sh  exit=0  (96/96 assertions ok)
+ok - fm-spawn.sh --backend t3code: refuses named Claude pools rather than using the provider account
+
+== Dispatch resolution threads claude_profile without coupling to auth probing ==
+tests/fm-dispatch-resolve.test.sh  exit=0  (all assertions ok)
+ok - Claude profile ids are forwarded without coupling dispatch to auth probing
+
+== Host-local secondmate steering inbox / remote routing boundary (now upstream-owned) ==
+tests/fm-remote-secondmate-trace-context.test.sh  exit=0  (7/7 assertions ok)
+tests/fm-secondmate-harness.test.sh  exit=0  (all assertions ok)
+ok - claude secondmate launches cover the parent-home steering inbox in auto and bypass modes
+ok - B12d claude-profiles.json is per-home configuration and is never inherited
+ok - profile: a remote-routed second mate refuses a local Claude profile before any remote work
+ok - boundary: each remote-routed second mate roots its own trace and never adopts the spawning environment's carrier
+
+== Vendor auth probe backing fm-claude-auth (bin/fm-vendor-auth-probe.sh claude) ==
+tests/fm-vendor-auth-probe.test.sh  exit=0  (17/17 assertions ok)
