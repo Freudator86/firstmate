@@ -7,7 +7,9 @@
 #   fm-supervision-host.sh park [--restart]
 #
 # A primary's arm owner runs this in place of bin/fm-watch-arm.sh when the home
-# opted in (config/supervision-host): the Claude Stop auto-arm
+# runs the host (by default on Claude, by config/supervision-host elsewhere,
+# never with config/supervision-host-off; docs/configuration.md "Supervision
+# host"): the Claude Stop auto-arm
 # (bin/fm-claude-stop-autoarm.sh), the Cursor stop-hook park
 # (bin/fm-turnend-guard-cursor.sh), the OpenCode TUI plugin
 # (.opencode/plugins/fm-primary-watch-arm.js), the omp watch extension
@@ -35,8 +37,10 @@
 #
 # THE LOOP. It owns watcher cycles through bin/fm-watch-arm.sh. The posture is
 # the away-posture record state/.afk-contract, read at every close and again
-# when a turn starts. On each actionable close:
-#   - attended (no record): the close reaches main exactly as the arm printed
+# when a turn starts: only an away record is away, and no record or quiet
+# mode's record (fm_afk_contract_away_present, bin/fm-afk-contract.sh AWAY OR
+# QUIET) is a present captain. On each actionable close:
+#   - attended (no away record): the close reaches main exactly as the arm printed
 #     it, as without the host, unless the supervision session may take it: the
 #     home names a usable engine, its turns have every tool they need, this
 #     primary has a verified dialog mirror (bin/fm-host-mirror.sh verified;
@@ -48,9 +52,15 @@
 #     that is unsafe or holds nothing for the branch) stay main's. That
 #     pass-through starts the successor watcher cycle and leaves it running
 #     before the close is printed, so supervision continues when the session
-#     drops the handoff. The watcher singleton lock makes the session's next
-#     arm attach to that cycle instead of starting a second one;
-#   - away (the record exists): every close goes to the engine.
+#     drops the handoff. It confirms no handling handoff and republishes the
+#     recovery marker as downtime, even over handling an earlier engine turn
+#     left, so the re-arm owner delivers the close to main; a failed publish
+#     prints a watcher FAILED line instead of the close. The host records that successor's arm before relinquishing it
+#     (detach_successor owns the persistence check and failure path). The
+#     session's next park without --restart requests a take-over of its cycle
+#     rather than an ordinary attach; bin/fm-watch-arm.sh's --take-over header owns the
+#     conditions under which that restores a single owner and the fallback;
+#   - away (an away record exists): every close goes to the engine.
 # Every turn that starts attended meets that rule again at its start, so a
 # close accepted away whose turn starts attended (the captain returned in
 # between) or an attended close whose task turned main-only while the
@@ -67,8 +77,11 @@
 # releases the branch's leases and grant, and counts the wake handled only
 # when that turn exited cleanly, recorded a durable report
 # (bin/fm-branch-report.sh), and left none of its granted rows in the wake
-# queue. A handled wake with only routine outcomes never wakes
-# main, and neither does any handled wake while away: captain outcomes wait in
+# queue. Before parking after a handled turn, it settles the successor handoff;
+# docs/watcher-continuity.md "Durable queue and turn-end backstop" owns how
+# that transition makes rows still queued for main recoverable. A handled wake
+# with only routine outcomes never wakes main, and neither does any handled
+# wake while away: captain outcomes wait in
 # the outcome store for the return drain's BRANCH OUTCOMES section. A handled
 # attended wake that recorded a captain outcome exits with one "supervision-host: branch-outcome:"
 # line naming its store rows, without the close it handled; main drains, where
@@ -82,13 +95,21 @@
 # that recorded visible outcomes, handled or not, the return brief was rendered
 # before they existed, so the host exits with the close, one "supervision-host:"
 # line naming them, and one line per visible outcome, for main to relay. The
-# host injects nothing and has no delivery path of its own; the owner's
-# existing wake path is the only way main hears from it, and its fallback is
+# default host injects nothing and has no delivery path of its own; the owner's
+# existing wake path delivers it, unless ACKNOWLEDGED HAND-BACK below adds
+# retries through its detached owner. The default fallback is
 # always to exit with the close's own reason line. That handoff is only a
 # prompt: each non-silent outcome recorded after the return is already a
 # durable queued wake
 # (bin/fm-branch-report.sh), so it still reaches main when the host dies at the
 # turn's end or its owner drops the handoff, as a superseded Cursor park does.
+#
+# ACKNOWLEDGED HAND-BACK (Claude only, config/supervision-handoff-ack).
+# With that opt-in, every main hand-back first queues a token-bound check and
+# verifies a detached bin/fm-supervision-handoff.sh owner. That owner keeps
+# replacing closed arms until main acknowledges the check, and leaves its
+# verified arm for the next park to take over. Its header owns retry delivery
+# and limits. Without the flag all hand-back paths below are unchanged.
 #
 # THE LATCH. An opted-in host persists engine health across short-lived
 # parks; docs/supervision-host.md "The broken-session latch" owns the policy.
@@ -126,7 +147,12 @@
 # left running (recorded with identities, never by name), including the
 # engine descendants its turn recorded, removes that turn's files, and
 # releases the branch actor's leases; it releases them again after every
-# engine turn.
+# engine turn. It also reads the record of a successor a pass-through left for
+# main: while that arm still runs under its recorded identity, the first cycle
+# without --restart requests a take-over rather than an ordinary attach.
+# Activation removes the
+# record only once that identity is no longer alive, so a later host retries a
+# take-over that left it running.
 #
 # STATE (all under state/, owned here): .supervision-host (this host's pid and
 # the processes it runs), .supervision-host-engine (the engine conversation:
@@ -135,7 +161,9 @@
 # report scope and the reports it recorded), .supervision-host-prompt and
 # .supervision-host-wake (the prompt and wake text of the current turn),
 # .supervision-host-mirror (the dialog-mirror feed while an attended wake is
-# rendered),
+# rendered), .supervision-host-left (the pid and identity of the successor arm a
+# pass-through or the acknowledged hand-back owner left running for main, until
+# that arm is gone),
 # .supervision-host-health (the latch: errors, cooldown, and probe time, keyed
 # to the main session, engine, and model), and .supervision-host.log (a bounded
 # ledger of where every close went, with each engine turn's usage and
@@ -149,10 +177,15 @@
 # a new engine conversation after this many turns; every main session start
 # also opens a new one), FM_SUPERVISION_HOST_READY_TIMEOUT (25: how long a
 # successor cycle may take to verify), FM_SUPERVISION_HOST_POLL (1).
+# Park duration uses Bash's process-relative SECONDS counter (including Bash
+# 3.2), while durable timestamps still use epoch time. This is not a portable
+# monotonic-clock guarantee. Arm exit probes use ordinary 0.5-second child
+# sleeps within the unchanged POLL-cadence maintenance and boundary checks;
+# close observation and a shell-only caught signal may wait that interval plus
+# work/scheduling time. No stop-signal disposition or cleanup bound changes.
 # FM_TEST_SUPERVISION_HOST_CLOCK names a file holding the park's elapsed
-# seconds, which the park and turn boundary checks read in place of the wall
-# clock only when FM_TEST_SEAM=1; tests/lib.sh arms the marker for isolated
-# suites.
+# seconds, which the park and turn boundary checks read in place of SECONDS
+# only when FM_TEST_SEAM=1; tests/lib.sh arms the marker for isolated suites.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -169,6 +202,14 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-supervision-engine-lib.sh
 . "$SCRIPT_DIR/fm-supervision-engine-lib.sh"
+# shellcheck source=bin/fm-afk-contract.sh
+. "$SCRIPT_DIR/fm-afk-contract.sh"
+# shellcheck source=bin/fm-backend.sh
+. "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-supervisor-target-lib.sh
+. "$SCRIPT_DIR/fm-supervisor-target-lib.sh"
+# shellcheck source=bin/fm-warm-compact-lib.sh
+. "$SCRIPT_DIR/fm-warm-compact-lib.sh"
 
 FIRST_ARM_RESTART=0
 case "${1:-}" in
@@ -197,12 +238,13 @@ TURN_TIMEOUT=$(numeric_or "${FM_SUPERVISION_HOST_TURN_TIMEOUT:-}" 1200)
 ROTATE_TURNS=$(numeric_or "${FM_SUPERVISION_HOST_ROTATE_TURNS:-}" 20)
 READY_TIMEOUT=$(numeric_or "${FM_SUPERVISION_HOST_READY_TIMEOUT:-}" 25)
 POLL=$(numeric_or "${FM_SUPERVISION_HOST_POLL:-}" 1)
-COOLDOWN=300
+WARM_COMPACT_TICK=$(numeric_or "${FM_WARM_COMPACT_TICK:-}" 60)
+COOLDOWN=$FM_SUPERVISION_HOST_COOLDOWN
 COOLDOWN_MAX=3600
 AUTOARM_GEN=${FM_SUPERVISION_HOST_AUTOARM_GEN:-}
 AUTOARM_OWNER=${FM_SUPERVISION_HOST_OWNER_PID:-}
 PRIMARY=${FM_SUPERVISION_HOST_PRIMARY:-}
-[ -n "$PRIMARY" ] || PRIMARY=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
+[ -n "$PRIMARY" ] || PRIMARY=$(fm_supervision_host_primary)
 # The owner's predecessor arm belongs to the first cycle only.
 OWNER_PREDECESSOR=${FM_WATCH_PREDECESSOR_ARM_PID:-}
 case "$OWNER_PREDECESSOR" in *[!0-9]*) OWNER_PREDECESSOR= ;; esac
@@ -218,8 +260,10 @@ HOST_LOG="$STATE/.supervision-host.log"
 ENGINE_PID_FILE="$STATE/.supervision-host.engine-pid"
 HEALTH_FILE="$STATE/.supervision-host-health"
 MIRROR_FEED="$STATE/.supervision-host-mirror"
+LEFT_RECORD="$STATE/.supervision-host-left"
 
 HOST_PID=$$
+HOST_STARTED_SECONDS=$SECONDS
 HOST_STARTED=$(date +%s)
 GEN="host-$HOST_PID-$HOST_STARTED"
 TURN_SEQ=0
@@ -237,7 +281,12 @@ HANDLE_RC=0
 ENGINE_SUBSHELL=
 SUCCESSOR_PID=
 SUCCESSOR_OUT=
+SUCCESSOR_WATCHER=
+SUCCESSOR_GENERATION=
 ENGINE_RUNNING=0
+# The successor arm a predecessor's pass-through left for main, which the
+# first cycle takes over.
+LEFT_ARM=
 # The running turn's result and diagnostics files, removed by the cleanup when
 # the host is stopped mid-turn.
 TURN_RESULT=
@@ -329,6 +378,11 @@ activate() {
       stop_recorded "$pid" "$identity" $((ENGINE_GRACE + 20))
     done < "$HOST_RECORD"
   fi
+  if [ -f "$STATE/.supervision-handoff-owner" ]; then
+    IFS="$(printf '\t')" read -r pid identity < "$STATE/.supervision-handoff-owner" || return 1
+    stop_recorded "$pid" "$identity" 10
+    fm_pid_alive "$pid" && [ "$(identity_of "$pid")" = "$identity" ] && return 1
+  fi
   if [ -f "$ENGINE_PID_FILE" ]; then
     IFS="$(printf '\t')" read -r pid identity < "$ENGINE_PID_FILE" || true
     stop_recorded "${pid:-}" "${identity:-}" $((ENGINE_GRACE + 5))
@@ -346,8 +400,20 @@ activate() {
     case "$ledger" in *.pids|*.next) continue ;; esac
     [ -f "$ledger" ] && _fm_engine_reap "$ledger"
   done
-  rm -f "$STATE"/.supervision-host-arm.* "$STATE"/.supervision-host-descendants.* "$STATE"/.supervision-host-result.* \
+  rm -f "$STATE"/.supervision-host-arm.* "$STATE"/.supervision-host-warm.* "$STATE"/.supervision-host-descendants.* "$STATE"/.supervision-host-result.* \
     "$STATE"/.supervision-host-errors.* "$STATE"/.supervision-host-readback.* "$TURN_FILE" "$MIRROR_FEED" 2>/dev/null || true
+  # The successor a pass-through left for main: the first cycle takes it over
+  # while it still answers to its recorded identity, and its record goes only
+  # once it does not.
+  if [ -f "$LEFT_RECORD" ]; then
+    pid='' identity=''
+    IFS="$(printf '\t')" read -r pid identity < "$LEFT_RECORD" || true
+    if fm_pid_alive "$pid" && [ -n "$identity" ] && [ "$(identity_of "$pid")" = "$identity" ]; then
+      LEFT_ARM=$pid
+    else
+      rm -f "$LEFT_RECORD"
+    fi
+  fi
   printf 'host\t%s\t%s\n' "$HOST_PID" "$(identity_of "$HOST_PID")" > "$HOST_RECORD" || return 1
   release_branch_leases
 }
@@ -374,6 +440,11 @@ stop_engine_turn() {
 cleanup() {
   local rc=$? f
   trap - EXIT HUP TERM INT
+  # A signal can land inside the handled-turn settle, which holds the queue and
+  # marker locks; the grant release below needs the queue lock, so drop any of
+  # them this process still owns first (fm_lock_release ignores foreign owners).
+  fm_lock_release "$STATE/.watcher-down.lock" 2>/dev/null || true
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK" 2>/dev/null || true
   if [ "$ENGINE_RUNNING" -eq 1 ]; then
     stop_engine_turn
   fi
@@ -423,39 +494,49 @@ start_arm() {  # <predecessor-arm-pid or empty> [--restart]; sets the started pi
   local predecessor=$1 out pid
   shift
   out=$(mktemp "$STATE/.supervision-host-arm.XXXXXX") || return 1
+  # An arm left for main outlives this host, and Claude tears the hook's
+  # process group down after the exit-2 rewake, so it gets a group of its own
+  # (the shape start_handling_successor in bin/fm-claude-stop-autoarm.sh uses).
+  [ "${ARM_OWN_GROUP:-0}" -ne 1 ] || set -m 2>/dev/null || true
   if [ -n "$predecessor" ]; then
-    FM_WATCH_PREDECESSOR_ARM_PID=$predecessor FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" "$@" >"$out" 2>&1 &
+    FM_WATCH_PREDECESSOR_ARM_PID=$predecessor FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" "$@" >"$out" 2>&1 </dev/null &
   else
-    FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" "$@" >"$out" 2>&1 &
+    FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" "$@" >"$out" 2>&1 </dev/null &
   fi
   pid=$!
+  [ "${ARM_OWN_GROUP:-0}" -ne 1 ] || set +m 2>/dev/null || true
   record_process arm "$pid"
   STARTED_ARM_PID=$pid
   STARTED_ARM_OUT=$out
 }
 
-park_elapsed() {
+park_elapsed() {  # Sets PARK_ELAPSED without a production clock/helper fork.
   if [ "${FM_TEST_SEAM:-}" = 1 ] && [ -n "${FM_TEST_SUPERVISION_HOST_CLOCK:-}" ]; then
-    numeric_or "$(cat "$FM_TEST_SUPERVISION_HOST_CLOCK" 2>/dev/null)" 0
+    PARK_ELAPSED=$(numeric_or "$(cat "$FM_TEST_SUPERVISION_HOST_CLOCK" 2>/dev/null)" 0)
     return
   fi
-  printf '%s\n' $(( $(date +%s) - HOST_STARTED ))
+  PARK_ELAPSED=$((SECONDS - HOST_STARTED_SECONDS))
 }
 
 boundary_reached() {
-  [ "$(park_elapsed)" -ge "$PARK_SECONDS" ]
+  park_elapsed
+  [ "$PARK_ELAPSED" -ge "$PARK_SECONDS" ]
 }
 
 # True when an engine turn started now could still be running at the turn
 # limit (the boundary unless the owner set a later one).
 turn_crosses_boundary() {
-  [ $(( $(park_elapsed) + TURN_TIMEOUT + ENGINE_GRACE )) -ge "$PARK_LIMIT" ]
+  park_elapsed
+  [ $((PARK_ELAPSED + TURN_TIMEOUT + ENGINE_GRACE)) -ge "$PARK_LIMIT" ]
 }
 
 # End the park at the boundary: stop the current and successor arms and this
 # home's watcher, print any close already read so main drains it, then the
 # boundary line.
 boundary_exit() {
+  park_elapsed
+  log_line "boundary	after ${PARK_ELAPSED}s"
+  acknowledged_handback 'supervision-host: cycle boundary - the host ended its park at its bound; drain, acknowledge, and end the turn'
   retire_arm "$ARM_PID" "$ARM_OUT"
   retire_arm "$SUCCESSOR_PID" "$SUCCESSOR_OUT"
   ARM_PID=
@@ -463,7 +544,6 @@ boundary_exit() {
   SUCCESSOR_PID=
   SUCCESSOR_OUT=
   "$SCRIPT_DIR/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
-  log_line "boundary	after $(park_elapsed)s"
   emit 'supervision-host: cycle boundary - the host ended its park at its bound; drain, acknowledge, and end the turn, and the next park starts on its own'
   exit 0
 }
@@ -480,14 +560,102 @@ stream_ready_line() {
   READY_PENDING=0
 }
 
+# Warm-cache compaction (bin/fm-warm-compact-lib.sh owns the gate and the
+# guards). The park is the primary's idle episode: the owner starts the host at
+# the primary's turn end and the host exits when main is needed. The engine
+# conversation's episode is the time since its last handled turn. Each is
+# compacted at most once per episode, and neither result reaches the close.
+WARM_COMPACT_LAST_TICK=-1
+WARM_COMPACT_PRIMARY_DONE=0
+WARM_COMPACT_VERDICT=
+
+warm_compact_tick() {
+  local backend target verdict ended compacted
+  [ -f "$CONFIG/warm-compact" ] || return 0
+  park_elapsed
+  if [ "$WARM_COMPACT_LAST_TICK" -ge 0 ] && [ $((PARK_ELAPSED - WARM_COMPACT_LAST_TICK)) -lt "$WARM_COMPACT_TICK" ]; then
+    return 0
+  fi
+  WARM_COMPACT_LAST_TICK=$PARK_ELAPSED
+  turn_crosses_boundary && return 0
+  if [ "$PRIMARY" = claude ] && [ "$WARM_COMPACT_PRIMARY_DONE" -eq 0 ] && [ -n "${FM_WARM_COMPACT_TRANSCRIPT:-}" ] \
+    && target=$(discover_supervisor_target) && backend=$(discover_supervisor_backend); then
+    verdict=$(fm_warm_compact_primary "$CONFIG" "$backend" "$target" "$PARK_ELAPSED" "$FM_WARM_COMPACT_TRANSCRIPT" 0)
+    case "$verdict" in sent | failed) WARM_COMPACT_PRIMARY_DONE=1; log_line "warm-compact	primary	$verdict" ;; esac
+  fi
+  if fm_supervision_host_config "$CONFIG" "$PRIMARY" && [ -n "$FM_SUPERVISION_ENGINE" ] && engine_record_resumable; then
+    ended=$(numeric_or "$(sed -n 's/^ended=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)" 0)
+    [ "$ended" -gt 0 ] || return 0
+    compacted=0
+    [ "$(sed -n 's/^compacted=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)" != "$ended" ] || compacted=1
+    run_warm_compact_engine $(($(date +%s) - ended)) "$RECORD_SESSION" "$compacted"
+    case "$WARM_COMPACT_VERDICT" in
+      compacted | failed)
+        mark_engine_compacted "$ended"
+        log_line "warm-compact	engine	$WARM_COMPACT_VERDICT"
+        ;;
+    esac
+  fi
+}
+
+# Run the engine compaction as a bounded background turn the cleanup can stop,
+# and abandon it the moment the arm closes or the park boundary arrives, so a
+# real wake never waits behind it. Sets WARM_COMPACT_VERDICT, empty when abandoned.
+run_warm_compact_engine() {  # <idle-seconds> <session> <compacted 0|1>
+  local verdict_file abandoned=0
+  WARM_COMPACT_VERDICT=
+  verdict_file=$(mktemp "$STATE/.supervision-host-warm.verdict.XXXXXX") || return 0
+  ENGINE_RUNNING=1
+  (
+    export FM_HOME STATE
+    [ -z "${FM_STATE_OVERRIDE:-}" ] || export FM_STATE_OVERRIDE
+    [ -z "${FM_CONFIG_OVERRIDE:-}" ] || export FM_CONFIG_OVERRIDE
+    fm_warm_compact_engine "$CONFIG" "$1" "$2" "$FM_SUPERVISION_ENGINE" "$FM_SUPERVISION_ENGINE_MODEL" \
+      "$PROMPT_FILE" "$3" "$ENGINE_PID_FILE" > "$verdict_file"
+  ) &
+  ENGINE_SUBSHELL=$!
+  while fm_pid_alive "$ENGINE_SUBSHELL"; do
+    if ! fm_pid_alive "$ARM_PID" || boundary_reached; then
+      abandoned=1
+      stop_engine_turn
+      break
+    fi
+    sleep 0.5
+  done
+  wait "$ENGINE_SUBSHELL" 2>/dev/null || true
+  ENGINE_SUBSHELL=
+  ENGINE_RUNNING=0
+  rm -f "$ENGINE_PID_FILE"
+  [ "$abandoned" -eq 1 ] || WARM_COMPACT_VERDICT=$(cat "$verdict_file" 2>/dev/null || true)
+  rm -f "$verdict_file"
+}
+
+mark_engine_compacted() {  # <ended>
+  local tmp
+  tmp=$(mktemp "$ENGINE_RECORD.tmp.XXXXXX") || return 0
+  if { grep -v '^compacted=' "$ENGINE_RECORD"; printf 'compacted=%s\n' "$1"; } > "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$ENGINE_RECORD" || rm -f "$tmp"
+  else
+    rm -f "$tmp"
+  fi
+}
+
 # Wait for the current arm to close. Returns 0 with ARM_TEXT set,
 # or 1 when the park boundary arrives first.
 await_close() {
+  local i
   while fm_pid_alive "$ARM_PID"; do
     refresh_process "$ARM_PID"
     [ "$READY_PENDING" -eq 0 ] || stream_ready_line
     boundary_reached && return 1
-    sleep "$POLL"
+    warm_compact_tick
+    # Probe the arm's exit twice a second between POLL-cadence checks, without
+    # changing the outer identity refresh, readiness, or boundary cadence.
+    i=$((POLL * 2))
+    while [ "$i" -gt 0 ] && fm_pid_alive "$ARM_PID"; do
+      sleep 0.5
+      i=$((i - 1))
+    done
   done
   wait "$ARM_PID" 2>/dev/null || true
   ARM_TEXT=$(cat "$ARM_OUT" 2>/dev/null || true)
@@ -529,10 +697,62 @@ retire_successor() {
 # Hand the close to main: stop the successor cycle, print the close, why, and
 # any further "supervision-host:" lines, and exit.
 exit_to_main() {  # <why> [further lines]
+  acknowledged_handback "supervision-host: $1" "${2:-}"
+  local lines=${2:-} rc=0
   retire_successor
+  if [ -n "$SUCCESSOR_GENERATION" ] \
+    && ! fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1; then
+    log_line "to-main	downtime-unrestored	$1"
+    lines=${lines:+$lines$'\n'}"supervision-host: watcher downtime could not be restored for the main hand-back"
+    rc=1
+  fi
   log_line "to-main	$1"
-  emit "supervision-host: $1" "${2:-}"
-  exit 0
+  emit "supervision-host: $1" "$lines"
+  exit "$rc"
+}
+
+# The opt-in path never changes the default hand-back paths. It must verify
+# protection before emitting the close, not assume a detached process started.
+acknowledged_handback() {  # [extra output lines]; returns only when disabled
+  [ "$PRIMARY" = claude ] && [ -e "$CONFIG/supervision-handoff-ack" ] || return 1
+  host_still_owner || stand_down "this session no longer owns supervision"
+  local predecessor=${SUCCESSOR_PID:-${ARM_PID:-${CLOSED_ARM_PID:-$HOST_PID}}} pid out deadline tmp
+  retire_arm "$ARM_PID" "$ARM_OUT"
+  ARM_PID=''
+  ARM_OUT=''
+  retire_successor
+  tmp=$(mktemp "$STATE/.supervision-handoff-pending.XXXXXX") || exit 1
+  printf '%s\n' "$GEN" > "$tmp" && mv -f "$tmp" "$STATE/.supervision-handoff-pending" || exit 1
+  if ! fm_wake_append check "supervision-handoff:$GEN" \
+    "check: supervision-handoff - the host handed supervision to main; drain, handle, and acknowledge this hand-back" \
+    || ! fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null; then
+    emit "$@" 'supervision-host: the acknowledged hand-back could not be recorded'
+    exit 1
+  fi
+  out=$(mktemp "$STATE/.supervision-handoff-start.XXXXXX") || exit 1
+  set -m
+  FM_SUPERVISION_HOST_READY_TIMEOUT="$READY_TIMEOUT" \
+    nohup "$SCRIPT_DIR/fm-supervision-handoff.sh" "$GEN" "$predecessor" > "$out" 2>&1 </dev/null &
+  pid=$!
+  set +m
+  record_process handoff "$pid"
+  deadline=$((SECONDS + READY_TIMEOUT))
+  while fm_pid_alive "$pid" && [ "$SECONDS" -lt "$deadline" ]; do
+    if grep -Eq '^watcher: (started|attached) pid=[0-9]+' "$out" \
+      && fm_watcher_healthy "$STATE" "$SCRIPT_DIR/fm-watch.sh" "$GRACE" "$FM_HOME"; then
+      disown "$pid" 2>/dev/null || true
+      forget_process "$pid"
+      rm -f "$out"
+      log_line "handoff	$GEN"
+      emit "$@"
+      exit 0
+    fi
+    sleep 0.2
+  done
+  kill -TERM "$pid" 2>/dev/null || true
+  rm -f "$out"
+  emit "$@" 'supervision-host: the acknowledged hand-back successor could not be verified'
+  exit 1
 }
 
 # The outcome store (bin/fm-branch-outcome.sh) owns and validates these rows.
@@ -548,7 +768,7 @@ returned_during_turn() {
   RETURNED_ROWS=
   RETURNED_SEQS=
   RETURNED_LOOKUP_FAILED=0
-  [ -n "$LAST_TURN" ] && [ "$TURN_POSTURE" = away ] && [ ! -f "$STATE/.afk-contract" ] || return 1
+  [ -n "$LAST_TURN" ] && [ "$TURN_POSTURE" = away ] && ! fm_afk_contract_away_present "$STATE" || return 1
   if ! TURN_RECEIPT_SEQS=$(awk -F '\t' -v turn="$LAST_TURN" \
     '$1 == turn { printf "%s%s", sep, $2; sep = "," }' "$RECEIPTS" 2>/dev/null); then
     RETURNED_LOOKUP_FAILED=1
@@ -613,32 +833,44 @@ start_successor() {  # <predecessor-arm-pid>
   done
 }
 
-# Drop the successor from this host's cleanup without stopping it. The shell
-# signals background jobs when it exits, and this arm's handler would then
-# stop the watcher, so disown it first. The capture file stays tracked so the
-# EXIT trap unlinks it; the arm already holds that descriptor and keeps
-# waiting on the watcher.
+# Record the successor for the next host to take over, then drop it from this
+# host's cleanup without stopping it. A successor whose record does not read
+# back as a regular file holding exactly its pid and identity stays tracked,
+# so the cleanup stops it and main's next turn end arms a fresh cycle; that
+# returns 1. The shell signals background jobs when it exits, and this arm's
+# handler would then stop the watcher, so disown it first. The capture file
+# stays tracked so the EXIT trap unlinks it; the arm already holds that
+# descriptor and keeps waiting on the watcher.
 detach_successor() {
+  local identity tmp=
   [ -n "${SUCCESSOR_PID:-}" ] || return 0
+  identity=$(identity_of "$SUCCESSOR_PID")
+  if [ -z "$identity" ] || ! tmp=$(mktemp "$LEFT_RECORD.tmp.XXXXXX" 2>/dev/null) \
+    || ! printf '%s\t%s\n' "$SUCCESSOR_PID" "$identity" > "$tmp" 2>/dev/null \
+    || ! mv -f "$tmp" "$LEFT_RECORD" 2>/dev/null \
+    || [ -L "$LEFT_RECORD" ] || [ ! -f "$LEFT_RECORD" ] \
+    || [ "$(cat "$LEFT_RECORD" 2>/dev/null)" != "$SUCCESSOR_PID"$'\t'"$identity" ]; then
+    [ -z "$tmp" ] || rm -f "$tmp" "$LEFT_RECORD/${tmp##*/}" 2>/dev/null || true
+    log_line "pass-through	successor-unrecorded	$(printf '%s\n' "$REASON" | head -n 1)"
+    return 1
+  fi
   disown "$SUCCESSOR_PID" 2>/dev/null || true
   forget_process "$SUCCESSOR_PID"
   SUCCESSOR_PID=
 }
 
-# Start the same successor a handled wake starts, confirm its handoff, and
-# leave it running. A failed start or handoff stops anything this call
-# started and returns 1; the caller still prints the close unchanged.
+# Main receives this close only on downtime, even when a preceding engine
+# turn left handling behind (autoarm_commit in bin/fm-claude-stop-autoarm.sh)
+# Return 1 on successor failure, 2 on an undeliverable recovery marker
 leave_successor_for_main() {
-  if ! start_successor "$CLOSED_ARM_PID"; then
+  if ! ARM_OWN_GROUP=1 start_successor "$CLOSED_ARM_PID"; then
     log_line "pass-through	successor-unverified	$(printf '%s\n' "$REASON" | head -n 1)"
     return 1
   fi
-  if [ -n "$SUCCESSOR_GENERATION" ]; then
-    if ! "$SCRIPT_DIR/fm-watch-arm.sh" --handling-delivered "$SUCCESSOR_GENERATION" --watcher-pid "$SUCCESSOR_WATCHER" >/dev/null 2>&1; then
-      log_line "pass-through	handoff-unconfirmed	$(printf '%s\n' "$REASON" | head -n 1)"
-      retire_successor
-      return 1
-    fi
+  if [ -n "$SUCCESSOR_GENERATION" ] \
+    && ! fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1; then
+    log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
+    return 2
   fi
   detach_successor
 }
@@ -646,23 +878,30 @@ leave_successor_for_main() {
 # The engine conversation for this turn: the recorded one while it belongs to
 # this main session and has turns left, otherwise a new one. Sets ENGINE_SESSION
 # and ENGINE_MODE (new|resume).
-choose_conversation() {
-  local key recorded_key recorded_session recorded_engine recorded_model turns
+# Succeed, setting RECORD_KEY, RECORD_SESSION and RECORD_TURNS, when the
+# recorded conversation is one the next turn resumes.
+engine_record_resumable() {
+  local key recorded_engine recorded_model
   key=$(fm_supervision_host_main_key "$STATE") || key=
-  recorded_key=$(sed -n 's/^key=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)
-  recorded_session=$(sed -n 's/^session=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)
+  RECORD_KEY=$key
+  RECORD_SESSION=$(sed -n 's/^session=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)
   recorded_engine=$(sed -n 's/^engine=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)
   recorded_model=$(sed -n 's/^model=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)
-  turns=$(numeric_or "$(sed -n 's/^turns=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)" 0)
-  if [ -n "$key" ] && [ -n "$recorded_session" ] && [ "$recorded_key" = "$key" ] \
+  RECORD_TURNS=$(numeric_or "$(sed -n 's/^turns=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)" 0)
+  [ -n "$key" ] && [ -n "$RECORD_SESSION" ] \
+    && [ "$(sed -n 's/^key=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)" = "$key" ] \
     && [ "$recorded_engine" = "$FM_SUPERVISION_ENGINE" ] \
     && [ "$recorded_model" = "$FM_SUPERVISION_ENGINE_MODEL" ] \
-    && [ "$turns" -lt "$ROTATE_TURNS" ] && [ -s "$PROMPT_FILE" ]; then
-    ENGINE_SESSION=$recorded_session
+    && [ "$RECORD_TURNS" -lt "$ROTATE_TURNS" ] && [ -s "$PROMPT_FILE" ]
+}
+
+choose_conversation() {
+  if engine_record_resumable; then
+    ENGINE_SESSION=$RECORD_SESSION
     ENGINE_MODE=resume
-    ENGINE_TURNS=$turns
+    ENGINE_TURNS=$RECORD_TURNS
     ENGINE_COST=$(sed -n 's/^conversation_cost=//p' "$ENGINE_RECORD" 2>/dev/null | head -n 1)
-    ENGINE_KEY=$key
+    ENGINE_KEY=$RECORD_KEY
     return 0
   fi
   ENGINE_SESSION=$(uuidgen 2>/dev/null | tr '[:upper:]' '[:lower:]')
@@ -673,7 +912,7 @@ choose_conversation() {
   ENGINE_MODE=new
   ENGINE_TURNS=0
   ENGINE_COST=0
-  ENGINE_KEY=$key
+  ENGINE_KEY=$RECORD_KEY
   local tmp
   tmp=$(mktemp "$PROMPT_FILE.tmp.XXXXXX") || return 1
   if ! "$SCRIPT_DIR/fm-branch-prompt.sh" > "$tmp" 2>/dev/null \
@@ -688,8 +927,8 @@ choose_conversation() {
 write_engine_record() {  # <turns> <conversation-cost>
   local tmp
   tmp=$(mktemp "$ENGINE_RECORD.tmp.XXXXXX") || return 1
-  printf 'engine=%s\nmodel=%s\nsession=%s\nkey=%s\nturns=%s\nconversation_cost=%s\n' \
-    "$FM_SUPERVISION_ENGINE" "$FM_SUPERVISION_ENGINE_MODEL" "$ENGINE_SESSION" "$ENGINE_KEY" "$1" "$2" > "$tmp" \
+  printf 'engine=%s\nmodel=%s\nsession=%s\nkey=%s\nturns=%s\nconversation_cost=%s\nended=%s\n' \
+    "$FM_SUPERVISION_ENGINE" "$FM_SUPERVISION_ENGINE_MODEL" "$ENGINE_SESSION" "$ENGINE_KEY" "$1" "$2" "$(date +%s)" > "$tmp" \
     && mv -f "$tmp" "$ENGINE_RECORD"
 }
 
@@ -775,7 +1014,7 @@ handle_wake() {  # <reason-lines>
   ENGINE_ERROR=0
   HEALTH_NOTE=
   TURN_POSTURE=attended
-  [ ! -f "$STATE/.afk-contract" ] || TURN_POSTURE=away
+  ! fm_afk_contract_away_present "$STATE" || TURN_POSTURE=away
   first=$(printf '%s\n' "$reason" | head -n 1)
   if [ "$TURN_POSTURE" = attended ]; then
     attended_acceptor "$first" || return 2
@@ -889,7 +1128,7 @@ handle_wake() {  # <reason-lines>
     [ -z "${FM_STATE_OVERRIDE:-}" ] || export FM_STATE_OVERRIDE
     [ -z "${FM_CONFIG_OVERRIDE:-}" ] || export FM_CONFIG_OVERRIDE
     export FM_SUPERVISION_ACTOR=branch
-    FM_LEASE_HOLDER_PID=$(sed -n '1p' "$STATE/.lock" 2>/dev/null | tr -cd '0-9')
+    FM_LEASE_HOLDER_PID=$(sed -n '1p' "$STATE/.lock" 2>/dev/null)
     export FM_LEASE_HOLDER_PID
     export FM_SUPERVISION_PRIMARY_HARNESS="$PRIMARY"
     export FM_BRANCH_REPORT_TURN="$turn"
@@ -989,6 +1228,9 @@ log_line "start	gen=$GEN	primary=$PRIMARY"
 # The first cycle.
 if [ "$FIRST_ARM_RESTART" -eq 1 ]; then
   start_arm "$OWNER_PREDECESSOR" --restart
+elif [ -n "$LEFT_ARM" ]; then
+  log_line "take-over	arm=$LEFT_ARM"
+  start_arm "$OWNER_PREDECESSOR" --take-over "$LEFT_ARM"
 else
   start_arm "$OWNER_PREDECESSOR"
 fi || { echo "watcher: FAILED - the supervision host could not start a watcher cycle"; exit 1; }
@@ -1016,11 +1258,18 @@ while :; do
   fi
   # Attended: the close reaches main exactly as the plain arm delivers it,
   # unless the supervision session may take it (attended_acceptor).
-  if [ ! -f "$STATE/.afk-contract" ]; then
+  if ! fm_afk_contract_away_present "$STATE"; then
     if ! attended_acceptor "$(printf '%s\n' "$REASON" | head -n 1)"; then
       log_line "pass-through	attended	$ATTENDED_WHY	$(printf '%s\n' "$REASON" | head -n 1)"
+      acknowledged_handback
       if [ "$ATTENDED_WHY" = main-only ]; then
-        leave_successor_for_main || true
+        leave_successor_for_main
+        PASS_THROUGH_RC=$?
+        if [ "$PASS_THROUGH_RC" -eq 2 ]; then
+          # An actionable banner cannot commit while the marker is handling
+          printf 'watcher: FAILED - the main-only hand-back could not restore watcher downtime\n'
+          exit 1
+        fi
       fi
       emit
       exit 0
@@ -1031,7 +1280,7 @@ while :; do
       stand_down "this session no longer owns supervision"
     fi
     if ! fm_supervision_host_config "$CONFIG" "$PRIMARY"; then
-      exit_to_main "the home no longer opts into the supervision host"
+      exit_to_main "the home no longer runs the supervision host"
     fi
     if [ -z "$FM_SUPERVISION_ENGINE" ]; then
       exit_to_main "no supervision engine runs here: $FM_SUPERVISION_ENGINE_PROBLEM; this wake is yours"
@@ -1046,7 +1295,7 @@ while :; do
 
   # A turn that could outlive the boundary would outlive the hook registration.
   turn_crosses_boundary && boundary_exit
-  if ! start_successor "$CLOSED_ARM_PID"; then
+  if ! ARM_OWN_GROUP=1 start_successor "$CLOSED_ARM_PID"; then
     exit_to_main "the successor watcher cycle could not be verified before handling; this wake is yours"
   fi
   if [ -n "$SUCCESSOR_GENERATION" ]; then
@@ -1061,9 +1310,20 @@ while :; do
   HANDLE_RC=$?
   if [ "$HANDLE_RC" -eq 2 ]; then
     log_line "pass-through	attended	$ATTENDED_WHY	$(printf '%s\n' "$REASON" | head -n 1)"
+    acknowledged_handback
     # The successor this turn already started and confirmed stays up. Retiring
     # it is what left no watcher after a close that became main-only.
     detach_successor
+    # Main handles this close after all, so hand back the downtime the handoff
+    # above consumed: the re-arm owner delivers the close only while the
+    # recovery marker reads downtime (leave_successor_for_main). It is handed
+    # back as already announced, so the successor left running does not
+    # resurface the episode this very close delivers.
+    if [ -n "$SUCCESSOR_GENERATION" ] \
+      && ! fm_recovery_marker_handback "$STATE/.watcher-down" >/dev/null 2>&1; then
+      log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
+      exit 1
+    fi
     emit
     exit 0
   fi
@@ -1090,7 +1350,7 @@ while :; do
   # Attended captain outcomes are main's to process; away they wait for the
   # return, including when the captain left while this turn ran. The close
   # itself was handled, so only the host's lines reach main.
-  if [ -n "$LAST_TURN" ] && [ ! -f "$STATE/.afk-contract" ]; then
+  if [ -n "$LAST_TURN" ] && ! fm_afk_contract_away_present "$STATE"; then
     CAPTAIN_SEQS=$(turn_captain_seqs "$LAST_TURN")
     if [ -n "$CAPTAIN_SEQS" ]; then
       ARM_TEXT=
@@ -1100,6 +1360,9 @@ while :; do
   fi
 
   # Handled: park on the successor.
+  if ! fm_recovery_marker_handling_settled "$STATE/.watcher-down"; then
+    log_line "handling-settle-failed	turn=$LAST_TURN	successor=$SUCCESSOR_PID"
+  fi
   ARM_PID=$SUCCESSOR_PID
   ARM_OUT=$SUCCESSOR_OUT
   SUCCESSOR_PID=
